@@ -1,6 +1,5 @@
 #![allow(dead_code)]
 use crate::context::AppContext;
-use base64::{engine::general_purpose, Engine as _};
 use kaspa_addresses::Address;
 use kaspa_rpc_core::api::rpc::RpcApi;
 use reqwest::Client;
@@ -13,15 +12,29 @@ use tokio::sync::Mutex;
 pub struct LocalAiEngine {
     pub client: Client,
     pub api_key: String,
+    pub base_url: String,
+    pub chat_model: String,
+    pub audio_model: String,
 }
 
 impl LocalAiEngine {
     pub fn new() -> anyhow::Result<Self> {
-        tracing::info!("[AI ENGINE] Initializing Cloud Gemini 2.5 Flash Engine with Backoff...");
-        let api_key = std::env::var("GEMINI_API_KEY").unwrap_or_default();
+        tracing::info!("[AI ENGINE] Initializing Universal OpenAI-Standard API Engine...");
+        
+        // 🔑 Configuration (Defaults to Groq's blazing fast API if not specified)
+        let api_key = std::env::var("AI_API_KEY").expect("⚠️ AI_API_KEY is missing in .env");
+        let base_url = std::env::var("AI_BASE_URL").unwrap_or_else(|_| "https://api.groq.com/openai/v1".to_string());
+        let chat_model = std::env::var("AI_CHAT_MODEL").unwrap_or_else(|_| "llama3-8b-8192".to_string());
+        let audio_model = std::env::var("AI_AUDIO_MODEL").unwrap_or_else(|_| "whisper-large-v3".to_string());
+
+        tracing::info!("[AI ENGINE] Target: {} | Model: {}", base_url, chat_model);
+
         Ok(Self {
             client: Client::new(),
             api_key,
+            base_url,
+            chat_model,
+            audio_model,
         })
     }
 
@@ -31,7 +44,43 @@ impl LocalAiEngine {
         live_context: &str,
         audio_bytes: Option<Vec<u8>>,
     ) -> anyhow::Result<String> {
-        let rag_context = crate::rag::search_kaspa_docs(prompt).await;
+        let mut final_prompt = prompt.to_string();
+
+        // 🎙️ STEP 1: Handle Audio via Standard Transcription Endpoint
+        if let Some(bytes) = audio_bytes {
+            tracing::info!("[AI ENGINE] Transcribing audio via {}...", self.audio_model);
+            let url = format!("{}/audio/transcriptions", self.base_url);
+            
+            let part = reqwest::multipart::Part::bytes(bytes)
+                .file_name("audio.ogg")
+                .mime_str("audio/ogg")?;
+            
+            let form = reqwest::multipart::Form::new()
+                .part("file", part)
+                .text("model", self.audio_model.clone());
+
+            let res = self.client.post(&url)
+                .header("Authorization", format!("Bearer {}", self.api_key))
+                .multipart(form)
+                .send()
+                .await?;
+
+            let status = res.status();
+            let json_res: serde_json::Value = res.json().await?;
+
+            if status.is_success() {
+                if let Some(transcription) = json_res["text"].as_str() {
+                    tracing::info!("[AUDIO PARSED]: {}", transcription);
+                    final_prompt = format!("{}\n\n[USER AUDIO TRANSCRIPTION]\n\"{}\"", prompt, transcription);
+                }
+            } else {
+                tracing::error!("[AUDIO ERROR] {}: {}", status, json_res);
+                return Err(anyhow::anyhow!("Audio transcription failed. Ensure the provider supports Whisper."));
+            }
+        }
+
+        // 🧠 STEP 2: Standard Chat Completions (RAG + Live Data)
+        let rag_context = crate::rag::search_kaspa_docs(&final_prompt).await;
 
         let system_message = format!(
             "You are an uncompromisingly accurate Kaspa AI Assistant.
@@ -48,31 +97,14 @@ impl LocalAiEngine {
             live_context, rag_context
         );
 
-        let url = format!(
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={}",
-            self.api_key
-        );
-
-        let mut parts = vec![json!({"text": prompt})];
-
-        if let Some(bytes) = audio_bytes {
-            let b64 = general_purpose::STANDARD.encode(&bytes);
-            parts.push(json!({
-                "inline_data": {
-                    "mime_type": "audio/ogg",
-                    "data": b64
-                }
-            }));
-        }
-
+        let url = format!("{}/chat/completions", self.base_url);
         let body = json!({
-            "systemInstruction": {
-                "parts": [{"text": system_message}]
-            },
-            "contents": [{
-                "role": "user",
-                "parts": parts
-            }]
+            "model": self.chat_model,
+            "messages": [
+                {"role": "system", "content": system_message},
+                {"role": "user", "content": final_prompt}
+            ],
+            "temperature": 0.3
         });
 
         // 🔄 Enterprise Retry Logic with Exponential Backoff
@@ -81,41 +113,42 @@ impl LocalAiEngine {
         let mut last_error = String::new();
 
         while attempts < max_attempts {
-            let res = self.client.post(&url).json(&body).send().await?;
+            let res = self.client.post(&url)
+                .header("Authorization", format!("Bearer {}", self.api_key))
+                .json(&body)
+                .send()
+                .await?;
+                
             let status = res.status();
             let json_res: serde_json::Value = res.json().await?;
 
             if status.is_success() {
-                if let Some(text) =
-                    json_res["candidates"][0]["content"]["parts"][0]["text"].as_str()
-                {
+                if let Some(text) = json_res["choices"][0]["message"]["content"].as_str() {
                     return Ok(text.trim().to_string());
                 } else {
-                    tracing::error!("[GEMINI ERROR] Missing text in response: {}", json_res);
-                    return Err(anyhow::anyhow!("Failed to parse Gemini response structure"));
+                    tracing::error!("[API ERROR] Missing text in response: {}", json_res);
+                    return Err(anyhow::anyhow!("Failed to parse standard API response structure"));
                 }
             } else if status.as_u16() == 503 || status.as_u16() == 429 {
                 attempts += 1;
                 tracing::warn!(
-                    "⚠️ [API OVERLOAD] Google Servers busy ({}). Attempt {}/{}...",
-                    status,
-                    attempts,
-                    max_attempts
+                    "⚠️ [API OVERLOAD] Servers busy ({}). Attempt {}/{}...",
+                    status, attempts, max_attempts
                 );
                 tokio::time::sleep(tokio::time::Duration::from_secs(2 * attempts as u64)).await;
                 last_error = json_res.to_string();
                 continue;
             } else {
-                tracing::error!("[GEMINI ERROR] HTTP {}: {}", status, json_res);
+                tracing::error!("[API ERROR] HTTP {}: {}", status, json_res);
                 return Err(anyhow::anyhow!(
                     "API Error {}: {}",
                     status,
-                    json_res["error"]["message"].as_str().unwrap_or("Unknown")
+                    json_res["error"]["message"].as_str().unwrap_or("Unknown error")
                 ));
             }
         }
 
-        Err(anyhow::anyhow!("Google AI servers are currently overloaded. Please try again in a few minutes. (Failed after {} attempts). Details: {}", max_attempts, last_error))
+        Err(anyhow::anyhow!("AI servers are currently overloaded. Details: {}", last_error))
     }
 }
 
@@ -178,7 +211,7 @@ pub async fn process_conversational_intent(
     let initial_msg = bot
         .send_message(
             chat_id,
-            "⏳ <b>Kaspa AI:</b> Analyzing... (Gemini 2.5 Flash)",
+            "⏳ <b>Kaspa AI:</b> Analyzing... (Universal API)",
         )
         .reply_parameters(teloxide::types::ReplyParameters::new(msg_id))
         .parse_mode(teloxide::types::ParseMode::Html)
@@ -256,7 +289,7 @@ pub async fn process_voice_message(bot: Bot, msg: Message, ctx: AppContext) -> a
     let initial_msg = bot
         .send_message(
             chat_id,
-            "⏳ <b>Kaspa AI:</b> Processing Audio with Gemini...",
+            "⏳ <b>Kaspa AI:</b> Processing Audio...",
         )
         .reply_parameters(teloxide::types::ReplyParameters::new(msg.id))
         .parse_mode(teloxide::types::ParseMode::Html)
@@ -271,7 +304,7 @@ pub async fn process_voice_message(bot: Bot, msg: Message, ctx: AppContext) -> a
 
     let response = match engine
         .generate(
-            "Transcribe this audio precisely, then answer any questions asked in it.",
+            "Answer any questions asked in this audio transcript contextually.",
             &live_ctx_data,
             Some(audio_bytes),
         )
