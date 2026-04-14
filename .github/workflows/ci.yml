@@ -1,0 +1,34 @@
+name: Kaspa Pulse Enterprise CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  lint-and-build:
+    name: Code Quality & Build Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 📦 Install Ubuntu System Dependencies
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev cmake build-essential
+
+      - name: 🦀 Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: ✨ Check Formatting (cargo fmt)
+        run: cargo fmt -- --check
+
+      - name: 🛡️ Zero Warnings Audit (cargo clippy)
+        run: cargo clippy -- -D warnings
+
+      - name: ⚙️ Build Production Release
+        run: cargo build --release

@@ -1,0 +1,23 @@
+name: Deep Security Audit 🛡️
+
+on:
+  push:
+    branches: [ "main" ]
+  schedule:
+    - cron: '0 0 * * 0' # Runs every Sunday
+
+jobs:
+  security_audit:
+    name: Dependency Vulnerability Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 🦀 Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 🛠️ Install cargo-audit
+        uses: taiki-e/install-action@cargo-audit
+
+      - name: 🔍 Run Deep Security Scan
+        run: cargo audit
