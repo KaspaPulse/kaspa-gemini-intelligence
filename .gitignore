@@ -1,25 +1,8 @@
-﻿# Compiled Rust output
 /target/
-/logs/
-
-# Environment Variables (CRITICAL SECURITY)
-.env
-
-# Local Databases (Do not push user data)
-wallets.json
-trackers.json
-
-# Temporary Files
-.restart_flag
+/.env
+/*.db
+/*.db-journal
+/*.ogg
+/*.wav
+/data/
 **/*.rs.bk
-*.log
-
-# Enterprise Databases
-enterprise.db
-enterprise.db-journal
-wallets.json.migrated
-check.ps1
-
-# Ignore local SQLite database and WAL files
-enterprise.db*
-
