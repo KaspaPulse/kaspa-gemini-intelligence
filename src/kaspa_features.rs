@@ -1,5 +1,4 @@
-#![allow(dead_code)]
-use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
+﻿use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
 
 pub fn main_menu_markup() -> InlineKeyboardMarkup {
     let row1 = vec![

@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use teloxide::utils::command::BotCommands;
 
 #[derive(BotCommands, Clone, std::fmt::Debug)]
