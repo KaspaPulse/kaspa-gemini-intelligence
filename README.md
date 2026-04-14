@@ -7,89 +7,124 @@
 ![AI-Powered](https://img.shields.io/badge/AI-Gemini%202.5%20Flash-purple.svg?style=flat-square)
 ![Zero-Warnings](https://img.shields.io/badge/Standard-Zero%20Warnings-success.svg?style=flat-square)
 
-**Kaspa Pulse** (formerly Kaspa Solo) is an ultra-high-performance, enterprise-grade Telegram bot engineered entirely in Rust. Designed specifically for **Kaspa Solo Miners** and **Full Node Operators**, it delivers cryptographic precision, zero-latency notifications, and deep GHOSTDAG forensics.
+---
 
-By establishing a direct WebSocket (wRPC) connection to your local node, the bot completely bypasses third-party public APIs, ensuring maximum privacy, decentralized resilience, and access to raw, unindexed blockchain data.
+## 🚀 Overview
+
+**Kaspa Pulse** (formerly Kaspa Solo) is an ultra-high-performance, enterprise-grade Telegram bot engineered entirely in Rust.
+
+Built for **Kaspa Solo Miners** and **Full Node Operators**, it delivers:
+
+* ⚡ Zero-latency notifications
+* 🔐 Maximum privacy (no public APIs)
+* 🧠 AI-powered intelligence
+* 🔬 Deep GHOSTDAG blockchain forensics
+
+It connects directly to your node via **wRPC WebSocket**, ensuring raw, unindexed, real-time blockchain data.
 
 ---
 
-## 🚀 Enterprise Architecture & Features
+## ✨ Features
 
-This engine has been completely re-architected to meet **Zero Warnings** production standards, featuring a powerful cloud-native backend combined with relentless local cryptography:
+### 🧠 AI Intelligence (Gemini 2.5 Flash)
 
-### 1. 🧠 Cloud-Native Multimodal AI (Gemini 2.5 Flash)
-* **💬 Conversational Intent:** Chat with the bot naturally. It analyzes your tracked wallets, node DAA score, and live network difficulty to provide highly contextual answers.
-* **🎙️ Zero-Latency Voice Processing:** Send raw voice messages (OGG) directly to Gemini via Base64 encoding. The bot understands audio and responds instantly.
-* **🔄 Exponential Backoff Protocol:** Engineered with a resilient retry mechanism to survive API rate limits (HTTP 503/429) during peak Google Cloud traffic.
+* Natural conversational interaction
+* Voice message understanding (OGG → Base64 → AI)
+* Smart contextual responses (wallets, difficulty, DAA score)
+* Built-in retry system (handles 429 / 503 errors)
 
-### 2. 🎯 Deterministic Deep Payload Scan
-Standard block explorers merely link rewards to the "Accepting Block." Our proprietary algorithm conducts a reverse DAG traversal, performing a cryptographic byte-by-byte scan of every Blue Block's payload against your wallet's `ScriptPublicKey`. This guarantees **100% mathematical certainty** of the exact block your hardware mined—eliminating any reliance on index guessing.
+### 🎯 Deterministic Block Detection
 
-### 3. 🔬 Cryptographic Forensics (Nonce & Worker ID)
-Whenever a block is discovered, the bot acts as a forensic analyzer:
-* **Nonce Extraction:** Parses the block header to retrieve the exact mathematical Nonce that solved the hash.
-* **Worker Decoding:** Decrypts and sanitizes the dead bytes within the coinbase payload to extract your exact mining rig/worker name (e.g., `1.1.0/RK-Stratum/KaspaPulse`).
+* Reverse DAG traversal
+* Byte-level payload scanning
+* 100% accurate reward attribution
+* No explorer dependency
 
-### 4. 🕒 Temporal UTXO Sorting Engine
-When mining solo, blocks are often found in rapid succession. The bot utilizes `tokio::task::JoinSet` to process multiple UTXO rewards concurrently, sorts them strictly by their exact `block_time_ms`, and dispatches Telegram notifications in perfect chronological order.
+### 🔬 Mining Forensics
 
-### 5. ⛏️ Real-Time Hashrate Estimation
-Monitor your mining fleet's performance natively. The bot analyzes your accepted `Coinbase UTXOs` over specific time windows to calculate an accurate local hashrate (1H, 24H, 7D).
+* Extracts block **Nonce**
+* Decodes **Worker ID**
+* Identifies exact mining source
 
-### 6. 🗄️ ACID-Compliant SQLite Storage
-Thread-safe state management, instant boot times, and protection against data corruption during unexpected server shutdowns.
+### 🕒 Smart UTXO Processing
 
----
+* Parallel processing via `tokio::task::JoinSet`
+* Chronological sorting using `block_time_ms`
+* Perfect notification ordering
 
-## 📱 Command Reference
+### ⛏️ Hashrate Estimation
 
-### 📌 Public Commands
+* 1H / 24H / 7D analysis
+* Based on real mined rewards
 
-| Command | Description |
-| :--- | :--- |
-| `/start` | Initializes the bot and renders the interactive UI keyboard. |
-| `/help` | Show the ultimate guide and features. |
-| `/add <address>` | Subscribe to real-time reward tracking for a wallet. |
-| `/remove <address>`| Unsubscribe a wallet from tracking. |
-| `/list` | List tracked wallets. |
-| `/balance` | Check Live Balance & UTXOs. |
-| `/blocks` | Count your unspent mined blocks. |
-| `/miner` | Estimate your solo-mining hashrate. |
-| `/network` | Show full node and network stats. |
-| `/dag` | Show BlockDAG details. |
-| `/price` | Check KAS Price. |
-| `/market` | Check Market Cap. |
-| `/supply` | Check Supply. |
-| `/fees` | Check Mempool Fees. |
-| `/donate` | Support the Developer. |
+### 🗄️ Storage Engine
 
-### 👑 Admin Diagnostics (Secured Scope)
-
-These commands are cryptographically restricted to the `ADMIN_ID` specified in the `.env` file.
-
-| Command | Description |
-| :--- | :--- |
-| `/stats` | Admin Analytics: Active users, tracked wallets, and Ping. |
-| `/sys` | Hardware diagnostics: Monitor RAM utilization and thread health. |
-| `/logs` | Fetch the deep telemetry `bot.log` file directly in Telegram. |
-| `/broadcast <msg>`| Push a global announcement to all subscribed users. |
-| `/pause` / `/resume`| Temporarily suspend or resume the background UTXO monitoring engine. |
-| `/restart` | Gracefully terminate and reboot the Rust process. |
-| `/learn <text>` | Admin Command: Teach AI new Kaspa knowledge dynamically. |
-| `/autolearn` | Auto-fetch latest official Kaspa news via RSS into the knowledge base. |
+* SQLite (ACID compliant)
+* Crash-safe
+* Fast startup
 
 ---
 
-## ⚙️ Prerequisites & Environment Setup
+## 📱 Commands
 
-To successfully compile and run Kaspa Pulse, your system must have the following external dependencies installed:
+### 📌 Public
 
-### 1. Mandatory Build Tools (C++ & CMake)
-* **Windows:** `winget install cmake` (Ensure "Desktop development with C++" is selected in VS Build Tools).
-* **Linux (Ubuntu/Debian):** `sudo apt update && sudo apt install cmake build-essential`
+| Command             | Description        |
+| ------------------- | ------------------ |
+| `/start`            | Initialize bot     |
+| `/help`             | Show guide         |
+| `/add <address>`    | Track wallet       |
+| `/remove <address>` | Remove wallet      |
+| `/list`             | Show wallets       |
+| `/balance`          | Show balance       |
+| `/blocks`           | Count mined blocks |
+| `/miner`            | Estimate hashrate  |
+| `/network`          | Node stats         |
+| `/dag`              | DAG info           |
+| `/price`            | KAS price          |
+| `/market`           | Market cap         |
+| `/supply`           | Supply             |
+| `/fees`             | Fees               |
+| `/donate`           | Support            |
 
-### 2. Environment Configuration (`.env`)
-Create a `.env` file in the project's root directory:
+---
+
+### 👑 Admin
+
+| Command              | Description    |
+| -------------------- | -------------- |
+| `/stats`             | Bot analytics  |
+| `/sys`               | System stats   |
+| `/logs`              | Get logs       |
+| `/broadcast <msg>`   | Send message   |
+| `/pause` / `/resume` | Control engine |
+| `/restart`           | Restart bot    |
+| `/learn <text>`      | Teach AI       |
+| `/autolearn`         | Auto news      |
+
+---
+
+## ⚙️ Prerequisites
+
+### 🔧 Build Tools
+
+* **Windows**
+
+```bash
+winget install cmake
+```
+
+* **Linux**
+
+```bash
+sudo apt update && sudo apt install cmake build-essential
+```
+
+---
+
+## 🔐 Environment Setup
+
+Create `.env` file:
 
 ```env
 BOT_TOKEN=your_telegram_bot_token_here
@@ -97,35 +132,42 @@ ADMIN_ID=your_telegram_user_id
 WS_URL=ws://127.0.0.1:18110
 GEMINI_API_KEY=your_google_ai_studio_key_here
 RUST_LOG=info,kaspa_solo=debug
+```
 
-## 🛠️ Deployment Guide
+---
 
-### 📦 Step 0: Clone the Repository
+## 🛠️ Deployment
+
+### 📦 Clone
+
 ```bash
 git clone https://github.com/KaspaPulse/kaspa-gemini-intelligence.git
 cd kaspa-gemini-intelligence
 ```
 
-### 🐧 Linux (Ubuntu/Debian) Deployment
+---
 
-**1. Install Dependencies & Rust:**
+### 🐧 Linux
+
+#### Install
+
 ```bash
 sudo apt update && sudo apt install -y curl build-essential pkg-config libssl-dev cmake
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source $HOME/.cargo/env
 ```
 
-**2. Compile the Engine:**
+#### Build
+
 ```bash
 cargo build --release
 ```
 
-**3. Create a Persistent `systemd` Background Service:**
+#### Service
+
 ```bash
 sudo nano /etc/systemd/system/kaspa-pulse.service
 ```
-
-Paste the following configuration (replace `your_username` with your actual system user):
 
 ```ini
 [Unit]
@@ -144,60 +186,62 @@ Environment=RUST_LOG=info
 WantedBy=multi-user.target
 ```
 
-**Save and initialize the service:**
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable kaspa-pulse
 sudo systemctl start kaspa-pulse
 ```
 
-### 🪟 Windows Server Deployment
+---
 
-**1. Compile the Engine:** Open `PowerShell` in the project directory:
+### 🪟 Windows
+
+#### Build
 
 ```powershell
 cargo build --release
 ```
 
-**2. Create a Persistent Background Service via NSSM:**
+#### NSSM Service
 
-* Download and extract NSSM.
-* Open `Command Prompt` as **Administrator**, navigate to the `win64` NSSM directory, and run:
+```cmd
+nssm install KaspaPulseBot
+```
 
-    ```cmd
-    nssm install KaspaPulseBot
-    ```
+ثم:
 
-* In the GUI that appears:
-    * **Path:** Browse and select `C:\path\to\target\release\kaspa-solo.exe`
-    * **Directory:** Browse and select the project root.
-
-* Click **Install service**, then start it:
-
-    ```cmd
-    nssm start KaspaPulseBot
-    ```
+```cmd
+nssm start KaspaPulseBot
+```
 
 ---
 
 ## 🤝 Contributing
 
-We embrace the open-source ethos. To contribute:
-1. **Fork** the repository.
-2. Create a **Feature Branch** (`git checkout -b feature/NextGenFeature`).
-3. Commit your changes (`git commit -m 'feat: Add NextGenFeature'`).
-4. Push to the branch (`git push origin feature/NextGenFeature`).
-5. Open a **Pull Request**.
-
-*(All PRs must pass `cargo fmt` and `cargo clippy --fix` to maintain the Zero Warnings standard).*
+```bash
+git checkout -b feature/new-feature
+git commit -m "feat: add feature"
+git push origin feature/new-feature
+```
 
 ---
 
-## 💖 Support the Project
+## 💖 Support
 
-Engineering a zero-warning, highly concurrent Rust engine requires countless hours of development and live-node testing. If this software has secured your operations or streamlined your node management, consider supporting the architect:
+Kaspa (KAS):
 
-**Kaspa (KAS) Donation Address:**
-`kaspa:qz0yqq8z3twwgg7lq2mjzg6w4edqys45w2wslz7tym2tc6s84580vvx9zr44g`
+```
+kaspa:qz0yqq8z3twwgg7lq2mjzg6w4edqys45w2wslz7tym2tc6s84580vvx9zr44g
+```
 
-*Built with absolute mathematical precision for the Kaspa ecosystem.*
+---
+
+## 📜 License
+
+MIT License
+
+---
+
+## 🧠 Final Note
+
+Built with precision for the Kaspa ecosystem.
