@@ -1,5 +1,4 @@
-﻿```
-# 🦀 Kaspa Pulse: The Ultimate Enterprise Miner's Companion
+﻿# 🦀 Kaspa Pulse: The Ultimate Enterprise Miner's Companion
 
 ![Rust](https://img.shields.io/badge/Rust-1.70+-orange.svg?style=flat-square)
 ![Kaspa](https://img.shields.io/badge/Kaspa-Network-70D4CB.svg?style=flat-square)
@@ -98,7 +97,6 @@ ADMIN_ID=your_telegram_user_id
 WS_URL=ws://127.0.0.1:18110
 GEMINI_API_KEY=your_google_ai_studio_key_here
 RUST_LOG=info,kaspa_solo=debug
-```
 
 ---
 
