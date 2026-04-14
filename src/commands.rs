@@ -53,4 +53,3 @@ pub enum Command {
     #[command(description = "Auto-fetch latest official Kaspa news")]
     AutoLearn,
 }
-

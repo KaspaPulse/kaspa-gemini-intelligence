@@ -1,6 +1,6 @@
-use std::sync::Arc;
 use crate::context::AppContext;
 use kaspa_rpc_core::api::rpc::RpcApi;
+use std::sync::Arc;
 
 pub async fn start_price_worker(ctx: AppContext) {
     loop {

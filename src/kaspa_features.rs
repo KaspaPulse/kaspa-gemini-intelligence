@@ -59,4 +59,3 @@ pub fn format_hashrate(h: f64) -> String {
         format!("{:.2} H/s", h)
     }
 }
-

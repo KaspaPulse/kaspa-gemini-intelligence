@@ -141,4 +141,3 @@ pub fn log_multiline(header: &str, body: &str, is_html: bool) {
         }
     }
 }
-
