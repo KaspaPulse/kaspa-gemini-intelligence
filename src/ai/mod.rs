@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
-pub mod engine;
 pub mod context;
+pub mod engine;
 pub mod handlers;
 
 // Re-export for external use so we don't break existing code in main.rs or handlers.rs

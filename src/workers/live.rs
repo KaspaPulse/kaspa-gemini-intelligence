@@ -105,7 +105,7 @@ pub fn spawn_utxo_monitor(ctx: AppContext, bot: Bot, token: CancellationToken) {
                                             .map(|dt| dt.format("%H:%M:%S").to_string()).unwrap_or_else(|| "Unknown".to_string())
                                     } else { "Real-time".to_string() };
 
-                                    info!("💎 [LIVE BLOCK] | Amount: +{:.4} KAS | Wallet: {} | Time: {} | Status: Delivered", 
+                                    info!("💎 [LIVE BLOCK] | Amount: +{:.4} KAS | Wallet: {} | Time: {} | Status: Delivered",
                                           diff, format_short_wallet(&w_cl), log_time);
 
                                     for user_id in &subs {
@@ -143,10 +143,14 @@ pub async fn analyze_block_payload(
     };
 
     for _attempt in 1..=800 {
-        if current_hashes.is_empty() { break; }
+        if current_hashes.is_empty() {
+            break;
+        }
         let mut next_hashes = vec![];
         for hash in &current_hashes {
-            if !visited.insert(*hash) { continue; }
+            if !visited.insert(*hash) {
+                continue;
+            }
             if let Ok(block) = rpc_cl.get_block(*hash, true).await {
                 let mut found_tx = false;
                 for tx in &block.transactions {
@@ -164,12 +168,16 @@ pub async fn analyze_block_payload(
                 }
                 if block.header.daa_score >= daa_score.saturating_sub(60) {
                     for level in &block.header.parents_by_level {
-                        for p_hash in level { next_hashes.push(*p_hash); }
+                        for p_hash in level {
+                            next_hashes.push(*p_hash);
+                        }
                     }
                 }
             }
         }
-        if !acc_block_hash.is_empty() { break; }
+        if !acc_block_hash.is_empty() {
+            break;
+        }
         current_hashes = next_hashes;
         sleep(Duration::from_millis(5)).await;
     }
@@ -193,13 +201,22 @@ pub async fn analyze_block_payload(
                         for blue_hash in &verbose.merge_set_blues_hashes {
                             if let Ok(blue_block) = rpc_cl.get_block(*blue_hash, true).await {
                                 if let Some(m_tx0) = blue_block.transactions.first() {
-                                    if let Some(pos) = m_tx0.payload.windows(user_script_bytes.len()).position(|w| w == user_script_bytes.as_slice()) {
+                                    if let Some(pos) = m_tx0
+                                        .payload
+                                        .windows(user_script_bytes.len())
+                                        .position(|w| w == user_script_bytes.as_slice())
+                                    {
                                         actual_mined_blocks.push(blue_hash.to_string());
                                         block_time_ms = blue_block.header.timestamp;
                                         if extracted_nonce.is_empty() {
                                             extracted_nonce = blue_block.header.nonce.to_string();
-                                            let extra_data = &m_tx0.payload[pos + user_script_bytes.len()..];
-                                            extracted_worker = extra_data.iter().filter(|&&c| c >= 32 && c <= 126).map(|&c| c as char).collect();
+                                            let extra_data =
+                                                &m_tx0.payload[pos + user_script_bytes.len()..];
+                                            extracted_worker = extra_data
+                                                .iter()
+                                                .filter(|&&c| c >= 32 && c <= 126)
+                                                .map(|&c| c as char)
+                                                .collect();
                                         }
                                     }
                                 }
@@ -210,5 +227,11 @@ pub async fn analyze_block_payload(
             }
         }
     }
-    (acc_block_hash, actual_mined_blocks, extracted_nonce, extracted_worker, block_time_ms)
+    (
+        acc_block_hash,
+        actual_mined_blocks,
+        extracted_nonce,
+        extracted_worker,
+        block_time_ms,
+    )
 }

@@ -16,7 +16,10 @@ pub async fn sync_all_wallets_from_pruning_point(ctx: AppContext) -> anyhow::Res
         return Ok(());
     }
 
-    info!("🚀 [GLOBAL SYNC] Starting historical scan for {} wallets...", wallets.len());
+    info!(
+        "🚀 [GLOBAL SYNC] Starting historical scan for {} wallets...",
+        wallets.len()
+    );
     for wallet in wallets {
         let _ = sync_single_wallet(ctx.clone(), wallet).await;
     }
@@ -32,7 +35,10 @@ pub async fn sync_single_wallet(ctx: AppContext, wallet: String) -> anyhow::Resu
     let pruning_point = dag_info.pruning_point_hash;
     let last_checkpoint = crate::state::get_sync_checkpoint(&ctx.pool, &wallet).await;
 
-    info!("📊 [SYNC STATS] Checkpoint Score: {} | Pruning Point: {}", last_checkpoint, pruning_point);
+    info!(
+        "📊 [SYNC STATS] Checkpoint Score: {} | Pruning Point: {}",
+        last_checkpoint, pruning_point
+    );
 
     let mut queue = VecDeque::from(dag_info.tip_hashes.clone());
     let mut visited = HashSet::new();
@@ -47,9 +53,12 @@ pub async fn sync_single_wallet(ctx: AppContext, wallet: String) -> anyhow::Resu
 
         if let Ok(block) = ctx.rpc.get_block(current_hash, true).await {
             scanned_count += 1;
-            
+
             if scanned_count % 500 == 0 {
-                info!("⏳ [PROGRESS] Scanned {} blocks... current DAA: {}", scanned_count, block.header.daa_score);
+                info!(
+                    "⏳ [PROGRESS] Scanned {} blocks... current DAA: {}",
+                    scanned_count, block.header.daa_score
+                );
             }
 
             if block.header.daa_score <= last_checkpoint {
@@ -60,17 +69,24 @@ pub async fn sync_single_wallet(ctx: AppContext, wallet: String) -> anyhow::Resu
                 for (index, output) in tx0.outputs.iter().enumerate() {
                     if let Some(verbose) = &output.verbose_data {
                         if verbose.script_public_key_address.to_string() == wallet {
-                            
                             if let Some(block_verbose) = &block.verbose_data {
                                 for blue_hash in &block_verbose.merge_set_blues_hashes {
                                     if !discovered_rewards.contains(blue_hash) {
-                                        if let Ok(blue_block) = ctx.rpc.get_block(*blue_hash, true).await {
+                                        if let Ok(blue_block) =
+                                            ctx.rpc.get_block(*blue_hash, true).await
+                                        {
                                             let script = output.script_public_key.script().to_vec();
-                                            if blue_block.transactions[0].payload.windows(script.len()).any(|w| w == script) {
-                                                
+                                            if blue_block.transactions[0]
+                                                .payload
+                                                .windows(script.len())
+                                                .any(|w| w == script)
+                                            {
                                                 discovered_rewards.insert(*blue_hash);
-                                                let tx_id = blue_block.transactions[0].verbose_data.as_ref()
-                                                    .map(|v| v.transaction_id.to_string()).unwrap_or_default();
+                                                let tx_id = blue_block.transactions[0]
+                                                    .verbose_data
+                                                    .as_ref()
+                                                    .map(|v| v.transaction_id.to_string())
+                                                    .unwrap_or_default();
                                                 let outpoint = format!("{}:{}", tx_id, index);
 
                                                 let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM mined_blocks WHERE outpoint = ?1)")
@@ -84,15 +100,16 @@ pub async fn sync_single_wallet(ctx: AppContext, wallet: String) -> anyhow::Resu
                                                         &outpoint,
                                                         &wallet,
                                                         output.value as f64 / 1e8,
-                                                        blue_block.header.daa_score
-                                                    ).await;
-                                                    
+                                                        blue_block.header.daa_score,
+                                                    )
+                                                    .await;
+
                                                     recovered_count += 1;
-                                                    
-                                                    info!("✅ [RECOVERY SUCCESS] | Amount: {:.2} KAS | DAA: {} | Hash: {} | Wallet: {}", 
-                                                          output.value as f64 / 1e8, 
-                                                          blue_block.header.daa_score, 
-                                                          blue_hash, 
+
+                                                    info!("✅ [RECOVERY SUCCESS] | Amount: {:.2} KAS | DAA: {} | Hash: {} | Wallet: {}",
+                                                          output.value as f64 / 1e8,
+                                                          blue_block.header.daa_score,
+                                                          blue_hash,
                                                           format_short_wallet(&wallet));
                                                 }
                                             }
@@ -116,7 +133,11 @@ pub async fn sync_single_wallet(ctx: AppContext, wallet: String) -> anyhow::Resu
     }
 
     crate::state::update_sync_checkpoint(&ctx.pool, &wallet, dag_info.virtual_daa_score).await;
-    info!("🏁 [SYNC FINISHED] Wallet: {} | Total Scanned: {} | Total Recovered: {}", 
-          format_short_wallet(&wallet), scanned_count, recovered_count);
+    info!(
+        "🏁 [SYNC FINISHED] Wallet: {} | Total Scanned: {} | Total Recovered: {}",
+        format_short_wallet(&wallet),
+        scanned_count,
+        recovered_count
+    );
     Ok(())
 }

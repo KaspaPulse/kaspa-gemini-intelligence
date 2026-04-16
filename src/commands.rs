@@ -1,7 +1,10 @@
 use teloxide::utils::command::BotCommands;
 
 #[derive(BotCommands, Clone, std::fmt::Debug)]
-#[command(rename_rule = "lowercase", description = "Kaspa Enterprise AI Bot Commands:")]
+#[command(
+    rename_rule = "lowercase",
+    description = "Kaspa Enterprise AI Bot Commands:"
+)]
 pub enum Command {
     // --- Public Commands ---
     #[command(description = "Start the bot and show main menu.")]

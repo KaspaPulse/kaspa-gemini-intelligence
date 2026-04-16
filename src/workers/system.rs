@@ -1,9 +1,9 @@
+use kaspa_rpc_core::api::rpc::RpcApi;
 use teloxide::prelude::*;
 use teloxide::types::ChatId;
 use tokio::time::Duration;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
-use kaspa_rpc_core::api::rpc::RpcApi;
 
 use crate::context::AppContext;
 

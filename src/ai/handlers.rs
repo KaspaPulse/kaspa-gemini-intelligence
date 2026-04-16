@@ -1,7 +1,7 @@
+use super::context::inject_live_wallet_context;
+use crate::context::AppContext;
 use teloxide::net::Download;
 use teloxide::prelude::*;
-use crate::context::AppContext;
-use super::context::inject_live_wallet_context;
 
 pub async fn process_conversational_intent(
     bot: Bot,
@@ -14,10 +14,7 @@ pub async fn process_conversational_intent(
     tracing::info!("🗣️ [USER ASKED]: {}", user_text);
 
     let initial_msg = bot
-        .send_message(
-            chat_id,
-            "⏳ <b>Kaspa AI:</b> Analyzing... (Universal API)",
-        )
+        .send_message(chat_id, "⏳ <b>Kaspa AI:</b> Analyzing... (Universal API)")
         .reply_parameters(teloxide::types::ReplyParameters::new(msg_id))
         .parse_mode(teloxide::types::ParseMode::Html)
         .await?;
@@ -92,10 +89,7 @@ pub async fn process_voice_message(bot: Bot, msg: Message, ctx: AppContext) -> a
     tracing::info!("🎙️ [USER SENT VOICE MESSAGE]");
 
     let initial_msg = bot
-        .send_message(
-            chat_id,
-            "⏳ <b>Kaspa AI:</b> Processing Audio...",
-        )
+        .send_message(chat_id, "⏳ <b>Kaspa AI:</b> Processing Audio...")
         .reply_parameters(teloxide::types::ReplyParameters::new(msg.id))
         .parse_mode(teloxide::types::ParseMode::Html)
         .await?;

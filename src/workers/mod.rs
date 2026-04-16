@@ -1,10 +1,10 @@
-pub mod sync;
 pub mod live;
+pub mod sync;
 pub mod system;
 
+use crate::context::AppContext;
 use teloxide::prelude::*;
 use tokio_util::sync::CancellationToken;
-use crate::context::AppContext;
 
 // Re-export specific functions so handlers.rs and main.rs don't break
 pub use sync::{sync_all_wallets_from_pruning_point, sync_single_wallet};

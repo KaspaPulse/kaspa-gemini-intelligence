@@ -107,13 +107,12 @@ pub async fn record_recovery_block(
 
 // 📌 Retrieve the last sync checkpoint for a specific wallet
 pub async fn get_sync_checkpoint(pool: &SqlitePool, wallet: &str) -> u64 {
-    let result: Option<i64> = sqlx::query_scalar(
-        "SELECT last_daa_score FROM sync_checkpoint WHERE wallet = ?1"
-    )
-    .bind(wallet)
-    .fetch_optional(pool)
-    .await
-    .unwrap_or(None);
+    let result: Option<i64> =
+        sqlx::query_scalar("SELECT last_daa_score FROM sync_checkpoint WHERE wallet = ?1")
+            .bind(wallet)
+            .fetch_optional(pool)
+            .await
+            .unwrap_or(None);
 
     result.unwrap_or(0) as u64
 }
@@ -122,7 +121,7 @@ pub async fn get_sync_checkpoint(pool: &SqlitePool, wallet: &str) -> u64 {
 pub async fn update_sync_checkpoint(pool: &SqlitePool, wallet: &str, daa_score: u64) {
     let _ = sqlx::query(
         "INSERT INTO sync_checkpoint (wallet, last_daa_score) VALUES (?1, ?2)
-         ON CONFLICT(wallet) DO UPDATE SET last_daa_score = excluded.last_daa_score"
+         ON CONFLICT(wallet) DO UPDATE SET last_daa_score = excluded.last_daa_score",
     )
     .bind(wallet)
     .bind(daa_score as i64)
