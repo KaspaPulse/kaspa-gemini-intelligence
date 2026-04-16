@@ -1,9 +1,10 @@
 use teloxide::utils::command::BotCommands;
 
 #[derive(BotCommands, Clone, std::fmt::Debug)]
-#[command(rename_rule = "lowercase", description = "Kaspa Node Bot Commands:")]
+#[command(rename_rule = "lowercase", description = "Kaspa Enterprise AI Bot Commands:")]
 pub enum Command {
-    #[command(description = "Start the bot and show help.")]
+    // --- Public Commands ---
+    #[command(description = "Start the bot and show main menu.")]
     Start,
     #[command(description = "Show the ultimate guide and features.")]
     Help,
@@ -11,44 +12,50 @@ pub enum Command {
     Add(String),
     #[command(description = "Remove a wallet: /remove <address>")]
     Remove(String),
-    #[command(description = "List tracked wallets.")]
+    #[command(description = "List all tracked wallets.")]
     List,
-    #[command(description = "Show full node and network stats.")]
-    Network,
-    #[command(description = "Show BlockDAG details.")]
-    Dag,
     #[command(description = "Check Live Balance & UTXOs.")]
     Balance,
     #[command(description = "Estimate your solo-mining hashrate.")]
     Miner,
     #[command(description = "Count your unspent mined blocks.")]
     Blocks,
-    #[command(description = "Check KAS Price.")]
-    Price,
-    #[command(description = "Check Market Cap.")]
-    Market,
-    #[command(description = "Check Supply.")]
-    Supply,
-    #[command(description = "Check Mempool Fees.")]
-    Fees,
-    #[command(description = "Admin Analytics")]
-    Stats,
-    #[command(description = "Admin Command")]
-    Sys,
-    #[command(description = "Admin Command")]
-    Pause,
-    #[command(description = "Admin Command")]
-    Resume,
-    #[command(description = "Admin Command")]
-    Restart,
-    #[command(description = "Admin Command")]
-    Broadcast(String),
-    #[command(description = "Admin Command")]
-    Logs,
-    #[command(description = "Support the Developer")]
+    #[command(description = "Support the Developer.")]
     Donate,
-    #[command(description = "Admin Command: Teach AI")]
+
+    // --- Node & Market Stats ---
+    #[command(description = "Show full node and network health.")]
+    Network,
+    #[command(description = "Show BlockDAG consensus details.")]
+    Dag,
+    #[command(description = "Check KAS Price & Market Cap.")]
+    Price,
+    #[command(description = "Check Market Cap details.")]
+    Market,
+    #[command(description = "Check circulating and max supply.")]
+    Supply,
+    #[command(description = "Check real-time Mempool fees.")]
+    Fees,
+
+    // --- Admin Enterprise Commands (Restricted) ---
+    #[command(description = "Admin: Global Analytics & User Report.")]
+    Stats,
+    #[command(description = "Admin: System Hardware Diagnostics.")]
+    Sys,
+    #[command(description = "Admin: Global Reverse Sync from Pruning Point.")]
+    Sync,
+    #[command(description = "Admin: Pause UTXO monitoring.")]
+    Pause,
+    #[command(description = "Admin: Resume UTXO monitoring.")]
+    Resume,
+    #[command(description = "Admin: Safe restart of the bot binary.")]
+    Restart,
+    #[command(description = "Admin: Broadcast message to all users.")]
+    Broadcast(String),
+    #[command(description = "Admin: Tail last 25 lines of bot.log.")]
+    Logs,
+    #[command(description = "Admin: Teach AI new Kaspa facts.")]
     Learn(String),
-    #[command(description = "Auto-fetch latest official Kaspa news")]
+    #[command(description = "Admin: Auto-fetch latest official Kaspa news.")]
     AutoLearn,
 }

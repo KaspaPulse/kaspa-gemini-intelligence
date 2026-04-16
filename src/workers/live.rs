@@ -11,59 +11,12 @@ use teloxide::types::ChatId;
 use tokio::sync::Semaphore;
 use tokio::time::{sleep, Duration};
 use tokio_util::sync::CancellationToken;
-use tracing::{error, info};
+use tracing::info;
 
 use crate::context::AppContext;
 use crate::utils::{format_hash, format_short_wallet};
 
-pub fn start_all(ctx: AppContext, bot: Bot, token: CancellationToken) {
-    spawn_price_monitor(ctx.clone(), token.clone());
-    spawn_node_monitor(ctx.clone(), bot.clone(), token.clone());
-    spawn_utxo_monitor(ctx.clone(), bot, token.clone());
-    spawn_memory_cleaner(ctx, token);
-}
-
-fn spawn_price_monitor(ctx: AppContext, token: CancellationToken) {
-    tokio::spawn(async move {
-        loop {
-            tokio::select! {
-                _ = token.cancelled() => { break; }
-                _ = tokio::time::sleep(Duration::from_secs(60)) => {
-                    let client = reqwest::Client::new();
-                    if let Ok(r) = client.get("https://api.coingecko.com/api/v3/simple/price?ids=kaspa&vs_currencies=usd&include_market_cap=true")
-                        .header("User-Agent", "Mozilla/5.0").send().await {
-                        if let Ok(j) = r.json::<serde_json::Value>().await {
-                            let price = j["kaspa"]["usd"].as_f64().unwrap_or(0.0);
-                            let mcap = j["kaspa"]["usd_market_cap"].as_f64().unwrap_or(0.0);
-                            let mut write_guard = ctx.price_cache.write().await;
-                            *write_guard = (price, mcap);
-                        }
-                    }
-                }
-            }
-        }
-    });
-}
-
-fn spawn_node_monitor(ctx: AppContext, bot: Bot, token: CancellationToken) {
-    tokio::spawn(async move {
-        let _ = ctx.rpc.connect(None).await;
-        loop {
-            tokio::select! {
-                _ = token.cancelled() => { break; }
-                _ = tokio::time::sleep(Duration::from_secs(30)) => {
-                    if ctx.rpc.get_server_info().await.is_err() {
-                        error!("[NODE ALERT] RPC Connection Lost! Attempting reconnect...");
-                        let _ = bot.send_message(ChatId(ctx.admin_id), "🚨 <b>SYSTEM ALERT:</b> Secure Node connection lost! Attempting auto-reconnect...").parse_mode(teloxide::types::ParseMode::Html).await;
-                        let _ = ctx.rpc.connect(None).await;
-                    }
-                }
-            }
-        }
-    });
-}
-
-fn spawn_utxo_monitor(ctx: AppContext, bot: Bot, token: CancellationToken) {
+pub fn spawn_utxo_monitor(ctx: AppContext, bot: Bot, token: CancellationToken) {
     let semaphore = Arc::new(Semaphore::new(50));
     tokio::spawn(async move {
         sleep(Duration::from_secs(5)).await;
@@ -95,11 +48,8 @@ fn spawn_utxo_monitor(ctx: AppContext, bot: Bot, token: CancellationToken) {
                                 }
                                 known.retain(|k| current_outpoints.contains(k));
 
-                                if new_rewards.is_empty() {
-                                    continue;
-                                }
+                                if new_rewards.is_empty() { continue; }
 
-                                // 🕒 Enterprise Temporal Sorting via JoinSet
                                 let mut join_set = tokio::task::JoinSet::new();
 
                                 for (outp, tx_id, diff, daa_score, is_coinbase) in new_rewards {
@@ -123,50 +73,46 @@ fn spawn_utxo_monitor(ctx: AppContext, bot: Bot, token: CancellationToken) {
 
                                         let time_str = if block_time_ms > 0 {
                                             if let chrono::LocalResult::Single(dt) = Utc.timestamp_millis_opt(block_time_ms as i64) {
-                                                dt.format("%Y-%m-%d %H:%M:%S.%3f UTC").to_string()
-                                            } else {
-                                                Utc::now().format("%Y-%m-%d %H:%M:%S.%3f UTC").to_string()
-                                            }
-                                        } else {
-                                            Utc::now().format("%Y-%m-%d %H:%M:%S.%3f UTC").to_string()
-                                        };
+                                                dt.format("%Y-%m-%d %H:%M:%S UTC").to_string()
+                                            } else { Utc::now().format("%Y-%m-%d %H:%M:%S UTC").to_string() }
+                                        } else { Utc::now().format("%Y-%m-%d %H:%M:%S UTC").to_string() };
 
-                                        let header_emoji = if is_coinbase { "⚡ <b>Native Node Reward!</b> 💎" } else { "💸 <b>Incoming Transfer!</b> 💸" }.to_string();
-                                        let msg_type = if is_coinbase { "⛏️ Solo Mining Reward" } else { "💳 Normal Transfer" };
-                                        let acc_block_str = if acc_block_hash.is_empty() { "<code>Not Found (Archived)</code>".to_string() } else { format_hash(&acc_block_hash, "blocks") };
-                                        let mined_block_str = if !is_coinbase { "<code>N/A</code>".to_string() } else if actual_mined_blocks.is_empty() { "<code>Not Found (Unknown Miner)</code>".to_string() } else if actual_mined_blocks.len() == 1 { format_hash(&actual_mined_blocks[0], "blocks") } else {
-                                            let links: Vec<String> = actual_mined_blocks.iter().map(|b| format!("\n ├ {}", format_hash(b, "blocks"))).collect(); format!("{} Blocks!{}", actual_mined_blocks.len(), links.join(""))
-                                        };
+                                        let header_emoji = if is_coinbase { "⚡ <b>Native Node Reward!</b>" } else { "💸 <b>Incoming Transfer!</b>" };
+                                        let acc_block_str = if acc_block_hash.is_empty() { "<code>Archived</code>".to_string() } else { format_hash(&acc_block_hash, "blocks") };
+                                        let mined_block_str = if !is_coinbase { "<code>N/A</code>".to_string() } else if actual_mined_blocks.is_empty() { "<code>Unknown</code>".to_string() } else { format_hash(&actual_mined_blocks[0], "blocks") };
 
-                                        let mut final_msg = format!("{}\n━━━━━━━━━━━━━━━━━━\n<b>Time:</b> <code>{}</code>\n<b>Wallet:</b> <a href=\"https://kaspa.stream/addresses/{}\">{}</a>\n<b>Amount:</b> <code>+{:.8} KAS</code>\n<b>Balance:</b> <code>{:.8} KAS</code>\n<blockquote expandable>", header_emoji, time_str, w_cl, format_short_wallet(&w_cl), diff, live_bal);
+                                        let mut final_msg = format!("{}\n━━━━━━━━━━━━━━━━━━\n<b>Time:</b> <code>{}</code>\n<b>Wallet:</b> {}\n<b>Amount:</b> <code>+{:.8} KAS</code>\n<b>Balance:</b> <code>{:.8} KAS</code>\n<blockquote expandable>", header_emoji, time_str, format_short_wallet(&w_cl), diff, live_bal);
                                         final_msg.push_str(&format!("<b>TXID:</b> {}\n", format_hash(&f_tx, "transactions")));
                                         if is_coinbase {
-                                            final_msg.push_str(&format!("<b>Mined Block(s):</b> {}\n<b>Accepting Block:</b> {}\n", mined_block_str, acc_block_str));
-                                            if !extracted_nonce.is_empty() { final_msg.push_str(&format!("<b>Nonce:</b> <code>{}</code>\n<b>Worker:</b> <code>{}</code>\n", extracted_nonce, extracted_worker)); }
-                                        } else { final_msg.push_str(&format!("<b>Type:</b> {}\n<b>Accepting Block:</b> {}\n", msg_type, acc_block_str)); }
+                                            final_msg.push_str(&format!("<b>Mined Block:</b> {}\n<b>Accepting Block:</b> {}\n", mined_block_str, acc_block_str));
+                                            if !extracted_nonce.is_empty() { final_msg.push_str(&format!("<b>Worker:</b> <code>{}</code>\n", extracted_worker)); }
+                                        } else { final_msg.push_str(&format!("<b>Accepting Block:</b> {}\n", acc_block_str)); }
                                         final_msg.push_str(&format!("<b>DAA Score:</b> <code>{}</code>\n</blockquote>", daa_score));
 
                                         (block_time_ms, diff, w_cl, final_msg)
                                     });
                                 }
 
-                                // Wait for all parallel RPC calls to complete and collect results
                                 let mut sorted_messages = Vec::new();
                                 while let Some(res) = join_set.join_next().await {
-                                    if let Ok(data) = res {
-                                        sorted_messages.push(data);
-                                    }
+                                    if let Ok(data) = res { sorted_messages.push(data); }
                                 }
-
-                                // Sort the messages precisely by block_time_ms (Temporal Ascending)
                                 sorted_messages.sort_by_key(|(time, _, _, _)| *time);
 
-                                // Broadcast messages sequentially in perfectly sorted order
-                                for (_, diff, w_cl, final_msg) in sorted_messages {
-                                    info!("💎 [BLOCK DISCOVERED] +{:.8} KAS for {}", diff, w_cl);
+                                for (time_ms, diff, w_cl, final_msg) in sorted_messages {
+                                    let log_time = if time_ms > 0 {
+                                        Utc.timestamp_millis_opt(time_ms as i64).single()
+                                            .map(|dt| dt.format("%H:%M:%S").to_string()).unwrap_or_else(|| "Unknown".to_string())
+                                    } else { "Real-time".to_string() };
+
+                                    info!("💎 [LIVE BLOCK] | Amount: +{:.4} KAS | Wallet: {} | Time: {} | Status: Delivered", 
+                                          diff, format_short_wallet(&w_cl), log_time);
+
                                     for user_id in &subs {
-                                        let _ = bot.send_message(teloxide::types::ChatId(*user_id), &final_msg).parse_mode(teloxide::types::ParseMode::Html).link_preview_options(teloxide::types::LinkPreviewOptions { is_disabled: true, url: None, prefer_small_media: false, prefer_large_media: false, show_above_text: false }).await;
-                                        sleep(Duration::from_millis(40)).await;
+                                        let _ = bot.send_message(ChatId(*user_id), &final_msg)
+                                            .parse_mode(teloxide::types::ParseMode::Html)
+                                            .link_preview_options(teloxide::types::LinkPreviewOptions { url: None, is_disabled: true, show_above_text: false, prefer_small_media: false, prefer_large_media: false })
+                                            .await;
                                     }
                                 }
                             }
@@ -178,7 +124,7 @@ fn spawn_utxo_monitor(ctx: AppContext, bot: Bot, token: CancellationToken) {
     });
 }
 
-async fn analyze_block_payload(
+pub async fn analyze_block_payload(
     rpc_cl: Arc<KaspaRpcClient>,
     f_tx: String,
     w_cl: String,
@@ -197,14 +143,10 @@ async fn analyze_block_payload(
     };
 
     for _attempt in 1..=800 {
-        if current_hashes.is_empty() {
-            break;
-        }
+        if current_hashes.is_empty() { break; }
         let mut next_hashes = vec![];
         for hash in &current_hashes {
-            if !visited.insert(*hash) {
-                continue;
-            }
+            if !visited.insert(*hash) { continue; }
             if let Ok(block) = rpc_cl.get_block(*hash, true).await {
                 let mut found_tx = false;
                 for tx in &block.transactions {
@@ -222,16 +164,12 @@ async fn analyze_block_payload(
                 }
                 if block.header.daa_score >= daa_score.saturating_sub(60) {
                     for level in &block.header.parents_by_level {
-                        for p_hash in level {
-                            next_hashes.push(*p_hash);
-                        }
+                        for p_hash in level { next_hashes.push(*p_hash); }
                     }
                 }
             }
         }
-        if !acc_block_hash.is_empty() {
-            break;
-        }
+        if !acc_block_hash.is_empty() { break; }
         current_hashes = next_hashes;
         sleep(Duration::from_millis(5)).await;
     }
@@ -255,28 +193,13 @@ async fn analyze_block_payload(
                         for blue_hash in &verbose.merge_set_blues_hashes {
                             if let Ok(blue_block) = rpc_cl.get_block(*blue_hash, true).await {
                                 if let Some(m_tx0) = blue_block.transactions.first() {
-                                    if let Some(pos) = m_tx0
-                                        .payload
-                                        .windows(user_script_bytes.len())
-                                        .position(|w| w == user_script_bytes.as_slice())
-                                    {
+                                    if let Some(pos) = m_tx0.payload.windows(user_script_bytes.len()).position(|w| w == user_script_bytes.as_slice()) {
                                         actual_mined_blocks.push(blue_hash.to_string());
                                         block_time_ms = blue_block.header.timestamp;
                                         if extracted_nonce.is_empty() {
                                             extracted_nonce = blue_block.header.nonce.to_string();
-                                            let extra_data =
-                                                &m_tx0.payload[pos + user_script_bytes.len()..];
-                                            let decoded_worker: String = extra_data
-                                                .iter()
-                                                .filter(|&&c| c >= 32 && c <= 126)
-                                                .map(|&c| c as char)
-                                                .collect();
-                                            extracted_worker = if !decoded_worker.trim().is_empty()
-                                            {
-                                                decoded_worker.trim().to_string()
-                                            } else {
-                                                "Standard Miner".to_string()
-                                            };
+                                            let extra_data = &m_tx0.payload[pos + user_script_bytes.len()..];
+                                            extracted_worker = extra_data.iter().filter(|&&c| c >= 32 && c <= 126).map(|&c| c as char).collect();
                                         }
                                     }
                                 }
@@ -287,25 +210,5 @@ async fn analyze_block_payload(
             }
         }
     }
-    (
-        acc_block_hash,
-        actual_mined_blocks,
-        extracted_nonce,
-        extracted_worker,
-        block_time_ms,
-    )
-}
-
-fn spawn_memory_cleaner(ctx: AppContext, token: CancellationToken) {
-    tokio::spawn(async move {
-        loop {
-            tokio::select! {
-                _ = token.cancelled() => { break; }
-                _ = tokio::time::sleep(Duration::from_secs(3600)) => {
-                    ctx.memory.clear();
-                    info!("[MEMORY CLEANER] Purged AI context history.");
-                }
-            }
-        }
-    });
+    (acc_block_hash, actual_mined_blocks, extracted_nonce, extracted_worker, block_time_ms)
 }

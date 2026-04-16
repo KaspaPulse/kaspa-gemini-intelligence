@@ -24,6 +24,7 @@ pub async fn init_db() -> Result<SqlitePool, sqlx::Error> {
         .execute(&pool)
         .await;
 
+    // 1. Wallets table
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS user_wallets (
             wallet TEXT NOT NULL,
@@ -34,25 +35,43 @@ pub async fn init_db() -> Result<SqlitePool, sqlx::Error> {
     .execute(&pool)
     .await?;
 
+    // 2. Mined blocks table (with the new sync_source column)
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS mined_blocks (
             outpoint TEXT PRIMARY KEY,
             wallet TEXT NOT NULL,
             amount REAL NOT NULL,
             daa_score INTEGER NOT NULL,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            sync_source TEXT DEFAULT 'LIVE'
         )",
     )
     .execute(&pool)
     .await?;
 
+    // Safe schema update for older databases (won't throw an error if the column already exists)
+    let _ = sqlx::query("ALTER TABLE mined_blocks ADD COLUMN sync_source TEXT DEFAULT 'LIVE'")
+        .execute(&pool)
+        .await;
+
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_wallet_stats ON mined_blocks(wallet, timestamp)")
         .execute(&pool)
         .await?;
 
+    // 3. New table (sync checkpoint) to protect the server from redundant reverse scanning
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS sync_checkpoint (
+            wallet TEXT PRIMARY KEY,
+            last_daa_score INTEGER NOT NULL
+        )",
+    )
+    .execute(&pool)
+    .await?;
+
     Ok(pool)
 }
 
+// 📌 Used by the live monitor (kept intact to avoid breaking existing functionality)
 pub async fn record_mined_block(
     pool: &SqlitePool,
     outpoint: &str,
@@ -61,12 +80,54 @@ pub async fn record_mined_block(
     daa: u64,
 ) {
     if let Err(e) = sqlx::query(
-        "INSERT OR IGNORE INTO mined_blocks (outpoint, wallet, amount, daa_score) VALUES (?1, ?2, ?3, ?4)"
+        "INSERT OR IGNORE INTO mined_blocks (outpoint, wallet, amount, daa_score, sync_source) VALUES (?1, ?2, ?3, ?4, 'LIVE')"
     )
     .bind(outpoint).bind(wallet).bind(amount).bind(daa as i64)
     .execute(pool).await {
         error!("[DB ERROR] Block record failed: {}", e);
     }
+}
+
+// 📌 New function dedicated to the Admin sync process (records recovered blocks)
+pub async fn record_recovery_block(
+    pool: &SqlitePool,
+    outpoint: &str,
+    wallet: &str,
+    amount: f64,
+    daa: u64,
+) {
+    if let Err(e) = sqlx::query(
+        "INSERT OR IGNORE INTO mined_blocks (outpoint, wallet, amount, daa_score, sync_source) VALUES (?1, ?2, ?3, ?4, 'RECOVERY')"
+    )
+    .bind(outpoint).bind(wallet).bind(amount).bind(daa as i64)
+    .execute(pool).await {
+        error!("[DB ERROR] Recovery block record failed: {}", e);
+    }
+}
+
+// 📌 Retrieve the last sync checkpoint for a specific wallet
+pub async fn get_sync_checkpoint(pool: &SqlitePool, wallet: &str) -> u64 {
+    let result: Option<i64> = sqlx::query_scalar(
+        "SELECT last_daa_score FROM sync_checkpoint WHERE wallet = ?1"
+    )
+    .bind(wallet)
+    .fetch_optional(pool)
+    .await
+    .unwrap_or(None);
+
+    result.unwrap_or(0) as u64
+}
+
+// 📌 Update the checkpoint after a successful synchronization
+pub async fn update_sync_checkpoint(pool: &SqlitePool, wallet: &str, daa_score: u64) {
+    let _ = sqlx::query(
+        "INSERT INTO sync_checkpoint (wallet, last_daa_score) VALUES (?1, ?2)
+         ON CONFLICT(wallet) DO UPDATE SET last_daa_score = excluded.last_daa_score"
+    )
+    .bind(wallet)
+    .bind(daa_score as i64)
+    .execute(pool)
+    .await;
 }
 
 pub async fn get_lifetime_stats(

@@ -1,57 +1,57 @@
 [package]
 name = "kaspa-solo"
-version = "1.1.0"
+version = "1.2.0"
 edition = "2021"
 license = "MIT"
-description = "Enterprise Kaspa Solo Mining Bot"
+description = "Enterprise Kaspa Solo Mining Bot - Synced to v1.1.0"
 
 [dependencies]
-urlencoding = "2.1"
+# Core Frameworks
 tokio = { version = "1", features = ["full", "tracing"] }
 tokio-util = "0.7"
-teloxide = { version = "0.17", features = ["macros"] }
+teloxide = { version = "0.13", features = ["macros"] }
+anyhow = "1.0"
+thiserror = "2.0"
+
+# Kaspa Blockchain Protocol (Strictly using v1.1.0 to match your node)
 kaspa-wrpc-client = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v1.1.0" }
 kaspa-rpc-core = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v1.1.0" }
 kaspa-addresses = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v1.1.0" }
 kaspa-consensus-core = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v1.1.0" }
 kaspa-hashes = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v1.1.0" }
+
+# Database & State Management
+sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio-native-tls", "macros"] }
+dashmap = "6.1"
+
+# Time & Utilities
+chrono = "0.4"
 dotenvy = "0.15"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-dashmap = "6.1"
-anyhow = "1.0"
-chrono = "0.4"
+urlencoding = "2.1"
+strsim = "0.11.1"
+rev_lines = "0.3"
+base64 = "0.22.1"
+
+# Networking & System
+reqwest = { version = "0.12", features = ["json", "multipart", "rustls-tls"] }
+sysinfo = "0.30"
+governor = "0.6"
+secrecy = "0.10"
+
+# Logging & Diagnostics
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
-reqwest = { version = "0.12", features = ["json", "multipart", "rustls-tls", "stream"] }
-sysinfo = "0.30"
-rev_lines = "0.3"
-
-# Enterprise Security & Architecture Upgrades
-sqlx = { version = "0.8", default-features = false, features = ["sqlite", "runtime-tokio-native-tls"] }
-secrecy = "0.10"
-governor = "0.6"
-
-# Advanced Endgame Dependencies
-thiserror = "2.0"
 console-subscriber = "0.4"
-strsim = "0.11.1"
-base64 = "0.22.1"
 
-# ??? Binary Hardening (Zero-Leak, Fast & Secure Build)
+# Binary Hardening
 [profile.release]
-lto = true          # Link Time Optimization
-codegen-units = 1   # Maximum optimization (slower compile, faster execution)
-strip = true        # Remove debug info to prevent reverse engineering
-panic = "abort"     # Immediately abort on critical panic to prevent memory leaks
-
-
-
-
-
-
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
 
 [patch.crates-io]
 serde_nested_with = { git = "https://github.com/murar8/serde_nested_with" }
-
