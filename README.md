@@ -1,4 +1,4 @@
-﻿Markdown
+﻿```markdown
 # 🦀 Kaspa Pulse: The Ultimate Enterprise Miner's Companion
 
 ![Rust](https://img.shields.io/badge/Rust-1.70+-orange.svg?style=flat-square)
@@ -123,14 +123,20 @@ Once the bot is deployed and connected to your Telegram, using it is incredibly 
 * **Windows**
 ```bash
 winget install cmake
-Linux
+```
 
-Bash
+* **Linux**
+```bash
 sudo apt update && sudo apt install cmake build-essential pkg-config libssl-dev
-🔐 Environment Setup
-Create a .env file in the root directory of the project:
+```
 
-مقتطف الرمز
+---
+
+## 🔐 Environment Setup
+
+Create a `.env` file in the root directory of the project:
+
+```env
 # Telegram Bot Configuration
 BOT_TOKEN=your_telegram_bot_token_here
 ADMIN_ID=your_telegram_user_id
@@ -148,26 +154,46 @@ AI_AUDIO_MODEL=whisper-large-v3
 
 # System Logging
 RUST_LOG=info,kaspa_solo=debug
-🛠️ Deployment
-📦 Clone the Repository
-Bash
+```
+
+---
+
+## 🛠️ Deployment
+
+### 📦 Clone the Repository
+
+```bash
 git clone [https://github.com/KaspaPulse/kaspa-gemini-intelligence.git](https://github.com/KaspaPulse/kaspa-gemini-intelligence.git)
 cd kaspa-gemini-intelligence
-🐧 Linux Deployment
-1. Install Rust & Dependencies
-Bash
+```
+
+---
+
+### 🐧 Linux Deployment
+
+#### 1. Install Rust & Dependencies
+
+```bash
 sudo apt update && sudo apt install -y curl build-essential pkg-config libssl-dev cmake
 curl --proto '=https' --tlsv1.2 -sSf [https://sh.rustup.rs](https://sh.rustup.rs) | sh
 source $HOME/.cargo/env
-2. Build the Enterprise Binary
-Bash
-cargo build --release
-3. Run as a Systemd Service (Recommended)
-Bash
-sudo nano /etc/systemd/system/kaspa-pulse.service
-Paste the following (change your_username accordingly):
+```
 
-Ini, TOML
+#### 2. Build the Enterprise Binary
+
+```bash
+cargo build --release
+```
+
+#### 3. Run as a Systemd Service (Recommended)
+
+```bash
+sudo nano /etc/systemd/system/kaspa-pulse.service
+```
+
+Paste the following (change `your_username` accordingly):
+
+```ini
 [Unit]
 Description=Kaspa Pulse Enterprise Bot
 After=network.target
@@ -182,46 +208,74 @@ Environment=RUST_LOG=info
 
 [Install]
 WantedBy=multi-user.target
+```
+
 Enable and start the service:
 
-Bash
+```bash
 sudo systemctl daemon-reload
 sudo systemctl enable kaspa-pulse
 sudo systemctl start kaspa-pulse
-🪟 Windows Deployment
-1. Build the Binary
-PowerShell
-cargo build --release
-2. Run as a Background Service (NSSM)
-Download NSSM, extract it, and run the following in an Administrator Command Prompt:
+```
 
-DOS
+---
+
+### 🪟 Windows Deployment
+
+#### 1. Build the Binary
+
+```powershell
+cargo build --release
+```
+
+#### 2. Run as a Background Service (NSSM)
+
+Download [NSSM](http://nssm.cc/), extract it, and run the following in an Administrator Command Prompt:
+
+```cmd
 nssm install KaspaPulseBot
-(Point the Application Path to your target\release\kaspa-solo.exe and the Startup Directory to the root folder where .env is located).
+```
+*(Point the Application Path to your `target\release\kaspa-solo.exe` and the Startup Directory to the root folder where `.env` is located).*
 
 Start the service:
-
-DOS
+```cmd
 nssm start KaspaPulseBot
-🤝 Contributing
+```
+
+---
+
+## 🤝 Contributing
+
 We welcome contributions! Please follow the standard Git Flow:
 
-Bash
+```bash
 git checkout -b feature/new-feature
 # Write awesome code
 git commit -m "feat: add feature X"
 git push origin feature/new-feature
+```
 Then, open a Pull Request on GitHub.
 
-💖 Support the Developer
+---
+
+## 💖 Support the Developer
+
 If Kaspa Pulse has helped you track your solo mining rewards or manage your node, consider supporting the development!
 
-Kaspa (KAS) Donation Address:
-
-Plaintext
+**Kaspa (KAS) Donation Address:**
+```text
 kaspa:qz0yqq8z3twwgg7lq2mjzg6w4edqys45w2wslz7tym2tc6s84580vvx9zr44g
-📜 License
-This project is licensed under the MIT License. See the LICENSE file for details.
+```
 
-🧠 Final Note
+---
+
+## 📜 License
+
+This project is licensed under the **MIT License**. See the `LICENSE` file for details.
+
+---
+
+## 🧠 Final Note
+
 Built with precision, engineered with Rust, and designed for the true Kaspa ecosystem pioneers. Happy Solo Mining! ⛏️
+```
