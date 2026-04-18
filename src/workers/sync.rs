@@ -89,7 +89,7 @@ pub async fn sync_single_wallet(ctx: AppContext, wallet: String) -> anyhow::Resu
                                                     .unwrap_or_default();
                                                 let outpoint = format!("{}:{}", tx_id, index);
 
-                                                let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM mined_blocks WHERE outpoint = ?1)")
+                                                let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM mined_blocks WHERE outpoint = $1)")
                                                     .bind(&outpoint)
                                                     .fetch_one(&ctx.pool)
                                                     .await.unwrap_or(false);
@@ -141,3 +141,4 @@ pub async fn sync_single_wallet(ctx: AppContext, wallet: String) -> anyhow::Resu
     );
     Ok(())
 }
+

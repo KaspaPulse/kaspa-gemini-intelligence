@@ -6,6 +6,7 @@ mod context;
 mod handlers;
 mod kaspa_features;
 mod state;
+pub mod agent;
 mod utils;
 mod workers;
 
@@ -209,5 +210,6 @@ async fn main() -> Result<(), BotError> {
 
     Ok(())
 }
+
 
 

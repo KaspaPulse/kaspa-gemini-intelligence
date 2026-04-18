@@ -238,7 +238,7 @@ pub async fn handle_blocks(
                 total_blocks,
                 total_kas
             ));
-            let daily_records: Result<Vec<(String, i64, f64)>, sqlx::Error> = sqlx::query_as("SELECT DATE(timestamp), COUNT(*), SUM(amount) FROM mined_blocks WHERE wallet = ?1 GROUP BY DATE(timestamp) ORDER BY DATE(timestamp) DESC LIMIT 5").bind(&w).fetch_all(&ctx.pool).await;
+            let daily_records: Result<Vec<(String, i64, f64)>, sqlx::Error> = sqlx::query_as("SELECT TO_CHAR(timestamp, 'YYYY-MM-DD'), COUNT(*), SUM(amount) FROM mined_blocks WHERE wallet = $1 GROUP BY TO_CHAR(timestamp, 'YYYY-MM-DD') ORDER BY TO_CHAR(timestamp, 'YYYY-MM-DD') DESC LIMIT 5").bind(&w).fetch_all(&ctx.pool).await;
             if let Ok(records) = daily_records {
                 if !records.is_empty() {
                     text.push_str("├ <b>Daily Breakdown:</b>\n");
@@ -291,8 +291,8 @@ pub async fn handle_miner(
         if let Ok(net_hashrate) = ctx.rpc.estimate_network_hashes_per_second(1000, None).await {
             let net_hashrate = net_hashrate as f64;
             for w in tracked {
-                let db_1h: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM mined_blocks WHERE wallet = ?1 AND timestamp >= datetime('now', '-1 hour')").bind(&w).fetch_one(&ctx.pool).await.unwrap_or((0,));
-                let db_24h: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM mined_blocks WHERE wallet = ?1 AND timestamp >= datetime('now', '-24 hours')").bind(&w).fetch_one(&ctx.pool).await.unwrap_or((0,));
+                let db_1h: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM mined_blocks WHERE wallet = $1 AND timestamp >= CURRENT_TIMESTAMP - INTERVAL '1 hour'").bind(&w).fetch_one(&ctx.pool).await.unwrap_or((0,));
+                let db_24h: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM mined_blocks WHERE wallet = $1 AND timestamp >= CURRENT_TIMESTAMP - INTERVAL '24 hours'").bind(&w).fetch_one(&ctx.pool).await.unwrap_or((0,));
                 let mut live_1h = 0;
                 let mut live_24h = 0;
                 if let Ok(addr) = Address::try_from(w.as_str()) {
@@ -524,3 +524,4 @@ pub async fn handle_fees(
         }
     }
 }
+

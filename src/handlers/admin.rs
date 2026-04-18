@@ -44,7 +44,7 @@ pub async fn handle_stats(
                     / 1e8;
             }
         }
-        let blocks: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM mined_blocks WHERE wallet = ?1")
+        let blocks: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM mined_blocks WHERE wallet = $1")
             .bind(wallet)
             .fetch_one(&ctx.pool)
             .await
@@ -345,3 +345,4 @@ pub async fn handle_autolearn(bot: Bot, chat_id: ChatId, user_id: i64, ctx: &App
         let _ = bot.send_message(chat_id, "✅ <b>AI Status:</b> Scanned Official Medium. No new posts found. Database is completely up to date.").parse_mode(teloxide::types::ParseMode::Html).await;
     }
 }
+

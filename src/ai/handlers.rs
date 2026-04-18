@@ -21,8 +21,11 @@ pub async fn process_conversational_intent(
 
     let engine_arc = ctx.ai_engine.clone();
 
-    let _ = sqlx::query("CREATE TABLE IF NOT EXISTS chat_history (id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER, role TEXT, message TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)").execute(&ctx.pool).await;
-    let records: Result<Vec<(String, String)>, _> = sqlx::query_as("SELECT role, message FROM (SELECT role, message, timestamp FROM chat_history WHERE chat_id = ?1 ORDER BY id DESC LIMIT 6) ORDER BY id ASC").bind(chat_id.0).fetch_all(&ctx.pool).await;
+    // 🛠️ FIXED: PostgreSQL Syntax for Table Creation
+    let _ = sqlx::query("CREATE TABLE IF NOT EXISTS chat_history (id SERIAL PRIMARY KEY, chat_id BIGINT, role TEXT, message TEXT, timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP)").execute(&ctx.pool).await;
+    
+    // 🛠️ FIXED: PostgreSQL Syntax for Select ( instead of ?1)
+    let records: Result<Vec<(String, String)>, _> = sqlx::query_as("SELECT role, message FROM (SELECT id, role, message, timestamp FROM chat_history WHERE chat_id = $1 ORDER BY id DESC LIMIT 6) AS sub ORDER BY id ASC").bind(chat_id.0).fetch_all(&ctx.pool).await;
 
     let mut history_str = String::new();
     if let Ok(rows) = records {
@@ -50,15 +53,17 @@ pub async fn process_conversational_intent(
     {
         Ok(text) => {
             tracing::info!("🧠 [AI REPLIED]: {}", text);
+            // 🛠️ FIXED: PostgreSQL Syntax for Insert (,  instead of ?1, ?2)
             let _ = sqlx::query(
-                "INSERT INTO chat_history (chat_id, role, message) VALUES (?1, 'user', ?2)",
+                "INSERT INTO chat_history (chat_id, role, message) VALUES ($1, 'user', $2)",
             )
             .bind(chat_id.0)
             .bind(&user_text_for_db)
             .execute(&ctx.pool)
             .await;
+            
             let _ = sqlx::query(
-                "INSERT INTO chat_history (chat_id, role, message) VALUES (?1, 'assistant', ?2)",
+                "INSERT INTO chat_history (chat_id, role, message) VALUES ($1, 'assistant', $2)",
             )
             .bind(chat_id.0)
             .bind(&text)

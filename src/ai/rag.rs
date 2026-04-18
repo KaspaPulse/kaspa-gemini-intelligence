@@ -1,72 +1,28 @@
 use sqlx::{PgPool, Postgres};
 use tracing::info;
 
-/// Enterprise-Standard Keyword Clusters for Intent Detection
 const NEWS_INTENT: &[&str] = &[
-    "news",
-    "update",
-    "latest",
-    "recent",
-    "announcement",
-    "release",
-    "roadmap",
-    "whats new",
-    "خبر",
-    "اخبار",
-    "جديد",
-    "اخر",
-    "مستجدات",
-    "تحديث",
-    "تطورات",
-    "اعلان",
+    "news", "update", "latest", "recent", "announcement", "release", "roadmap", "whats new",
+    "خبر", "اخبار", "جديد", "اخر", "مستجدات", "تحديث", "تطورات", "اعلان",
 ];
 
 const TECH_INTENT: &[&str] = &[
-    "protocol",
-    "algorithm",
-    "mining",
-    "consensus",
-    "dagknight",
-    "smart",
-    "pow",
-    "kheavyhash",
-    "تقني",
-    "بروتوكول",
-    "خوارزمية",
-    "تعدين",
-    "اجماع",
-    "بلوك",
-    "داج",
+    "protocol", "algorithm", "mining", "consensus", "dagknight", "smart", "pow", "kheavyhash",
+    "تقني", "بروتوكول", "خوارزمية", "تعدين", "اجماع", "بلوك", "داج",
 ];
 
 const METRIC_INTENT: &[&str] = &[
-    "hashrate",
-    "price",
-    "difficulty",
-    "supply",
-    "market",
-    "daa",
-    "tps",
-    "bps",
-    "سعر",
-    "هاشريت",
-    "صعوبة",
-    "امداد",
-    "سوق",
-    "اداء",
-    "احصائيات",
+    "hashrate", "price", "difficulty", "supply", "market", "daa", "tps", "bps",
+    "سعر", "هاشريت", "صعوبة", "امداد", "سوق", "اداء", "احصائيات",
 ];
 
-/// Smart RAG Engine: Retrieves relevant Kaspa knowledge based on user intent
 pub async fn get_rag_context(pool: &PgPool, user_query: &str) -> String {
     let lower_query = user_query.to_lowercase();
 
-    // Determine if the user is looking for time-sensitive news or metrics
     let is_news = NEWS_INTENT.iter().any(|&k| lower_query.contains(k));
     let is_metric = METRIC_INTENT.iter().any(|&k| lower_query.contains(k));
     let _is_tech = TECH_INTENT.iter().any(|&k| lower_query.contains(k));
 
-    // Retrieval Strategy
     let result: Result<Vec<(String, String)>, sqlx::Error> = if is_news || is_metric {
         info!("[RAG] High-priority intent detected. Fetching latest global context...");
         sqlx::query_as::<Postgres, (String, String)>(
@@ -75,7 +31,6 @@ pub async fn get_rag_context(pool: &PgPool, user_query: &str) -> String {
         .fetch_all(pool)
         .await
     } else {
-        // Find the most significant word in the query
         let search_anchor = user_query
             .split_whitespace()
             .filter(|w| w.len() > 3)
@@ -84,7 +39,7 @@ pub async fn get_rag_context(pool: &PgPool, user_query: &str) -> String {
 
         info!("[RAG] Specific search intent: '{}'", search_anchor);
         sqlx::query_as::<Postgres, (String, String)>(
-            "SELECT title, content FROM knowledge_base WHERE content LIKE `$1 OR title LIKE `$1 ORDER BY published_at DESC LIMIT 3"
+            "SELECT title, content FROM knowledge_base WHERE content ILIKE $1 OR title ILIKE $1 ORDER BY published_at DESC LIMIT 3"
         )
         .bind(format!("%{}%", search_anchor))
         .fetch_all(pool).await
@@ -94,8 +49,8 @@ pub async fn get_rag_context(pool: &PgPool, user_query: &str) -> String {
         Ok(articles) if !articles.is_empty() => {
             let mut context_buffer = String::from("\n[OFFICIAL KASPA KNOWLEDGE & UPDATES]:\n");
             for (title, content) in articles {
-                let snippet = if content.len() > 300 {
-                    &content[..300]
+                let snippet = if content.len() > 500 {
+                    &content[..500]
                 } else {
                     &content
                 };
@@ -104,8 +59,13 @@ pub async fn get_rag_context(pool: &PgPool, user_query: &str) -> String {
             context_buffer
         }
         _ => {
-            info!("[RAG] No relevant context found in database.");
-            String::new()
+            info!("[RAG] CACHE MISS: No relevant context found in DB. Triggering Autonomous Agent...");
+            // 🧠 MAGIC HAPPENS HERE: If DB doesn't know, ask the Internet Agent!
+            if let Some(agent_answer) = crate::agent::search_and_learn(pool, user_query).await {
+                format!("\n[AUTONOMOUS INTERNET SEARCH RESULT]:\n{}\n", agent_answer)
+            } else {
+                String::new()
+            }
         }
     }
 }

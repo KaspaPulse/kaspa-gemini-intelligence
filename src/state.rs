@@ -106,3 +106,32 @@ pub async fn remove_all_user_data(pool: &PgPool, _state: &SharedState, chat_id: 
 }
 
 
+
+// --- START OF AI KNOWLEDGE BASE EXTENSIONS ---
+pub async fn add_to_knowledge_base(pool: &PgPool, title: &str, link: &str, content: &str, source: &str) {
+    let _ = sqlx::query(
+        "INSERT INTO knowledge_base (title, link, content, source) VALUES ($1, $2, $3, $4) ON CONFLICT (link) DO NOTHING"
+    )
+    .bind(title)
+    .bind(link)
+    .bind(content)
+    .bind(source)
+    .execute(pool)
+    .await;
+}
+
+#[allow(dead_code)]
+pub async fn get_knowledge_context(pool: &PgPool, keyword: &str) -> Option<String> {
+    let search_term = format!("%{}%", keyword);
+    let result: Option<(String,)> = sqlx::query_as(
+        "SELECT content FROM knowledge_base WHERE title ILIKE $1 OR content ILIKE $1 ORDER BY published_at DESC LIMIT 1"
+    )
+    .bind(search_term)
+    .fetch_optional(pool)
+    .await
+    .unwrap_or(None);
+
+    result.map(|r| r.0)
+}
+// --- END OF AI KNOWLEDGE BASE EXTENSIONS ---
+
