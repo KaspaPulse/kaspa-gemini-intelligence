@@ -2,7 +2,7 @@ use super::context::inject_live_wallet_context;
 use crate::context::AppContext;
 use teloxide::net::Download;
 use teloxide::prelude::*;
-use tracing::{info, error};
+use tracing::{error, info};
 
 /// Master Handler for conversational AI logic.
 /// Forces the AI to use local RAG context and live intelligence.
@@ -18,7 +18,10 @@ pub async fn process_conversational_intent(
 
     // Initial response to show the bot is working
     let initial_msg = bot
-        .send_message(chat_id, "⏳ <b>Kaspa AI:</b> Syncing Intelligence... (Sovereign Engine)")
+        .send_message(
+            chat_id,
+            "⏳ <b>Kaspa AI:</b> Syncing Intelligence... (Sovereign Engine)",
+        )
         .reply_parameters(teloxide::types::ReplyParameters::new(msg_id))
         .parse_mode(teloxide::types::ParseMode::Html)
         .await?;
@@ -33,16 +36,21 @@ pub async fn process_conversational_intent(
             role TEXT, 
             message TEXT, 
             timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-        )"
-    ).execute(&ctx.pool).await;
-    
+        )",
+    )
+    .execute(&ctx.pool)
+    .await;
+
     // Retrieve the last 6 messages for short-term memory
     let records: Result<Vec<(String, String)>, _> = sqlx::query_as(
         "SELECT role, message FROM (
             SELECT id, role, message, timestamp FROM chat_history 
             WHERE chat_id = $1 ORDER BY id DESC LIMIT 6
-         ) AS sub ORDER BY id ASC"
-    ).bind(chat_id.0).fetch_all(&ctx.pool).await;
+         ) AS sub ORDER BY id ASC",
+    )
+    .bind(chat_id.0)
+    .fetch_all(&ctx.pool)
+    .await;
 
     let mut history_str = String::new();
     if let Ok(rows) = records {
@@ -77,11 +85,23 @@ pub async fn process_conversational_intent(
     {
         Ok(text) => {
             info!("🧠 [AI REPLIED]: {}", text);
-            
+
             // Log interaction into history
-            let _ = sqlx::query("INSERT INTO chat_history (chat_id, role, message) VALUES ($1, 'user', $2)").bind(chat_id.0).bind(&user_text_for_db).execute(&ctx.pool).await;
-            let _ = sqlx::query("INSERT INTO chat_history (chat_id, role, message) VALUES ($1, 'assistant', $2)").bind(chat_id.0).bind(&text).execute(&ctx.pool).await;
-            
+            let _ = sqlx::query(
+                "INSERT INTO chat_history (chat_id, role, message) VALUES ($1, 'user', $2)",
+            )
+            .bind(chat_id.0)
+            .bind(&user_text_for_db)
+            .execute(&ctx.pool)
+            .await;
+            let _ = sqlx::query(
+                "INSERT INTO chat_history (chat_id, role, message) VALUES ($1, 'assistant', $2)",
+            )
+            .bind(chat_id.0)
+            .bind(&text)
+            .execute(&ctx.pool)
+            .await;
+
             format!("🤖 <b>Kaspa AI:</b>\n{}", text)
         }
         Err(e) => {
@@ -110,7 +130,10 @@ pub async fn process_voice_message(bot: Bot, msg: Message, ctx: AppContext) -> a
     info!("🎙️ [USER SENT VOICE MESSAGE]");
 
     let initial_msg = bot
-        .send_message(chat_id, "🎙️ <b>Kaspa AI:</b> Analyzing Voice... (Whisper Engine)")
+        .send_message(
+            chat_id,
+            "🎙️ <b>Kaspa AI:</b> Analyzing Voice... (Whisper Engine)",
+        )
         .reply_parameters(teloxide::types::ReplyParameters::new(msg.id))
         .parse_mode(teloxide::types::ParseMode::Html)
         .await?;
@@ -137,7 +160,10 @@ pub async fn process_voice_message(bot: Bot, msg: Message, ctx: AppContext) -> a
     {
         Ok(reply) => {
             info!("🧠 [AI REPLIED TO VOICE]: {}", reply);
-            format!("🎙️ <b>Voice Analysis Complete</b>\n\n🤖 <b>Kaspa AI:</b>\n{}", reply)
+            format!(
+                "🎙️ <b>Voice Analysis Complete</b>\n\n🤖 <b>Kaspa AI:</b>\n{}",
+                reply
+            )
         }
         Err(e) => {
             error!("⚠️ [VOICE ERROR]: {}", e);

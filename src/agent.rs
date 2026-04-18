@@ -16,21 +16,25 @@ pub async fn search_and_learn(pool: &PgPool, query: &str) -> Option<String> {
         }
     };
 
-    info!("[AI AGENT] Initiating Deep Intelligence Gathering for: '{}'", query);
-    
+    info!(
+        "[AI AGENT] Initiating Deep Intelligence Gathering for: '{}'",
+        query
+    );
+
     // ⚡ Increased Timeout to prevent early exits on deep searches
     let client = Client::builder()
         .timeout(Duration::from_secs(15))
         .build()
         .unwrap_or_else(|_| Client::new());
-    
-    // Check if query is technical to expand search window
-    let is_tech = query.to_lowercase().contains(".rs") || 
-                  query.to_lowercase().contains("code") || 
-                  query.to_lowercase().contains("ssl") ||
-                  query.to_lowercase().contains("settings");
 
-    let res = client.post("https://api.tavily.com/search")
+    // Check if query is technical to expand search window
+    let is_tech = query.to_lowercase().contains(".rs")
+        || query.to_lowercase().contains("code")
+        || query.to_lowercase().contains("ssl")
+        || query.to_lowercase().contains("settings");
+
+    let res = client
+        .post("https://api.tavily.com/search")
         .json(&json!({
             "api_key": api_key,
             "query": query,
@@ -38,7 +42,7 @@ pub async fn search_and_learn(pool: &PgPool, query: &str) -> Option<String> {
             "include_answer": true,
             "max_results": 5,
             // Use 365 days for tech/settings, 7 days for market news
-            "days": if is_tech { 365 } else { 7 } 
+            "days": if is_tech { 365 } else { 7 }
         }))
         .send()
         .await;
@@ -51,8 +55,8 @@ pub async fn search_and_learn(pool: &PgPool, query: &str) -> Option<String> {
                     let answer_str = answer.to_string();
                     save_intelligence(pool, query, &body, &answer_str).await;
                     return Some(answer_str);
-                } 
-                
+                }
+
                 // Tier 2: Content Snippet Aggregation (If Tier 1 fails)
                 if let Some(results) = body.get("results").and_then(|r| r.as_array()) {
                     if !results.is_empty() {
@@ -79,15 +83,21 @@ pub async fn search_and_learn(pool: &PgPool, query: &str) -> Option<String> {
 
 /// Commits findings to PostgreSQL and keeps the Knowledge Base fresh.
 async fn save_intelligence(pool: &PgPool, query: &str, body: &Value, answer: &str) {
-    let source_link = body["results"][0]["url"].as_str().unwrap_or("https://kaspadns.net/intelligence");
-    
+    let source_link = body["results"][0]["url"]
+        .as_str()
+        .unwrap_or("https://kaspadns.net/intelligence");
+
     crate::state::add_to_knowledge_base(
-        pool, 
-        query, 
-        source_link, 
-        answer, 
-        "Autonomous Agent v2.5 (Deep Search)"
-    ).await;
-    
-    info!("[AI AGENT] Successfully synced intelligence to DB for: {}", query);
+        pool,
+        query,
+        source_link,
+        answer,
+        "Autonomous Agent v2.5 (Deep Search)",
+    )
+    .await;
+
+    info!(
+        "[AI AGENT] Successfully synced intelligence to DB for: {}",
+        query
+    );
 }

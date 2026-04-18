@@ -345,4 +345,3 @@ pub async fn handle_autolearn(bot: Bot, chat_id: ChatId, user_id: i64, ctx: &App
         let _ = bot.send_message(chat_id, "✅ <b>AI Status:</b> Scanned Official Medium. No new posts found. Database is completely up to date.").parse_mode(teloxide::types::ParseMode::Html).await;
     }
 }
-

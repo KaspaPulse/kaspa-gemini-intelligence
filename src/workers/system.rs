@@ -61,4 +61,3 @@ pub fn spawn_memory_cleaner(ctx: AppContext, token: CancellationToken) {
         }
     });
 }
-

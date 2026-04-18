@@ -1,12 +1,12 @@
 #![allow(clippy::manual_range_contains)]
 
+pub mod agent;
 mod ai;
 mod commands;
 mod context;
 mod handlers;
 mod kaspa_features;
 mod state;
-pub mod agent;
 mod utils;
 mod workers;
 
@@ -196,27 +196,46 @@ async fn main() -> Result<(), BotError> {
         .dependencies(dptree::deps![ctx])
         .enable_ctrlc_handler()
         .default_handler(|update: Arc<Update>| async move {
-            tracing::debug!("[SYSTEM] Dropped completely unhandled update type: {:?}", update.id);
+            tracing::debug!(
+                "[SYSTEM] Dropped completely unhandled update type: {:?}",
+                update.id
+            );
         })
         .build();
 
-    let use_webhook = std::env::var("USE_WEBHOOK").unwrap_or_else(|_| "false".to_string()) == "true";
-    
+    let use_webhook =
+        std::env::var("USE_WEBHOOK").unwrap_or_else(|_| "false".to_string()) == "true";
+
     if use_webhook {
         let domain = std::env::var("WEBHOOK_DOMAIN").expect("CRITICAL: WEBHOOK_DOMAIN required");
-        let port: u16 = std::env::var("WEBHOOK_PORT").unwrap_or_else(|_| "8443".to_string()).parse().unwrap();
+        let port: u16 = std::env::var("WEBHOOK_PORT")
+            .unwrap_or_else(|_| "8443".to_string())
+            .parse()
+            .unwrap();
         let addr = ([0, 0, 0, 0], port).into();
         let url = format!("https://{}/webhook", domain).parse().unwrap();
-        
+
         // ✅ Delete any rogue polling updates BEFORE setting the Webhook
         let _ = bot.delete_webhook().drop_pending_updates(true).send().await;
 
-        tracing::info!("🌐 [NETWORK] Enterprise Webhook Mode Active. Listening on port {} for domain {}", port, domain);
-        
-        let listener = teloxide::update_listeners::webhooks::axum(bot, teloxide::update_listeners::webhooks::Options::new(addr, url)).await.expect("Failed to setup webhook");
-        let error_handler = teloxide::error_handlers::LoggingErrorHandler::with_custom_text("Webhook Error");
-        
-        dispatcher.dispatch_with_listener(listener, error_handler).await;
+        tracing::info!(
+            "🌐 [NETWORK] Enterprise Webhook Mode Active. Listening on port {} for domain {}",
+            port,
+            domain
+        );
+
+        let listener = teloxide::update_listeners::webhooks::axum(
+            bot,
+            teloxide::update_listeners::webhooks::Options::new(addr, url),
+        )
+        .await
+        .expect("Failed to setup webhook");
+        let error_handler =
+            teloxide::error_handlers::LoggingErrorHandler::with_custom_text("Webhook Error");
+
+        dispatcher
+            .dispatch_with_listener(listener, error_handler)
+            .await;
     } else {
         // ✅ Delete Webhook explicitly to allow Polling to work
         let _ = bot.delete_webhook().drop_pending_updates(true).send().await;

@@ -141,4 +141,3 @@ pub async fn sync_single_wallet(ctx: AppContext, wallet: String) -> anyhow::Resu
     );
     Ok(())
 }
-

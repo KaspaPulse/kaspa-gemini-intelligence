@@ -524,4 +524,3 @@ pub async fn handle_fees(
         }
     }
 }
-

@@ -3,21 +3,36 @@ use tracing::info;
 
 /// Keywords to identify user intent for global news/updates.
 const NEWS_INTENT: &[&str] = &[
-    "news", "update", "latest", "recent", "whats new", 
-    "خبر", "اخبار", "جديد", "تحديث", "مستجدات"
+    "news",
+    "update",
+    "latest",
+    "recent",
+    "whats new",
+    "خبر",
+    "اخبار",
+    "جديد",
+    "تحديث",
+    "مستجدات",
 ];
 
 /// Keywords for live network metrics and security infrastructure.
 const _METRIC_INTENT: &[&str] = &[
-    "hashrate", "price", "difficulty", "سعر", "صعوبة", "احصائيات", 
-    "ssl", "security", "حماية"
+    "hashrate",
+    "price",
+    "difficulty",
+    "سعر",
+    "صعوبة",
+    "احصائيات",
+    "ssl",
+    "security",
+    "حماية",
 ];
 
 /// Enterprise RAG Engine: Multi-word anchor search with live fallback.
 pub async fn get_rag_context(pool: &PgPool, user_query: &str) -> String {
     let lower_query = user_query.to_lowercase();
     let is_news = NEWS_INTENT.iter().any(|&k| lower_query.contains(k));
-    
+
     info!("[RAG] CRITICAL SEARCH INITIATED: '{}'", user_query);
 
     // 1. Force Live Intelligence for News (Bypass DB entirely for fresh data)
@@ -28,7 +43,10 @@ pub async fn get_rag_context(pool: &PgPool, user_query: &str) -> String {
 
     // 2. Enhanced Local Search: Iterating through all significant words (> 2 chars)
     // This ensures that even short technical terms like 'SSL' are caught.
-    let words: Vec<&str> = lower_query.split_whitespace().filter(|w| w.len() > 2).collect();
+    let words: Vec<&str> = lower_query
+        .split_whitespace()
+        .filter(|w| w.len() > 2)
+        .collect();
     let mut combined_results = Vec::new();
 
     for word in words {
@@ -37,8 +55,12 @@ pub async fn get_rag_context(pool: &PgPool, user_query: &str) -> String {
             "SELECT title, content FROM knowledge_base 
              WHERE content ILIKE $1 OR title ILIKE $1 
              ORDER BY CASE WHEN title LIKE 'Manual Input%' THEN 0 ELSE 1 END, id DESC 
-             LIMIT 2"
-        ).bind(pattern).fetch_all(pool).await {
+             LIMIT 2",
+        )
+        .bind(pattern)
+        .fetch_all(pool)
+        .await
+        {
             combined_results.append(&mut articles);
         }
     }
@@ -46,12 +68,16 @@ pub async fn get_rag_context(pool: &PgPool, user_query: &str) -> String {
     if !combined_results.is_empty() {
         info!("[RAG] Local Knowledge Found. Injecting into context.");
         let mut context = String::from("\n[INTERNAL SERVER PROTOCOLS & DATA]:\n");
-        
+
         // Remove duplicates if multiple words hit the same article
-        combined_results.dedup(); 
-        
+        combined_results.dedup();
+
         for (title, content) in combined_results.iter().take(4) {
-            let snippet = if content.len() > 600 { &content[..600] } else { &content };
+            let snippet = if content.len() > 600 {
+                &content[..600]
+            } else {
+                &content
+            };
             context.push_str(&format!("- {}: {}\n", title, snippet));
         }
         return context;
@@ -69,9 +95,11 @@ async fn trigger_autonomous_agent(pool: &PgPool, query: &str) -> String {
         let _ = sqlx::query(
             "DELETE FROM knowledge_base 
              WHERE published_at < NOW() - INTERVAL '7 days' 
-             AND title NOT LIKE 'Manual Input%'"
-        ).execute(pool).await;
-        
+             AND title NOT LIKE 'Manual Input%'",
+        )
+        .execute(pool)
+        .await;
+
         format!("\n[LIVE AGENT REPORT]:\n{}\n", agent_answer)
     } else {
         String::new()

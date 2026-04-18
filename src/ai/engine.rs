@@ -56,9 +56,13 @@ impl LocalAiEngine {
                 .part("file", part)
                 .text("model", self.audio_model.clone());
 
-            let res = self.client.post(&url)
+            let res = self
+                .client
+                .post(&url)
                 .header("Authorization", format!("Bearer {}", self.api_key))
-                .multipart(form).send().await?;
+                .multipart(form)
+                .send()
+                .await?;
 
             if res.status().is_success() {
                 let json_res: serde_json::Value = res.json().await?;
@@ -109,9 +113,13 @@ You are the owner of kaspadns. When asked about Nginx, SSL, or server logic, ans
         // 🔄 STEP 5: Resilience Logic (Retries with Backoff)
         let mut attempts = 0;
         while attempts < 3 {
-            let res = self.client.post(&url)
+            let res = self
+                .client
+                .post(&url)
                 .header("Authorization", format!("Bearer {}", self.api_key))
-                .json(&body).send().await?;
+                .json(&body)
+                .send()
+                .await?;
 
             let status = res.status();
             if status.is_success() {
@@ -128,6 +136,8 @@ You are the owner of kaspadns. When asked about Nginx, SSL, or server logic, ans
             }
         }
 
-        Err(anyhow::anyhow!("Sovereign Engine failed after multiple retries."))
+        Err(anyhow::anyhow!(
+            "Sovereign Engine failed after multiple retries."
+        ))
     }
 }
