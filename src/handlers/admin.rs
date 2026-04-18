@@ -248,7 +248,7 @@ pub async fn handle_learn(
 
     // Write directly to the new SQLite Knowledge Base
     let res = sqlx::query(
-        "INSERT OR IGNORE INTO knowledge_base (title, link, content, source, published_at) VALUES (?1, ?2, ?3, 'Admin Manual Input', CURRENT_TIMESTAMP)"
+        "INSERT INTO knowledge_base (title, link, content, source, published_at) VALUES ($1, $2, $3, 'Admin Manual Input', CURRENT_TIMESTAMP) ON CONFLICT (link) DO NOTHING"
     )
     .bind(&title)
     .bind(&link)
@@ -315,7 +315,7 @@ pub async fn handle_autolearn(bot: Bot, chat_id: ChatId, user_id: i64, ctx: &App
 
                         // Write directly to the new SQLite Knowledge Base
                         let res = sqlx::query(
-                            "INSERT OR IGNORE INTO knowledge_base (title, link, content, source, published_at) VALUES (?1, ?2, ?3, 'Admin Autolearn Trigger', CURRENT_TIMESTAMP)"
+                            "INSERT INTO knowledge_base (title, link, content, source, published_at) VALUES ($1, $2, $3, 'Admin Autolearn Trigger', CURRENT_TIMESTAMP) ON CONFLICT (link) DO NOTHING"
                         )
                         .bind(&title)
                         .bind(&link)

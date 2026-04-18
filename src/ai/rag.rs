@@ -1,58 +1,110 @@
-use sqlx::SqlitePool;
+use sqlx::{PgPool, Postgres};
 use tracing::info;
 
-pub async fn get_rag_context(pool: &SqlitePool, user_query: &str) -> String {
-    // 1. Extract the most meaningful keyword from the query (Rudimentary NLP)
-    let search_term = user_query
-        .split_whitespace()
-        .filter(|w| w.len() > 4) // Skip stop words like "what", "is", "the"
-        .max_by_key(|w| w.len())
-        .unwrap_or("kaspa")
-        .replace(&['\'', '"', '%', '_', '?', '!'][..], ""); // Sanitize SQL
+/// Enterprise-Standard Keyword Clusters for Intent Detection
+const NEWS_INTENT: &[&str] = &[
+    "news",
+    "update",
+    "latest",
+    "recent",
+    "announcement",
+    "release",
+    "roadmap",
+    "whats new",
+    "خبر",
+    "اخبار",
+    "جديد",
+    "اخر",
+    "مستجدات",
+    "تحديث",
+    "تطورات",
+    "اعلان",
+];
 
-    let search_pattern = format!("%{}%", search_term);
+const TECH_INTENT: &[&str] = &[
+    "protocol",
+    "algorithm",
+    "mining",
+    "consensus",
+    "dagknight",
+    "smart",
+    "pow",
+    "kheavyhash",
+    "تقني",
+    "بروتوكول",
+    "خوارزمية",
+    "تعدين",
+    "اجماع",
+    "بلوك",
+    "داج",
+];
 
-    // 2. Query the Knowledge Base for the top 3 relevant articles
-    let records: Result<Vec<(String, String, String)>, _> = sqlx::query_as(
-        "SELECT title, content, source 
-         FROM knowledge_base 
-         WHERE content LIKE ?1 OR title LIKE ?1
-         ORDER BY published_at DESC 
-         LIMIT 3",
-    )
-    .bind(&search_pattern)
-    .fetch_all(pool)
-    .await;
+const METRIC_INTENT: &[&str] = &[
+    "hashrate",
+    "price",
+    "difficulty",
+    "supply",
+    "market",
+    "daa",
+    "tps",
+    "bps",
+    "سعر",
+    "هاشريت",
+    "صعوبة",
+    "امداد",
+    "سوق",
+    "اداء",
+    "احصائيات",
+];
 
-    // 3. Format the Context for the LLM
-    match records {
+/// Smart RAG Engine: Retrieves relevant Kaspa knowledge based on user intent
+pub async fn get_rag_context(pool: &PgPool, user_query: &str) -> String {
+    let lower_query = user_query.to_lowercase();
+
+    // Determine if the user is looking for time-sensitive news or metrics
+    let is_news = NEWS_INTENT.iter().any(|&k| lower_query.contains(k));
+    let is_metric = METRIC_INTENT.iter().any(|&k| lower_query.contains(k));
+    let _is_tech = TECH_INTENT.iter().any(|&k| lower_query.contains(k));
+
+    // Retrieval Strategy
+    let result: Result<Vec<(String, String)>, sqlx::Error> = if is_news || is_metric {
+        info!("[RAG] High-priority intent detected. Fetching latest global context...");
+        sqlx::query_as::<Postgres, (String, String)>(
+            "SELECT title, content FROM knowledge_base ORDER BY published_at DESC LIMIT 5",
+        )
+        .fetch_all(pool)
+        .await
+    } else {
+        // Find the most significant word in the query
+        let search_anchor = user_query
+            .split_whitespace()
+            .filter(|w| w.len() > 3)
+            .max_by_key(|w| w.len())
+            .unwrap_or("kaspa");
+
+        info!("[RAG] Specific search intent: '{}'", search_anchor);
+        sqlx::query_as::<Postgres, (String, String)>(
+            "SELECT title, content FROM knowledge_base WHERE content LIKE `$1 OR title LIKE `$1 ORDER BY published_at DESC LIMIT 3"
+        )
+        .bind(format!("%{}%", search_anchor))
+        .fetch_all(pool).await
+    };
+
+    match result {
         Ok(articles) if !articles.is_empty() => {
-            info!(
-                "🧠 [RAG ENGINE] Retrieved {} context articles for keyword: '{}'",
-                articles.len(),
-                search_term
-            );
-
-            let mut context = String::from("\n\n=== RECENT KASPA KNOWLEDGE BASE (Use this strictly to answer the user if relevant) ===\n");
-            for (title, content, source) in articles {
-                // Truncate to save tokens (approx 1000 chars per article)
-                let truncated = if content.len() > 1000 {
-                    &content[..1000]
+            let mut context_buffer = String::from("\n[OFFICIAL KASPA KNOWLEDGE & UPDATES]:\n");
+            for (title, content) in articles {
+                let snippet = if content.len() > 300 {
+                    &content[..300]
                 } else {
                     &content
                 };
-                context.push_str(&format!(
-                    "Title: {}\nSource: {}\nSnippet: {}...\n\n",
-                    title, source, truncated
-                ));
+                context_buffer.push_str(&format!("- Source: {}\n  Details: {}\n", title, snippet));
             }
-            context.push_str(
-                "==============================================================================\n",
-            );
-            context
+            context_buffer
         }
         _ => {
-            info!("🔍 [RAG ENGINE] No specific context found for keyword: '{}'. Relying on base model knowledge.", search_term);
+            info!("[RAG] No relevant context found in database.");
             String::new()
         }
     }

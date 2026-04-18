@@ -74,7 +74,15 @@ async fn main() -> Result<(), BotError> {
     let network_id = NetworkId::from_str("mainnet")
         .unwrap_or_else(|_| NetworkId::from_str("testnet-12").unwrap());
 
-    let pool = crate::state::init_db().await?;
+    let db_url = env::var("DATABASE_URL").expect("CRITICAL: DATABASE_URL is missing in .env");
+    let pool = crate::state::init_db(&db_url).await?;
+
+    // Initialize Redis Distributed RAM
+    let redis_url = env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
+    let redis_client = redis::Client::open(redis_url).expect("CRITICAL: Invalid Redis URL");
+    let redis = redis::aio::ConnectionManager::new(redis_client)
+        .await
+        .expect("CRITICAL: Failed to connect to Redis Cluster");
     let cancel_token = CancellationToken::new();
 
     // Graceful Shutdown Registry
@@ -92,7 +100,6 @@ async fn main() -> Result<(), BotError> {
     });
 
     let state = Arc::new(DashMap::new());
-    let memory: crate::context::ContextMemory = Arc::new(DashMap::new());
     let rate_limiter = crate::context::AppContext::new_rate_limiter();
 
     // Migrate old wallets.json if it exists
@@ -132,12 +139,12 @@ async fn main() -> Result<(), BotError> {
     let ctx = AppContext {
         rpc: Arc::new(rpc_client),
         pool,
+        redis,
         state,
         utxo_state: Arc::new(DashMap::new()),
         monitoring: Arc::new(AtomicBool::new(true)),
         price_cache: Arc::new(RwLock::new((0.0, 0.0))),
         admin_id,
-        memory,
         rate_limiter,
         ai_engine,
     };
@@ -202,3 +209,5 @@ async fn main() -> Result<(), BotError> {
 
     Ok(())
 }
+
+

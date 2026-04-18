@@ -1,6 +1,6 @@
 use reqwest::Client;
 use serde_json::json;
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -40,7 +40,7 @@ impl LocalAiEngine {
 
     pub async fn generate(
         &self,
-        pool: &SqlitePool, // 🆕 Added Pool for RAG access
+        pool: &PgPool, // 🆕 Added Pool for RAG access
         prompt: &str,
         live_context: &str,
         audio_bytes: Option<Vec<u8>>,

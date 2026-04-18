@@ -54,10 +54,11 @@ pub fn spawn_memory_cleaner(ctx: AppContext, token: CancellationToken) {
             tokio::select! {
                 _ = token.cancelled() => { break; }
                 _ = tokio::time::sleep(Duration::from_secs(3600)) => {
-                    ctx.memory.clear();
+                    let mut conn = ctx.redis.clone(); let _: Result<(), _> = redis::cmd("FLUSHDB").query_async(&mut conn).await;
                     info!("[MEMORY CLEANER] Purged AI context history.");
                 }
             }
         }
     });
 }
+
