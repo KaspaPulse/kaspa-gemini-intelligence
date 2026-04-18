@@ -1,37 +1,33 @@
 use sqlx::{PgPool, Postgres};
 use tracing::{info, warn};
 
-/// Keywords to identify user intent for global news/updates.
+/// Intent keywords for dynamic live search
 const NEWS_INTENT: &[&str] = &[
-    "news", "update", "latest", "recent", "announcement", "release", "roadmap", "whats new",
-    "خبر", "اخبار", "جديد", "اخر", "مستجدات", "تحديث", "تطورات", "اعلان",
+    "news", "update", "latest", "recent", "announcement", "release", "whats new",
+    "خبر", "اخبار", "جديد", "تحديث", "مستجدات"
 ];
 
-/// Keywords for live network metrics.
 const METRIC_INTENT: &[&str] = &[
-    "hashrate", "price", "difficulty", "supply", "market", "daa", "tps", "bps",
-    "سعر", "هاشريت", "صعوبة", "امداد", "سوق", "اداء", "احصائيات",
+    "hashrate", "price", "difficulty", "market", "daa", "tps", "bps",
+    "سعر", "صعوبة", "هاشريت", "احصائيات"
 ];
 
-/// Enterprise RAG Engine: Retrieves local context with manual override priority
-/// and dual-stream execution for live news.
+/// Enterprise Autonomous RAG Engine
+/// Logic: Live Search First -> Store -> Prune Old Data -> Respond
 pub async fn get_rag_context(pool: &PgPool, user_query: &str) -> String {
     let lower_query = user_query.to_lowercase();
-
-    // Intent Detection
     let is_news = NEWS_INTENT.iter().any(|&k| lower_query.contains(k));
     let is_metric = METRIC_INTENT.iter().any(|&k| lower_query.contains(k));
 
-    info!("[RAG] Analyzing query intent for: '{}'", user_query);
+    info!("[RAG] Processing Autonomous Query: '{}'", user_query);
 
-    // Step 1: High-Priority Intent Bypass
-    // If user asks for news or live metrics, trigger the Autonomous Agent directly.
+    // 1. FORCED EXTERNAL PRIORITY: If user asks for news/metrics, bypass local DB
     if is_news || is_metric {
-        info!("[RAG] Priority Intent (News/Metric) detected. Engaging Live Intelligence.");
+        info!("[RAG] News/Metric Intent: Bypassing local cache for fresh Tavily data.");
         return trigger_autonomous_agent(pool, user_query).await;
     }
 
-    // Step 2: Search Local Knowledge Base for technical or custom data
+    // 2. SMART LOCAL SEARCH: For technical architecture and manual instructions
     let search_anchor = user_query
         .split_whitespace()
         .filter(|w| w.len() > 2)
@@ -50,33 +46,48 @@ pub async fn get_rag_context(pool: &PgPool, user_query: &str) -> String {
     .fetch_all(pool)
     .await;
 
-    // Step 3: Evaluate Results and Handle Fallbacks
     match result {
         Ok(articles) if !articles.is_empty() => {
-            info!("[RAG] Local Knowledge found ({} entries). Injecting context.", articles.len());
-            let mut context_buffer = String::from("\n[VERIFIED KNOWLEDGE BASE]:\n");
+            info!("[RAG] Valid Local Data found. Using cache.");
+            let mut context = String::from("\n[VERIFIED LOCAL KNOWLEDGE]:\n");
             for (title, content) in articles {
-                let snippet = if content.len() > 800 { &content[..800] } else { &content };
-                context_buffer.push_str(&format!("- Category: {}\n  Data: {}\n", title, snippet));
+                let snippet = if content.len() > 700 { &content[..700] } else { &content };
+                context.push_str(&format!("- Source: {}\n  Details: {}\n", title, snippet));
             }
-            context_buffer
+            context
         }
-
-        // Final Fallback: If DB is silent, try the Agent
+        // 3. AUTO-FALLBACK: If local search yields nothing, force the agent
         _ => {
-            info!("[RAG] Local DB silent. Engaging Autonomous Agent...");
+            info!("[RAG] Local DB silent. Engaging Agent as fallback.");
             trigger_autonomous_agent(pool, user_query).await
         }
     }
 }
 
-/// Helper function to invoke the Tavily-powered Autonomous Agent.
+/// Invokes Tavily, Updates Database, and Prunes Obsolete Entries
 async fn trigger_autonomous_agent(pool: &PgPool, query: &str) -> String {
     if let Some(agent_answer) = crate::agent::search_and_learn(pool, query).await {
-        info!("[RAG] Agent successfully retrieved live external data.");
-        format!("\n[AUTONOMOUS LIVE SEARCH RESULT]:\n{}\n", agent_answer)
+        
+        // --- DATA PRUNING PROTOCOL ---
+        // Keeps only the most recent entry for each unique title to avoid "Data Clutter"
+        let prune_result = sqlx::query(
+            "DELETE FROM knowledge_base 
+             WHERE id NOT IN (
+                SELECT id FROM (
+                    SELECT id, ROW_NUMBER() OVER (PARTITION BY title ORDER BY published_at DESC) as rn 
+                    FROM knowledge_base
+                ) t WHERE t.rn = 1
+             )"
+        ).execute(pool).await;
+
+        match prune_result {
+            Ok(_) => info!("[RAG] Database Cleaned. Obsolete duplicates removed."),
+            Err(e) => warn!("[RAG] Pruning failed: {:?}", e),
+        }
+
+        format!("\n[AUTONOMOUS LIVE INTELLIGENCE]:\n{}\n", agent_answer)
     } else {
-        warn!("[RAG] Autonomous Agent failed to retrieve data.");
+        warn!("[RAG] Autonomous Agent failed to fetch live data.");
         String::new()
     }
 }
