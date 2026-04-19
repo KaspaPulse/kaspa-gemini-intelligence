@@ -75,7 +75,12 @@ pub fn spawn_background_vectorizer(ctx: AppContext, token: CancellationToken) {
                             continue;
                         }
                         
-                        info!("[VECTORIZER] Processing batch of {} documents...", rows.len());
+                                        // [INJECTED] Dynamic .env Feature Flag
+                if std::env::var("ENABLE_AI_VECTORIZER").unwrap_or_else(|_| "false".to_string()) != "true" {
+                    tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+                    continue; // Skip processing and check again later
+                }
+                info!("[VECTORIZER] Processing batch of {} documents...", rows.len());
                         let engine = &ctx.ai_engine;
                         
                         for (id, content) in rows {
@@ -107,4 +112,5 @@ pub fn spawn_background_vectorizer(ctx: AppContext, token: CancellationToken) {
         }
     });
 }
+
 
