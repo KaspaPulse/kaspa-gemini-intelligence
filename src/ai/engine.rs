@@ -34,9 +34,8 @@ impl LocalAiEngine {
         })
     }
 
-    /// 🧠 NEW: Generate Vector Embeddings for Semantic Search
+    /// 🧠 Generate Vector Embeddings for Semantic Search
     pub async fn get_embedding(&self, text: &str) -> anyhow::Result<Vec<f32>> {
-        // Use a dedicated Embedding API (like OpenAI) since Groq doesn't host embeddings yet.
         let embed_key = std::env::var("EMBEDDING_API_KEY").unwrap_or_else(|_| self.api_key.clone());
         let embed_url = std::env::var("EMBEDDING_BASE_URL").unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
         let embed_model = std::env::var("EMBEDDING_MODEL").unwrap_or_else(|_| "text-embedding-3-small".to_string());
@@ -45,7 +44,7 @@ impl LocalAiEngine {
         let body = json!({
             "model": embed_model,
             "input": text,
-            "dimensions": 1024 // 🛡️ Enforce 1024 dimensions to match our PostgreSQL pgvector schema!
+            "dimensions": 1024 
         });
 
         let res = self.client.post(&url)
@@ -54,14 +53,15 @@ impl LocalAiEngine {
             .send()
             .await?;
 
-        if res.status().is_success() {
+        let status = res.status();
+        if status.is_success() {
             let json_res: serde_json::Value = res.json().await?;
             if let Some(data) = json_res["data"][0]["embedding"].as_array() {
                 let vec: Vec<f32> = data.iter().filter_map(|v| v.as_f64().map(|f| f as f32)).collect();
                 return Ok(vec);
             }
         }
-        Err(anyhow::anyhow!("Embedding generation failed: {}", res.status()))
+        Err(anyhow::anyhow!("Embedding generation failed: {}", status))
     }
 
     pub async fn generate_stream<'a>(
@@ -71,28 +71,12 @@ impl LocalAiEngine {
         live_context: &'a str,
     ) -> anyhow::Result<impl Stream<Item = String> + 'a> {
         
-        // ⚡ Pass `self` to the RAG engine so it can generate vectors
         let rag_context = crate::ai::rag::get_rag_context(pool, prompt, self).await;
 
         let system_message = format!(
-            "You are the 'Kaspa Sovereign Intelligence', the lead architect of this node infrastructure.
-
-[MANDATORY OPERATING PROTOCOLS]
-1. NEVER say 'I don't know' if info exists in the [INTERNAL KNOWLEDGE BASE] or [LIVE DATA].
-2. ABSOLUTE TRUTH: Treat all data in [INTERNAL KNOWLEDGE BASE] as verified facts.
-3. RUST ONLY: You are a Rust expert.
-4. NO HALLUCINATION: Do not invent facts outside the provided context.
-5. FORMATTING: Use Telegram HTML (<b>, <i>, <code>).
-
-[LIVE NODE DATA]
-{}
-
-[INTERNAL KNOWLEDGE BASE]
-{}
-
-[PERSONA]
-You are the owner of kaspadns. When asked about Nginx, SSL, or server logic, answer as the engineer who built it.",
-            live_context, rag_context
+            "You are the 'Kaspa Sovereign Intelligence', the lead architect of this node infrastructure. \
+             Use local RAG context and live data as absolute truth. Rust code only. \
+             [LIVE DATA]: {} [RAG]: {}", live_context, rag_context
         );
 
         let url = format!("{}/chat/completions", self.base_url);
@@ -116,14 +100,13 @@ You are the owner of kaspadns. When asked about Nginx, SSL, or server logic, ans
             return Err(anyhow::anyhow!("AI Engine Error: {}", res.status()));
         }
 
-        let s = stream! {
+        Ok(stream! {
             while let Ok(Some(chunk)) = res.chunk().await {
                 let text = String::from_utf8_lossy(&chunk);
                 for line in text.lines() {
                     if line.starts_with("data: ") {
                         let data = &line[6..];
                         if data == "[DONE]" { break; }
-                        
                         if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(data) {
                             if let Some(content) = parsed["choices"][0]["delta"]["content"].as_str() {
                                 yield content.to_string();
@@ -132,14 +115,10 @@ You are the owner of kaspadns. When asked about Nginx, SSL, or server logic, ans
                     }
                 }
             }
-        };
-
-        Ok(s)
+        })
     }
 
-    pub async fn generate_audio(&self, pool: &PgPool, audio_bytes: Vec<u8>, live_context: &str) -> anyhow::Result<String> {
-        // [Keep the existing audio function code here as it was]
-        tracing::info!("[AI ENGINE] Transcribing via {}...", self.audio_model);
+    pub async fn generate_audio(&self, _pool: &PgPool, audio_bytes: Vec<u8>, _live_context: &str) -> anyhow::Result<String> {
         let url = format!("{}/audio/transcriptions", self.base_url);
         let part = reqwest::multipart::Part::bytes(audio_bytes).file_name("audio.ogg").mime_str("audio/ogg")?;
         let form = reqwest::multipart::Form::new().part("file", part).text("model", self.audio_model.clone());
