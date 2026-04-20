@@ -121,9 +121,7 @@ Once deployed:
 | `/learn <text>`      | Manually inject new Kaspa facts into the AI's Vector DB        |
 | `/autolearn`         | Force the AI to scrape official Kaspa RSS feeds                |
 | `/sync`              | Trigger a manual historical BlockDAG reverse-scan              |
-
----
-
+```
 ## ⚙️ Prerequisites
 
 ### 🔧 Build Tools & Database
@@ -131,7 +129,7 @@ Once deployed:
 * **Rust:** `v1.70+`
 * **Database:** PostgreSQL `v15+` with `pgvector` extension enabled.
 * **OS:** Linux (Ubuntu 22.04/24.04 recommended) or Windows.
-
+```
 ```bash
 # Ubuntu Dependencies
 sudo apt update && sudo apt install -y cmake build-essential pkg-config libssl-dev postgresql postgresql-contrib
