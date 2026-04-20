@@ -1,30 +1,27 @@
 use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
 
-/// 🟢 PUBLIC USER MENU: Modern UI with Categorized Grid Layout
+/// 🟢 PUBLIC USER MENU: Complete features with BlockDAG & Support
 pub fn main_menu_markup() -> InlineKeyboardMarkup {
     let rows = vec![
         // --- 💰 Wallet & Mining ---
         vec![
-            InlineKeyboardButton::callback("💰 My Balances", "cmd_balance"),
-            InlineKeyboardButton::callback("💼 Tracked Wallets", "cmd_list"),
+            InlineKeyboardButton::callback("💰 Balances", "cmd_balance"),
+            InlineKeyboardButton::callback("💼 Wallets", "cmd_list"),
+            InlineKeyboardButton::callback("⛏️ Hashrate", "cmd_miner"),
         ],
         vec![
-            InlineKeyboardButton::callback("⛏️ My Hashrate", "cmd_miner"),
             InlineKeyboardButton::callback("🧱 Mined Blocks", "cmd_blocks"),
-        ],
-        // --- 📈 Market & Price ---
-        vec![
             InlineKeyboardButton::callback("💵 KAS Price", "cmd_price"),
-            InlineKeyboardButton::callback("📈 Market Data", "cmd_market"),
+            InlineKeyboardButton::callback("📈 Market", "cmd_market"),
         ],
         // --- 🌐 Network & Blockchain ---
         vec![
-            InlineKeyboardButton::callback("🌐 Network Stats", "cmd_network"),
-            InlineKeyboardButton::callback("📦 BlockDAG Details", "cmd_dag"),
+            InlineKeyboardButton::callback("🌐 Network", "cmd_network"),
+            InlineKeyboardButton::callback("📦 BlockDAG", "cmd_dag"),
         ],
         vec![
-            InlineKeyboardButton::callback("🪙 Coin Supply", "cmd_supply"),
-            InlineKeyboardButton::callback("⛽ Mempool Fees", "cmd_fees"),
+            InlineKeyboardButton::callback("🪙 Supply", "cmd_supply"),
+            InlineKeyboardButton::callback("⛽ Fees", "cmd_fees"),
         ],
         // --- 🆘 Help & Support ---
         vec![
@@ -35,39 +32,51 @@ pub fn main_menu_markup() -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(rows)
 }
 
-/// 🔴 ADMIN TERMINAL: Enterprise Command Center
+/// 🔴 ADMIN TERMINAL: Enterprise Command Center (ALL FEATURES)
 pub fn admin_menu_markup() -> InlineKeyboardMarkup {
     let rows = vec![
         // --- ⚙️ SYSTEM & CONTROL ---
         vec![InlineKeyboardButton::callback("─── ⚙️ SYSTEM CONTROL ⚙️ ───", "none")],
         vec![
-            InlineKeyboardButton::callback("⚙️ Enterprise Settings", "cmd_settings"),
-            InlineKeyboardButton::callback("📊 Global Analytics", "cmd_stats"),
+            InlineKeyboardButton::callback("⚙️ Settings", "cmd_settings"),
+            InlineKeyboardButton::callback("📊 Analytics", "cmd_stats"),
+            InlineKeyboardButton::callback("🖥️ Hardware", "cmd_sys"),
         ],
         vec![
-            InlineKeyboardButton::callback("🖥️ Hardware Monitor", "cmd_sys"),
-            InlineKeyboardButton::callback("📜 View Bot Logs", "cmd_logs"),
+            InlineKeyboardButton::callback("📜 View Logs", "cmd_logs"),
+            InlineKeyboardButton::callback("🔄 Node Sync", "admin_sync_blocks"),
         ],
         
-        // --- 🛠️ CORE OPERATIONS ---
+        // --- 🛠️ OPERATIONS ---
         vec![InlineKeyboardButton::callback("─── 🛠️ OPERATIONS ───", "none")],
-        vec![
-            InlineKeyboardButton::callback("🔄 Global Node Sync", "admin_sync_blocks"),
-        ],
         vec![
             InlineKeyboardButton::callback("⏸️ Pause Engine", "cmd_pause"),
             InlineKeyboardButton::callback("▶️ Resume Engine", "cmd_resume"),
-        ],
-        vec![
             InlineKeyboardButton::callback("⚠️ Restart System", "cmd_restart"),
         ],
 
-        // --- 👤 PUBLIC SHORTCUTS ---
-        vec![InlineKeyboardButton::callback("─── 👤 PUBLIC FEATURES ───", "none")],
+        // --- 👤 ALL PUBLIC FEATURES ---
+        vec![InlineKeyboardButton::callback("─── 👤 ALL FEATURES ───", "none")],
         vec![
             InlineKeyboardButton::callback("💰 Balances", "cmd_balance"),
             InlineKeyboardButton::callback("💼 Wallets", "cmd_list"),
+            InlineKeyboardButton::callback("⛏️ Hashrate", "cmd_miner"),
+        ],
+        vec![
+            InlineKeyboardButton::callback("🧱 Mined Blocks", "cmd_blocks"),
+            InlineKeyboardButton::callback("💵 KAS Price", "cmd_price"),
+            InlineKeyboardButton::callback("📈 Market Data", "cmd_market"),
+        ],
+        vec![
             InlineKeyboardButton::callback("🌐 Network", "cmd_network"),
+            InlineKeyboardButton::callback("📦 BlockDAG", "cmd_dag"),
+        ],
+        vec![
+            InlineKeyboardButton::callback("🪙 Coin Supply", "cmd_supply"),
+            InlineKeyboardButton::callback("⛽ Mempool Fees", "cmd_fees"),
+        ],
+        vec![
+            InlineKeyboardButton::callback("❤️ Support Developer", "cmd_donate"),
         ],
     ];
 
