@@ -128,6 +128,7 @@ pub async fn handle_callback(
                 "cmd_stats" => (Some(Command::Stats), false),
                 "refresh_stats" => (Some(Command::Stats), true),
                 "cmd_sys" => (Some(Command::Sys), false),
+                "cmd_settings" => (Some(Command::Settings), false),
                 "refresh_sys" => (Some(Command::Sys), true),
                 "cmd_donate" => (Some(Command::Donate), false),
                 "cmd_logs" => (Some(Command::Logs), false),
@@ -234,4 +235,5 @@ async fn execute_command(
     );
     Ok(())
 }
+
 

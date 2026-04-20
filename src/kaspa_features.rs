@@ -66,6 +66,9 @@ pub fn admin_menu_markup() -> InlineKeyboardMarkup {
             InlineKeyboardButton::callback("📜 View Logs", "cmd_logs"),
         ],
         vec![
+            InlineKeyboardButton::callback("⚙️ Enterprise Settings", "cmd_settings"),
+        ],
+        vec![
             InlineKeyboardButton::callback("⏸️ Pause", "cmd_pause"),
             InlineKeyboardButton::callback("▶️ Resume", "cmd_resume"),
             InlineKeyboardButton::callback("🔄 Restart", "cmd_restart"),
@@ -107,3 +110,4 @@ pub fn format_hashrate(h: f64) -> String {
         format!("{:.2} H/s", h)
     }
 }
+
