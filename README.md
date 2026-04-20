@@ -1,4 +1,4 @@
-```markdown
+```
 # 🦀 Kaspa Pulse: The Ultimate Enterprise Miner's Companion
 
 ![Rust](https://img.shields.io/badge/Rust-1.70+-orange.svg?style=flat-square)
@@ -130,7 +130,8 @@ Once deployed:
 * **Database:** PostgreSQL `v15+` with `pgvector` extension enabled.
 * **OS:** Linux (Ubuntu 22.04/24.04 recommended) or Windows.
 ```
-```bash
+
+```
 # Ubuntu Dependencies
 sudo apt update && sudo apt install -y cmake build-essential pkg-config libssl-dev postgresql postgresql-contrib
 ```
@@ -138,7 +139,7 @@ sudo apt update && sudo apt install -y cmake build-essential pkg-config libssl-d
 
 Create a `.env` file in the root directory:
 
-```env
+```
 # 🤖 TELEGRAM BOT CONFIGURATION
 BOT_TOKEN=your_telegram_bot_token_here
 ADMIN_ID=your_telegram_user_id
