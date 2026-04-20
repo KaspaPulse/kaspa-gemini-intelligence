@@ -82,6 +82,17 @@ pub async fn init_db(db_url: &str) -> Result<PgPool, sqlx::Error> {
     )
     .execute(&pool)
     .await?;
+        // Initialize system_settings table for dynamic configuration
+    sqlx::query!(
+        "CREATE TABLE IF NOT EXISTS system_settings (
+            key_name VARCHAR(50) PRIMARY KEY,
+            value_data TEXT NOT NULL,
+            updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+        )"
+    )
+    .execute(&pool)
+    .await?;
+
     Ok(pool)
 }
 
@@ -269,3 +280,27 @@ pub async fn get_knowledge_context(pool: &PgPool, keyword: &str) -> Option<Strin
 
 
 
+
+/// Retrieves a dynamic setting from the database, or initializes it with a default value.
+pub async fn get_setting(pool: &PgPool, key: &str, default: &str) -> String {
+    let res = sqlx::query_scalar!("SELECT value_data FROM system_settings WHERE key_name = ", key)
+        .fetch_optional(pool)
+        .await
+        .unwrap_or(None);
+    
+    match res {
+        Some(val) => val,
+        None => {
+            let _ = sqlx::query!("INSERT INTO system_settings (key_name, value_data) VALUES (, ) ON CONFLICT DO NOTHING", key, default)
+                .execute(pool).await;
+            default.to_string()
+        }
+    }
+}
+
+/// Safely updates a dynamic setting in the database.
+pub async fn update_setting(pool: &PgPool, key: &str, value: &str) -> Result<(), sqlx::Error> {
+    sqlx::query!("INSERT INTO system_settings (key_name, value_data) VALUES (, ) ON CONFLICT (key_name) DO UPDATE SET value_data = EXCLUDED.value_data, updated_at = CURRENT_TIMESTAMP", key, value)
+        .execute(pool).await?;
+    Ok(())
+}

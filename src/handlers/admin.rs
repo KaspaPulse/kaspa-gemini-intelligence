@@ -373,31 +373,20 @@ pub fn verify_admin_access(user_id: Option<u64>) -> bool {
 pub async fn handle_settings(bot: Bot, chat_id: ChatId, user_id: i64, ctx: &AppContext) {
     if user_id != ctx.admin_id { return; }
 
-    let env_content = std::fs::read_to_string(".env").unwrap_or_default();
     let keys = vec![
-        ("MAINTENANCE_MODE", "🔒 Restricted admin-only mode."),
-        ("ALLOW_PUBLIC_USERS", "🌍 Public access toggle."),
-        ("ENABLE_RSS_WORKER", "📰 News crawler activity."),
-        ("ENABLE_MEMORY_CLEANER", "🧠 Periodic RAM purge."),
-        ("ENABLE_LIVE_SYNC", "🔄 Real-time node indexing."),
-        ("ENABLE_AI_VECTORIZER", "🤖 AI Knowledge indexing."),
-        ("ENABLE_AI_CHAT", "💬 AI Text Chat (LLM)."),
-        ("ENABLE_AI_VOICE", "🎤 AI Voice Analysis (Whisper)."),
-        ("RUST_LOG", "📋 Logging level (info/debug)."),
-        ("AI_PROVIDER", "🧠 Model provider (groq/openai)."),
-        ("MAX_AI_TOKENS", "💰 AI token spending limit."),
-        ("MIN_CONFIRMATIONS", "🧱 Mining confirmation threshold."),
-        ("WS_URL", "🌐 Targeted Node address.")
+        ("ENABLE_RSS_WORKER", "📰 News crawler activity.", "true"),
+        ("ENABLE_MEMORY_CLEANER", "🧠 Periodic RAM purge.", "true"),
+        ("ENABLE_LIVE_SYNC", "🔄 Real-time node indexing.", "true"),
+        ("ENABLE_AI_VECTORIZER", "🤖 AI Knowledge indexing.", "true"),
+        ("ENABLE_AI_CHAT", "💬 AI Text Chat (LLM).", "true"),
+        ("ENABLE_AI_VOICE", "🎤 AI Voice Analysis (Whisper).", "true"),
+        ("MAINTENANCE_MODE", "🔒 Restricted admin-only mode.", "false"),
     ];
 
-    let mut response = String::from("⚙️ <b>Kaspa Pulse Control Panel</b>\n━━━━━━━━━━━━━━━━━━\n");
+    let mut response = String::from("⚙️ <b>Enterprise Control Panel (Database)</b>\n━━━━━━━━━━━━━━━━━━\n");
 
-    for (key, desc) in keys {
-        let value = env_content.lines()
-            .find(|l| l.starts_with(&format!("{}=", key)))
-            .map(|l| l.split('=').nth(1).unwrap_or("N/A"))
-            .unwrap_or("N/A");
-        
+    for (key, desc, default_val) in keys {
+        let value = crate::state::get_setting(&ctx.pool, key, default_val).await;
         let status_icon = if value == "true" { "🟢" } else if value == "false" { "🔴" } else { "⚙️" };
         response.push_str(&format!(
             "{} <b>{}</b>: <code>{}</code>\n<i>{}</i>\nToggle: <code>/toggle {}</code>\n\n",
@@ -408,14 +397,32 @@ pub async fn handle_settings(bot: Bot, chat_id: ChatId, user_id: i64, ctx: &AppC
     if let Err(e) = bot.send_message(chat_id, response).parse_mode(teloxide::types::ParseMode::Html).await { tracing::error!("[TELEGRAM API ERROR] Failed to execute: {}", e); }
 }
 
-pub async fn handle_toggle(bot: Bot, chat_id: ChatId, user_id: i64, _input: String, ctx: &AppContext) {
+pub async fn handle_toggle(bot: Bot, chat_id: ChatId, user_id: i64, input: String, ctx: &AppContext) {
     if user_id != ctx.admin_id { return; }
 
-    // Enterprise Security: Dynamic .env modification is strictly disabled.
-    if let Err(e) = bot.send_message(
-        chat_id, 
-        "⚠️ <b>Security Alert:</b> In-app environment modification is disabled for security reasons.\nPlease edit the <code>.env</code> file manually on the server to ensure the protection of secret keys."
-    ).parse_mode(teloxide::types::ParseMode::Html).await {
-        tracing::error!("[TELEGRAM API ERROR] Failed to execute: {}", e);
+    let parts: Vec<&str> = input.split('=').collect();
+    let key = parts[0].trim().to_uppercase();
+
+    // Enterprise Security: Block modification of critical environment secrets
+    let restricted = vec!["BOT_TOKEN", "DATABASE_URL", "AI_API_KEY", "ADMIN_ID"];
+    if restricted.contains(&key.as_str()) {
+        let _ = bot.send_message(chat_id, "🚫 <b>Security Alert:</b> Modifying core secrets is restricted. Use the .env file on the server.").parse_mode(teloxide::types::ParseMode::Html).await;
+        return;
+    }
+
+    let current_val = crate::state::get_setting(&ctx.pool, &key, "false").await;
+    
+    let new_val = if parts.len() > 1 {
+        parts[1].trim().to_string() 
+    } else if current_val == "true" {
+        "false".to_string() 
+    } else {
+        "true".to_string() 
+    };
+
+    if let Ok(_) = crate::state::update_setting(&ctx.pool, &key, &new_val).await {
+        let _ = bot.send_message(chat_id, format!("✅ <b>{}</b> updated to <code>{}</code>\n<i>Changes applied instantly. No restart required.</i>", key, new_val)).parse_mode(teloxide::types::ParseMode::Html).await;
+    } else {
+        let _ = bot.send_message(chat_id, "❌ <b>Database Error:</b> Failed to update the setting.").parse_mode(teloxide::types::ParseMode::Html).await;
     }
 }

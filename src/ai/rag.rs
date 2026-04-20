@@ -76,7 +76,7 @@ pub fn spawn_background_vectorizer(ctx: AppContext, token: CancellationToken) {
                         }
                         
                                         // [INJECTED] Dynamic .env Feature Flag
-                if std::env::var("ENABLE_AI_VECTORIZER").unwrap_or_else(|_| "false".to_string()) != "true" {
+                if crate::state::get_setting(&ctx.pool, "ENABLE_AI_VECTORIZER", "true").await != "true" {
                     tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
                     continue; // Skip processing and check again later
                 }
@@ -112,5 +112,7 @@ pub fn spawn_background_vectorizer(ctx: AppContext, token: CancellationToken) {
         }
     });
 }
+
+
 
 
