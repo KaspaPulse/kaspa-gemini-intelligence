@@ -1,6 +1,6 @@
 // [INJECTED BY PHASE 3 SECURITY SCRIPT]
-use tokio::task;
 use anyhow::Result;
+use tokio::task;
 
 pub async fn run_heavy_task<F, T>(func: F) -> Result<T>
 where

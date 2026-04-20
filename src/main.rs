@@ -1,14 +1,13 @@
-pub mod resilience;
-pub mod enterprise;
 #[allow(clippy::manual_range_contains)]
-
 pub mod agent;
 mod ai;
 mod commands;
 mod context;
+pub mod enterprise;
 mod handlers;
-pub mod services;
 mod kaspa_features;
+pub mod resilience;
+pub mod services;
 mod state;
 mod utils;
 mod workers;
@@ -75,12 +74,13 @@ async fn main() -> Result<(), BotError> {
         env::var("ADMIN_ID").map_err(|_| BotError::EnvVarMissing("ADMIN_ID".into()))?;
     let admin_id: i64 = admin_id_str.parse().unwrap_or(0);
     let ws_url = env::var("WS_URL").unwrap_or_else(|_| "ws://127.0.0.1:18110".to_string());
-    
+
     let network_id = NetworkId::from_str("mainnet")
         .unwrap_or_else(|_| NetworkId::from_str("testnet-12").unwrap());
 
     // 🛡️ Phase 1 Fix: Safe Database URL loading
-    let db_url = env::var("DATABASE_URL").map_err(|_| BotError::EnvVarMissing("DATABASE_URL".into()))?;
+    let db_url =
+        env::var("DATABASE_URL").map_err(|_| BotError::EnvVarMissing("DATABASE_URL".into()))?;
     let pool = crate::state::init_db(&db_url).await?;
 
     // Redis removed: State is now natively managed via DashMap for ultra-low latency.
@@ -121,7 +121,7 @@ async fn main() -> Result<(), BotError> {
     }
 
     // Establish Kaspa wRPC Tunnel
-    let rpc_client = KaspaRpcClient::new( 
+    let rpc_client = KaspaRpcClient::new(
         WrpcEncoding::SerdeJson,
         Some(&ws_url),
         None,
@@ -135,7 +135,7 @@ async fn main() -> Result<(), BotError> {
     let ai_engine = Arc::new(
         // 🛡️ Phase 1 Fix: Safe AI Key loading
         crate::ai::LocalAiEngine::new()
-            .map_err(|_| BotError::EnvVarMissing("AI_API_KEY".into()))?
+            .map_err(|_| BotError::EnvVarMissing("AI_API_KEY".into()))?,
     );
 
     let ctx = AppContext {
@@ -165,7 +165,9 @@ async fn main() -> Result<(), BotError> {
         teloxide::types::BotCommand::new("miner", "Estimate solo-mining hashrate"),
         teloxide::types::BotCommand::new("network", "View node & network stats"),
     ];
-    if let Err(e) = bot.set_my_commands(public_commands).await { tracing::error!("[TELEGRAM API ERROR] Failed to execute: {}", e); }
+    if let Err(e) = bot.set_my_commands(public_commands).await {
+        tracing::error!("[TELEGRAM API ERROR] Failed to execute: {}", e);
+    }
     let _ = bot
         .set_my_commands(Command::bot_commands())
         .scope(teloxide::types::BotCommandScope::Chat {
@@ -192,7 +194,7 @@ async fn main() -> Result<(), BotError> {
 
     info!("🚀 Dispatcher is LIVE! Ready for users.");
 
-    let mut dispatcher = Dispatcher::builder(bot.clone(), handler) 
+    let mut dispatcher = Dispatcher::builder(bot.clone(), handler)
         .dependencies(dptree::deps![ctx])
         .enable_ctrlc_handler()
         .default_handler(|update: Arc<Update>| async move {
@@ -208,16 +210,20 @@ async fn main() -> Result<(), BotError> {
 
     if use_webhook {
         // 🛡️ Phase 1 Fix: Webhook environment variables safety
-        let domain = std::env::var("WEBHOOK_DOMAIN").unwrap_or_else(|_| "localhost".to_string()); 
+        let domain = std::env::var("WEBHOOK_DOMAIN").unwrap_or_else(|_| "localhost".to_string());
         let port: u16 = std::env::var("WEBHOOK_PORT")
             .unwrap_or_else(|_| "8443".to_string())
             .parse()
-            .unwrap_or(8443); 
+            .unwrap_or(8443);
         let addr = ([0, 0, 0, 0], port).into();
-        let url = format!("https://{}/webhook", domain).parse().map_err(|e| BotError::EnvVarMissing(format!("Invalid Webhook URL: {}", e)))?; 
+        let url = format!("https://{}/webhook", domain)
+            .parse()
+            .map_err(|e| BotError::EnvVarMissing(format!("Invalid Webhook URL: {}", e)))?;
 
         // ✅ Delete any rogue polling updates BEFORE setting the Webhook
-        if let Err(e) = bot.delete_webhook().drop_pending_updates(true).send().await { tracing::error!("[TELEGRAM API ERROR] Failed to execute: {}", e); }
+        if let Err(e) = bot.delete_webhook().drop_pending_updates(true).send().await {
+            tracing::error!("[TELEGRAM API ERROR] Failed to execute: {}", e);
+        }
 
         tracing::info!(
             "🌐 [NETWORK] Enterprise Webhook Mode Active. Listening on port {} for domain {}",
@@ -230,8 +236,8 @@ async fn main() -> Result<(), BotError> {
             teloxide::update_listeners::webhooks::Options::new(addr, url),
         )
         .await
-        .map_err(|e| BotError::EnvVarMissing(format!("Webhook Error: {}", e)))?; 
-        
+        .map_err(|e| BotError::EnvVarMissing(format!("Webhook Error: {}", e)))?;
+
         let error_handler =
             teloxide::error_handlers::LoggingErrorHandler::with_custom_text("Webhook Error");
 
@@ -240,11 +246,13 @@ async fn main() -> Result<(), BotError> {
             .await;
     } else {
         // ✅ Delete Webhook explicitly to allow Polling to work
-        if let Err(e) = bot.delete_webhook().drop_pending_updates(true).send().await { tracing::error!("[TELEGRAM API ERROR] Failed to execute: {}", e); }
+        if let Err(e) = bot.delete_webhook().drop_pending_updates(true).send().await {
+            tracing::error!("[TELEGRAM API ERROR] Failed to execute: {}", e);
+        }
 
         tracing::info!("🔄 [NETWORK] Polling Mode Active (Standard Development Fallback).");
-        
-        dispatcher.dispatch().await; 
+
+        dispatcher.dispatch().await;
     }
 
     Ok(())

@@ -167,7 +167,9 @@ pub async fn handle_balance(
         .map(|e| e.key().clone())
         .collect();
     for wallet_str in tracked_wallets {
-                if let Ok((balance, utxo_count)) = crate::services::kaspa::KaspaNodeService::get_balance(&ctx.rpc, &wallet_str).await {
+        if let Ok((balance, utxo_count)) =
+            crate::services::kaspa::KaspaNodeService::get_balance(&ctx.rpc, &wallet_str).await
+        {
             total += balance;
             text.push_str(&format!(
                 "⏱️ <code>{}</code>\n├ <b>Live Balance:</b> {:.8} KAS\n└ <b>UTXOs:</b> {}\n\n",
@@ -176,7 +178,10 @@ pub async fn handle_balance(
                 utxo_count
             ));
         } else {
-            tracing::error!("[NODE ERROR] Failed to fetch data for wallet: {}", wallet_str);
+            tracing::error!(
+                "[NODE ERROR] Failed to fetch data for wallet: {}",
+                wallet_str
+            );
         }
     }
     text.push_str(&format!(
@@ -190,7 +195,10 @@ pub async fn handle_balance(
         text,
         Some(refresh_markup("refresh_balance")),
     )
-    .await { tracing::error!("[UI ERROR] Failed to send/edit message: {}", e); }
+    .await
+    {
+        tracing::error!("[UI ERROR] Failed to send/edit message: {}", e);
+    }
 }
 
 pub async fn handle_blocks(
@@ -214,7 +222,10 @@ pub async fn handle_blocks(
             "⚠️ <b>No wallets tracked.</b>".to_string(),
             None,
         )
-        .await { tracing::error!("[UI ERROR] Failed to send/edit message: {}", e); }
+        .await
+        {
+            tracing::error!("[UI ERROR] Failed to send/edit message: {}", e);
+        }
         return;
     }
     let mut text = format!(
@@ -259,7 +270,10 @@ pub async fn handle_blocks(
         text,
         Some(refresh_markup("refresh_blocks")),
     )
-    .await { tracing::error!("[UI ERROR] Failed to send/edit message: {}", e); }
+    .await
+    {
+        tracing::error!("[UI ERROR] Failed to send/edit message: {}", e);
+    }
 }
 
 pub async fn handle_miner(
@@ -320,7 +334,10 @@ pub async fn handle_miner(
         text,
         Some(refresh_markup("refresh_miner")),
     )
-    .await { tracing::error!("[UI ERROR] Failed to send/edit message: {}", e); }
+    .await
+    {
+        tracing::error!("[UI ERROR] Failed to send/edit message: {}", e);
+    }
 }
 
 pub async fn handle_network(
@@ -391,7 +408,10 @@ pub async fn handle_network(
         text,
         Some(refresh_markup("refresh_network")),
     )
-    .await { tracing::error!("[UI ERROR] Failed to send/edit message: {}", e); }
+    .await
+    {
+        tracing::error!("[UI ERROR] Failed to send/edit message: {}", e);
+    }
 }
 
 pub async fn handle_dag(
@@ -410,7 +430,10 @@ pub async fn handle_dag(
             text,
             Some(refresh_markup("refresh_dag")),
         )
-        .await { tracing::error!("[UI ERROR] Failed to send/edit message: {}", e); }
+        .await
+        {
+            tracing::error!("[UI ERROR] Failed to send/edit message: {}", e);
+        }
     }
 }
 
@@ -440,7 +463,10 @@ pub async fn handle_price(
         text,
         Some(refresh_markup("refresh_price")),
     )
-    .await { tracing::error!("[UI ERROR] Failed to send/edit message: {}", e); }
+    .await
+    {
+        tracing::error!("[UI ERROR] Failed to send/edit message: {}", e);
+    }
 }
 
 pub async fn handle_market(
@@ -470,7 +496,10 @@ pub async fn handle_market(
         text,
         Some(refresh_markup("refresh_market")),
     )
-    .await { tracing::error!("[UI ERROR] Failed to send/edit message: {}", e); }
+    .await
+    {
+        tracing::error!("[UI ERROR] Failed to send/edit message: {}", e);
+    }
 }
 
 pub async fn handle_supply(
@@ -491,7 +520,10 @@ pub async fn handle_supply(
             text,
             Some(refresh_markup("refresh_supply")),
         )
-        .await { tracing::error!("[UI ERROR] Failed to send/edit message: {}", e); }
+        .await
+        {
+            tracing::error!("[UI ERROR] Failed to send/edit message: {}", e);
+        }
     }
 }
 
@@ -515,9 +547,10 @@ pub async fn handle_fees(
                 text,
                 Some(refresh_markup("refresh_fees")),
             )
-            .await { tracing::error!("[UI ERROR] Failed to send/edit message: {}", e); }
+            .await
+            {
+                tracing::error!("[UI ERROR] Failed to send/edit message: {}", e);
+            }
         }
     }
 }
-
-

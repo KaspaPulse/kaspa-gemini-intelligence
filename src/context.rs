@@ -14,7 +14,7 @@ pub type SpamLimiter = Arc<RateLimiter<i64, DefaultKeyedStateStore<i64>, Default
 #[derive(Clone)]
 pub struct AppContext {
     pub rpc: Arc<KaspaRpcClient>,
-    pub pool: PgPool,             // 🐘 Moved to PostgreSQL
+    pub pool: PgPool, // 🐘 Moved to PostgreSQL
     pub state: SharedState,
     pub utxo_state: UtxoState,
     pub monitoring: Arc<AtomicBool>,
@@ -31,5 +31,3 @@ impl AppContext {
         ))
     }
 }
-
-

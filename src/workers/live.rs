@@ -57,7 +57,7 @@ pub fn spawn_utxo_monitor(ctx: AppContext, bot: Bot, token: CancellationToken) {
                                     let (f_tx, w_cl, rpc_cl) = (tx_id.clone(), wallet.clone(), Arc::clone(&ctx.rpc));
                                     let pool_cl = ctx.pool.clone();
                                     let addr_cl = addr.clone();
-                                    
+
                                     // 🛡️ Phase 1 Fix: Safe Semaphore Acquisition (No unwrap panic)
                                     let permit = match Arc::clone(&semaphore).acquire_owned().await { Ok(p) => p, Err(_) => continue, };
 

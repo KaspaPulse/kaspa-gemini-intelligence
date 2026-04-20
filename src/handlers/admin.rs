@@ -32,7 +32,12 @@ pub async fn handle_stats(
     let mut text = format!("📊 <b>Enterprise Analytics</b>\n━━━━━━━━━━━━━━━━━━\n👥 <b>Active Users:</b> {}\n💼 <b>Tracked Wallets:</b> {}\n🌐 <b>Node Ping:</b> {}\n\n📋 <b>Detailed User Report:</b>\n", total_users.len(), ctx.state.len(), status);
     // [PHASE 2 FIX] Pre-fetch block counts to resolve N+1 query bottleneck
     let mut block_counts = std::collections::HashMap::new();
-    if let Ok(records) = sqlx::query_as::<_, (String, i64)>("SELECT wallet, COUNT(*) FROM mined_blocks GROUP BY wallet").fetch_all(&ctx.pool).await {
+    if let Ok(records) = sqlx::query_as::<_, (String, i64)>(
+        "SELECT wallet, COUNT(*) FROM mined_blocks GROUP BY wallet",
+    )
+    .fetch_all(&ctx.pool)
+    .await
+    {
         for (w, count) in records {
             block_counts.insert(w, count);
         }
@@ -81,7 +86,10 @@ pub async fn handle_stats(
         text,
         Some(refresh_markup("refresh_stats")),
     )
-    .await { tracing::error!("[UI ERROR] Failed to send/edit message: {}", e); }
+    .await
+    {
+        tracing::error!("[UI ERROR] Failed to send/edit message: {}", e);
+    }
 }
 
 pub async fn handle_sys(
@@ -130,7 +138,10 @@ pub async fn handle_sys(
         text,
         Some(refresh_markup("refresh_sys")),
     )
-    .await { tracing::error!("[UI ERROR] Failed to send/edit message: {}", e); }
+    .await
+    {
+        tracing::error!("[UI ERROR] Failed to send/edit message: {}", e);
+    }
 }
 
 pub async fn handle_pause(bot: Bot, chat_id: ChatId, user_id: i64, ctx: &AppContext) {
@@ -143,7 +154,10 @@ pub async fn handle_pause(bot: Bot, chat_id: ChatId, user_id: i64, ctx: &AppCont
             "⏸️ <b>Monitoring Paused.</b>".to_string(),
             None,
         )
-        .await { tracing::error!("[UI ERROR] Failed to send/edit message: {}", e); }
+        .await
+        {
+            tracing::error!("[UI ERROR] Failed to send/edit message: {}", e);
+        }
     }
 }
 
@@ -157,7 +171,10 @@ pub async fn handle_resume(bot: Bot, chat_id: ChatId, user_id: i64, ctx: &AppCon
             "▶️ <b>Monitoring Active.</b>".to_string(),
             None,
         )
-        .await { tracing::error!("[UI ERROR] Failed to send/edit message: {}", e); }
+        .await
+        {
+            tracing::error!("[UI ERROR] Failed to send/edit message: {}", e);
+        }
     }
 }
 
@@ -170,8 +187,11 @@ pub async fn handle_restart(bot: Bot, chat_id: ChatId, user_id: i64, ctx: &AppCo
             "🔄 <b>Restarting safely...</b>".to_string(),
             None,
         )
-        .await { tracing::error!("[UI ERROR] Failed to send/edit message: {}", e); }
-        tracing::info!("[SYSTEM] Restarting binary per admin request...");        
+        .await
+        {
+            tracing::error!("[UI ERROR] Failed to send/edit message: {}", e);
+        }
+        tracing::info!("[SYSTEM] Restarting binary per admin request...");
         std::process::exit(0);
     }
 }
@@ -203,7 +223,10 @@ pub async fn handle_broadcast(
             format!("✅ Broadcast sent to {} users.", count),
             None,
         )
-        .await { tracing::error!("[UI ERROR] Failed to send/edit message: {}", e); }
+        .await
+        {
+            tracing::error!("[UI ERROR] Failed to send/edit message: {}", e);
+        }
     }
 }
 
@@ -225,7 +248,10 @@ pub async fn handle_logs(bot: Bot, chat_id: ChatId, user_id: i64, ctx: &AppConte
                 ),
                 None,
             )
-            .await { tracing::error!("[UI ERROR] Failed to send/edit message: {}", e); }
+            .await
+            {
+                tracing::error!("[UI ERROR] Failed to send/edit message: {}", e);
+            }
         }
     }
 }
@@ -357,7 +383,7 @@ pub fn verify_admin_access(user_id: Option<u64>) -> bool {
         .unwrap_or_else(|_| "0".to_string())
         .parse()
         .unwrap_or(0);
-        
+
     if let Some(id) = user_id {
         if id == admin_id {
             return true;
@@ -374,7 +400,9 @@ pub fn verify_admin_access(user_id: Option<u64>) -> bool {
 // ==============================================================================
 
 pub async fn handle_settings(bot: Bot, chat_id: ChatId, user_id: i64, ctx: &AppContext) {
-    if user_id != ctx.admin_id { return; }
+    if user_id != ctx.admin_id {
+        return;
+    }
 
     let keys = vec![
         ("ENABLE_RSS_WORKER", "📰 News crawler activity.", "true"),
@@ -383,25 +411,50 @@ pub async fn handle_settings(bot: Bot, chat_id: ChatId, user_id: i64, ctx: &AppC
         ("ENABLE_AI_VECTORIZER", "🤖 AI Knowledge indexing.", "true"),
         ("ENABLE_AI_CHAT", "💬 AI Text Chat (LLM).", "true"),
         ("ENABLE_AI_VOICE", "🎤 AI Voice Analysis (Whisper).", "true"),
-        ("MAINTENANCE_MODE", "🔒 Restricted admin-only mode.", "false"),
+        (
+            "MAINTENANCE_MODE",
+            "🔒 Restricted admin-only mode.",
+            "false",
+        ),
     ];
 
-    let mut response = String::from("⚙️ <b>Enterprise Control Panel (Database)</b>\n━━━━━━━━━━━━━━━━━━\n");
+    let mut response =
+        String::from("⚙️ <b>Enterprise Control Panel (Database)</b>\n━━━━━━━━━━━━━━━━━━\n");
 
     for (key, desc, default_val) in keys {
         let value = crate::state::get_setting(&ctx.pool, key, default_val).await;
-        let status_icon = if value == "true" { "🟢" } else if value == "false" { "🔴" } else { "⚙️" };
+        let status_icon = if value == "true" {
+            "🟢"
+        } else if value == "false" {
+            "🔴"
+        } else {
+            "⚙️"
+        };
         response.push_str(&format!(
             "{} <b>{}</b>: <code>{}</code>\n<i>{}</i>\nToggle: <code>/toggle {}</code>\n\n",
             status_icon, key, value, desc, key
         ));
     }
 
-    if let Err(e) = bot.send_message(chat_id, response).parse_mode(teloxide::types::ParseMode::Html).await { tracing::error!("[TELEGRAM API ERROR] Failed to execute: {}", e); }
+    if let Err(e) = bot
+        .send_message(chat_id, response)
+        .parse_mode(teloxide::types::ParseMode::Html)
+        .await
+    {
+        tracing::error!("[TELEGRAM API ERROR] Failed to execute: {}", e);
+    }
 }
 
-pub async fn handle_toggle(bot: Bot, chat_id: ChatId, user_id: i64, input: String, ctx: &AppContext) {
-    if user_id != ctx.admin_id { return; }
+pub async fn handle_toggle(
+    bot: Bot,
+    chat_id: ChatId,
+    user_id: i64,
+    input: String,
+    ctx: &AppContext,
+) {
+    if user_id != ctx.admin_id {
+        return;
+    }
 
     let parts: Vec<&str> = input.split('=').collect();
     let key = parts[0].trim().to_uppercase();
@@ -414,18 +467,27 @@ pub async fn handle_toggle(bot: Bot, chat_id: ChatId, user_id: i64, input: Strin
     }
 
     let current_val = crate::state::get_setting(&ctx.pool, &key, "false").await;
-    
+
     let new_val = if parts.len() > 1 {
-        parts[1].trim().to_string() 
+        parts[1].trim().to_string()
     } else if current_val == "true" {
-        "false".to_string() 
+        "false".to_string()
     } else {
-        "true".to_string() 
+        "true".to_string()
     };
 
     if let Ok(_) = crate::state::update_setting(&ctx.pool, &key, &new_val).await {
         if let Err(e) = bot.send_message(chat_id, format!("✅ <b>{}</b> updated to <code>{}</code>\n<i>Changes applied instantly. No restart required.</i>", key, new_val)).parse_mode(teloxide::types::ParseMode::Html).await { tracing::error!("[TELEGRAM API ERROR] Interaction failed: {}", e); }
     } else {
-        if let Err(e) = bot.send_message(chat_id, "❌ <b>Database Error:</b> Failed to update the setting.").parse_mode(teloxide::types::ParseMode::Html).await { tracing::error!("[TELEGRAM API ERROR] Interaction failed: {}", e); }
+        if let Err(e) = bot
+            .send_message(
+                chat_id,
+                "❌ <b>Database Error:</b> Failed to update the setting.",
+            )
+            .parse_mode(teloxide::types::ParseMode::Html)
+            .await
+        {
+            tracing::error!("[TELEGRAM API ERROR] Interaction failed: {}", e);
+        }
     }
 }

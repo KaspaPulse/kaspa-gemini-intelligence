@@ -83,7 +83,8 @@ pub async fn search_and_learn(pool: &PgPool, query: &str) -> Option<String> {
 
 /// Commits findings to PostgreSQL and keeps the Knowledge Base fresh.
 async fn save_intelligence(pool: &PgPool, query: &str, body: &Value, answer: &str) {
-        let source_link = body.get("results")
+    let source_link = body
+        .get("results")
         .and_then(|r| r.as_array())
         .and_then(|arr| arr.first())
         .and_then(|first| first.get("url"))

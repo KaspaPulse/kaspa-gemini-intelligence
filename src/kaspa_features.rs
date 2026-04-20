@@ -24,9 +24,10 @@ pub fn main_menu_markup() -> InlineKeyboardMarkup {
             InlineKeyboardButton::callback("⛽ Fees", "cmd_fees"),
         ],
         // --- 🆘 Help & Support ---
-        vec![
-            InlineKeyboardButton::callback("❤️ Support Developer", "cmd_donate"),
-        ],
+        vec![InlineKeyboardButton::callback(
+            "❤️ Support Developer",
+            "cmd_donate",
+        )],
     ];
 
     InlineKeyboardMarkup::new(rows)
@@ -36,7 +37,10 @@ pub fn main_menu_markup() -> InlineKeyboardMarkup {
 pub fn admin_menu_markup() -> InlineKeyboardMarkup {
     let rows = vec![
         // --- ⚙️ SYSTEM & CONTROL ---
-        vec![InlineKeyboardButton::callback("─── ⚙️ SYSTEM CONTROL ⚙️ ───", "none")],
+        vec![InlineKeyboardButton::callback(
+            "─── ⚙️ SYSTEM CONTROL ⚙️ ───",
+            "none",
+        )],
         vec![
             InlineKeyboardButton::callback("⚙️ Settings", "cmd_settings"),
             InlineKeyboardButton::callback("📊 Analytics", "cmd_stats"),
@@ -46,17 +50,21 @@ pub fn admin_menu_markup() -> InlineKeyboardMarkup {
             InlineKeyboardButton::callback("📜 View Logs", "cmd_logs"),
             InlineKeyboardButton::callback("🔄 Node Sync", "admin_sync_blocks"),
         ],
-        
         // --- 🛠️ OPERATIONS ---
-        vec![InlineKeyboardButton::callback("─── 🛠️ OPERATIONS ───", "none")],
+        vec![InlineKeyboardButton::callback(
+            "─── 🛠️ OPERATIONS ───",
+            "none",
+        )],
         vec![
             InlineKeyboardButton::callback("⏸️ Pause Engine", "cmd_pause"),
             InlineKeyboardButton::callback("▶️ Resume Engine", "cmd_resume"),
             InlineKeyboardButton::callback("⚠️ Restart System", "cmd_restart"),
         ],
-
         // --- 👤 ALL PUBLIC FEATURES ---
-        vec![InlineKeyboardButton::callback("─── 👤 ALL FEATURES ───", "none")],
+        vec![InlineKeyboardButton::callback(
+            "─── 👤 ALL FEATURES ───",
+            "none",
+        )],
         vec![
             InlineKeyboardButton::callback("💰 Balances", "cmd_balance"),
             InlineKeyboardButton::callback("💼 Wallets", "cmd_list"),
@@ -75,9 +83,10 @@ pub fn admin_menu_markup() -> InlineKeyboardMarkup {
             InlineKeyboardButton::callback("🪙 Coin Supply", "cmd_supply"),
             InlineKeyboardButton::callback("⛽ Mempool Fees", "cmd_fees"),
         ],
-        vec![
-            InlineKeyboardButton::callback("❤️ Support Developer", "cmd_donate"),
-        ],
+        vec![InlineKeyboardButton::callback(
+            "❤️ Support Developer",
+            "cmd_donate",
+        )],
     ];
 
     InlineKeyboardMarkup::new(rows)

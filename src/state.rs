@@ -60,17 +60,19 @@ pub async fn init_db(db_url: &str) -> Result<PgPool, sqlx::Error> {
         .await?;
 
     // Initialize knowledge_base table for AI context
-    sqlx::query!("CREATE TABLE IF NOT EXISTS knowledge_base (
+    sqlx::query!(
+        "CREATE TABLE IF NOT EXISTS knowledge_base (
             id SERIAL PRIMARY KEY, 
             title TEXT NOT NULL, 
             link TEXT UNIQUE NOT NULL, 
             content TEXT NOT NULL, 
             source TEXT NOT NULL, 
             published_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-        )")
-        .execute(&pool)
-        .await?;
-        
+        )"
+    )
+    .execute(&pool)
+    .await?;
+
     // Initialize chat_history table for AI memory
     sqlx::query!(
         "CREATE TABLE IF NOT EXISTS chat_history (
@@ -83,7 +85,7 @@ pub async fn init_db(db_url: &str) -> Result<PgPool, sqlx::Error> {
     )
     .execute(&pool)
     .await?;
-    
+
     // Initialize system_settings table for dynamic configuration
     sqlx::query!(
         "CREATE TABLE IF NOT EXISTS system_settings (
@@ -106,7 +108,8 @@ pub async fn update_user_activity(pool: &PgPool, chat_id: i64) {
         chat_id
     )
     .execute(pool)
-    .await {
+    .await
+    {
         error!("[DATABASE ERROR] Failed to update user activity: {}", e);
     }
 }
@@ -133,30 +136,50 @@ pub async fn enforce_retention_policy(pool: &PgPool) {
 }
 
 /// Records a newly mined block from the live node stream.
-pub async fn record_mined_block(pool: &PgPool, outpoint: &str, wallet: &str, amount: f64, daa: u64) {
+pub async fn record_mined_block(
+    pool: &PgPool,
+    outpoint: &str,
+    wallet: &str,
+    amount: f64,
+    daa: u64,
+) {
     let daa_i64 = daa as i64;
     if let Err(e) = sqlx::query!(
         "INSERT INTO mined_blocks (outpoint, wallet, amount, daa_score, sync_source) 
          VALUES ($1, $2, $3, $4, 'LIVE') ON CONFLICT (outpoint) DO NOTHING",
-        outpoint, wallet, amount, daa_i64
+        outpoint,
+        wallet,
+        amount,
+        daa_i64
     )
     .execute(pool)
-    .await { 
-        error!("[DATABASE ERROR] Failed to record mined block: {}", e); 
+    .await
+    {
+        error!("[DATABASE ERROR] Failed to record mined block: {}", e);
     }
 }
 
 /// Records a historically recovered block from a node sync operation.
-pub async fn record_recovery_block(pool: &PgPool, outpoint: &str, wallet: &str, amount: f64, daa: u64) {
+pub async fn record_recovery_block(
+    pool: &PgPool,
+    outpoint: &str,
+    wallet: &str,
+    amount: f64,
+    daa: u64,
+) {
     let daa_i64 = daa as i64;
     if let Err(e) = sqlx::query!(
         "INSERT INTO mined_blocks (outpoint, wallet, amount, daa_score, sync_source) 
          VALUES ($1, $2, $3, $4, 'RECOVERY') ON CONFLICT (outpoint) DO NOTHING",
-        outpoint, wallet, amount, daa_i64
+        outpoint,
+        wallet,
+        amount,
+        daa_i64
     )
     .execute(pool)
-    .await { 
-        error!("[DATABASE ERROR] Failed to record recovery block: {}", e); 
+    .await
+    {
+        error!("[DATABASE ERROR] Failed to record recovery block: {}", e);
     }
 }
 
@@ -178,11 +201,13 @@ pub async fn update_sync_checkpoint(pool: &PgPool, wallet: &str, daa_score: u64)
     if let Err(e) = sqlx::query!(
         "INSERT INTO sync_checkpoint (wallet, last_daa_score) VALUES ($1, $2) 
          ON CONFLICT (wallet) DO UPDATE SET last_daa_score = EXCLUDED.last_daa_score",
-        wallet, daa_i64
+        wallet,
+        daa_i64
     )
     .execute(pool)
-    .await { 
-        error!("[DATABASE ERROR] Failed to update checkpoint: {}", e); 
+    .await
+    {
+        error!("[DATABASE ERROR] Failed to update checkpoint: {}", e);
     }
 }
 
@@ -210,7 +235,10 @@ pub async fn load_state_from_db(pool: &PgPool, state: &SharedState) -> Result<()
             .or_insert_with(HashSet::new)
             .insert(row.chat_id);
     }
-    info!("[SYSTEM] Synchronized {} active wallets from database.", state.len());
+    info!(
+        "[SYSTEM] Synchronized {} active wallets from database.",
+        state.len()
+    );
     Ok(())
 }
 
@@ -219,11 +247,13 @@ pub async fn add_wallet_to_db(pool: &PgPool, wallet: &str, chat_id: i64) {
     if let Err(e) = sqlx::query!(
         "INSERT INTO user_wallets (wallet, chat_id) VALUES ($1, $2) 
          ON CONFLICT (wallet, chat_id) DO UPDATE SET last_active = CURRENT_TIMESTAMP",
-        wallet, chat_id
+        wallet,
+        chat_id
     )
     .execute(pool)
-    .await { 
-        error!("[DATABASE ERROR] Failed to add wallet subscription: {}", e); 
+    .await
+    {
+        error!("[DATABASE ERROR] Failed to add wallet subscription: {}", e);
     }
 }
 
@@ -231,11 +261,16 @@ pub async fn add_wallet_to_db(pool: &PgPool, wallet: &str, chat_id: i64) {
 pub async fn remove_wallet_from_db(pool: &PgPool, wallet: &str, chat_id: i64) {
     if let Err(e) = sqlx::query!(
         "DELETE FROM user_wallets WHERE wallet = $1 AND chat_id = $2",
-        wallet, chat_id
+        wallet,
+        chat_id
     )
     .execute(pool)
-    .await { 
-        error!("[DATABASE ERROR] Failed to remove wallet subscription: {}", e); 
+    .await
+    {
+        error!(
+            "[DATABASE ERROR] Failed to remove wallet subscription: {}",
+            e
+        );
     }
 }
 
@@ -243,23 +278,37 @@ pub async fn remove_wallet_from_db(pool: &PgPool, wallet: &str, chat_id: i64) {
 pub async fn remove_all_user_data(pool: &PgPool, _state: &SharedState, chat_id: i64) {
     if let Err(e) = sqlx::query!("DELETE FROM user_wallets WHERE chat_id = $1", chat_id)
         .execute(pool)
-        .await { 
-            error!("[DATABASE ERROR] Failed to wipe user data: {}", e); 
-        }
+        .await
+    {
+        error!("[DATABASE ERROR] Failed to wipe user data: {}", e);
+    }
 }
 
 // --- AI KNOWLEDGE BASE EXTENSIONS ---
 
 /// Indexes a new article or fact into the AI's Retrieval-Augmented Generation (RAG) database.
-pub async fn add_to_knowledge_base(pool: &PgPool, title: &str, link: &str, content: &str, source: &str) {
+pub async fn add_to_knowledge_base(
+    pool: &PgPool,
+    title: &str,
+    link: &str,
+    content: &str,
+    source: &str,
+) {
     if let Err(e) = sqlx::query!(
         "INSERT INTO knowledge_base (title, link, content, source) 
          VALUES ($1, $2, $3, $4) ON CONFLICT (link) DO NOTHING",
-        title, link, content, source
+        title,
+        link,
+        content,
+        source
     )
     .execute(pool)
-    .await { 
-        error!("[DATABASE ERROR] Failed to index knowledge base entry: {}", e); 
+    .await
+    {
+        error!(
+            "[DATABASE ERROR] Failed to index knowledge base entry: {}",
+            e
+        );
     }
 }
 
@@ -279,7 +328,8 @@ pub async fn get_knowledge_context(pool: &PgPool, keyword: &str) -> Option<Strin
 }
 
 // --- CACHE LAYER FOR SETTINGS (O(1) Memory Access) ---
-static SETTINGS_CACHE: std::sync::OnceLock<dashmap::DashMap<String, String>> = std::sync::OnceLock::new();
+static SETTINGS_CACHE: std::sync::OnceLock<dashmap::DashMap<String, String>> =
+    std::sync::OnceLock::new();
 
 fn get_settings_cache() -> &'static dashmap::DashMap<String, String> {
     SETTINGS_CACHE.get_or_init(|| dashmap::DashMap::new())
@@ -292,11 +342,12 @@ pub async fn get_setting(pool: &sqlx::PgPool, key: &str, default: &str) -> Strin
         return val.clone();
     }
 
-    let res: Option<String> = sqlx::query_scalar("SELECT value_data FROM system_settings WHERE key_name = $1")
-        .bind(key)
-        .fetch_optional(pool)
-        .await
-        .unwrap_or(None);
+    let res: Option<String> =
+        sqlx::query_scalar("SELECT value_data FROM system_settings WHERE key_name = $1")
+            .bind(key)
+            .fetch_optional(pool)
+            .await
+            .unwrap_or(None);
 
     let final_val = match res {
         Some(val) => val,
@@ -314,7 +365,11 @@ pub async fn get_setting(pool: &sqlx::PgPool, key: &str, default: &str) -> Strin
 }
 
 /// Safely updates a dynamic setting in the database and invalidates/updates the cache.
-pub async fn update_setting(pool: &sqlx::PgPool, key: &str, value: &str) -> Result<(), sqlx::Error> {
+pub async fn update_setting(
+    pool: &sqlx::PgPool,
+    key: &str,
+    value: &str,
+) -> Result<(), sqlx::Error> {
     sqlx::query("INSERT INTO system_settings (key_name, value_data) VALUES ($1, $2) ON CONFLICT (key_name) DO UPDATE SET value_data = EXCLUDED.value_data, updated_at = CURRENT_TIMESTAMP")
         .bind(key)
         .bind(value)

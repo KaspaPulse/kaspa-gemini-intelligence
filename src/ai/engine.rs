@@ -1,10 +1,10 @@
 // [INJECTED BY SECURITY PATCHER - V4 TELEGRAM UI & ANTI-HALLUCINATION]
+use async_stream::stream;
+use futures_util::stream::Stream;
 use reqwest::Client;
 use serde_json::json;
 use sqlx::PgPool;
 use std::sync::Arc;
-use async_stream::stream;
-use futures_util::stream::Stream;
 
 pub struct LocalAiEngine {
     pub client: Client,
@@ -21,9 +21,12 @@ impl LocalAiEngine {
         tracing::info!("[AI ENGINE] Initializing Sovereign Streaming Engine...");
 
         let api_key = std::env::var("AI_API_KEY").expect("⚠️ AI_API_KEY is missing in .env");
-        let base_url = std::env::var("AI_BASE_URL").unwrap_or_else(|_| "https://api.groq.com/openai/v1".to_string());
-        let chat_model = std::env::var("AI_CHAT_MODEL").unwrap_or_else(|_| "llama-3.3-70b-versatile".to_string());
-        let audio_model = std::env::var("AI_AUDIO_MODEL").unwrap_or_else(|_| "whisper-large-v3".to_string());
+        let base_url = std::env::var("AI_BASE_URL")
+            .unwrap_or_else(|_| "https://api.groq.com/openai/v1".to_string());
+        let chat_model = std::env::var("AI_CHAT_MODEL")
+            .unwrap_or_else(|_| "llama-3.3-70b-versatile".to_string());
+        let audio_model =
+            std::env::var("AI_AUDIO_MODEL").unwrap_or_else(|_| "whisper-large-v3".to_string());
 
         Ok(Self {
             client: Client::new(),
@@ -36,17 +39,21 @@ impl LocalAiEngine {
 
     pub async fn get_embedding(&self, text: &str) -> anyhow::Result<Vec<f32>> {
         let embed_key = std::env::var("EMBEDDING_API_KEY").unwrap_or_else(|_| self.api_key.clone());
-        let embed_url = std::env::var("EMBEDDING_BASE_URL").unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
-        let embed_model = std::env::var("EMBEDDING_MODEL").unwrap_or_else(|_| "text-embedding-3-small".to_string());
+        let embed_url = std::env::var("EMBEDDING_BASE_URL")
+            .unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
+        let embed_model = std::env::var("EMBEDDING_MODEL")
+            .unwrap_or_else(|_| "text-embedding-3-small".to_string());
 
         let url = format!("{}/embeddings", embed_url);
         let body = json!({
             "model": embed_model,
             "input": text,
-            "dimensions": 1024 
+            "dimensions": 1024
         });
 
-        let res = self.client.post(&url)
+        let res = self
+            .client
+            .post(&url)
             .header("Authorization", format!("Bearer {}", embed_key))
             .json(&body)
             .send()
@@ -56,7 +63,10 @@ impl LocalAiEngine {
         if status.is_success() {
             let json_res: serde_json::Value = res.json().await?;
             if let Some(data) = json_res["data"][0]["embedding"].as_array() {
-                let vec: Vec<f32> = data.iter().filter_map(|v| v.as_f64().map(|f| f as f32)).collect();
+                let vec: Vec<f32> = data
+                    .iter()
+                    .filter_map(|v| v.as_f64().map(|f| f as f32))
+                    .collect();
                 return Ok(vec);
             }
         }
@@ -69,9 +79,8 @@ impl LocalAiEngine {
         prompt: &'a str,
         live_context: &'a str,
     ) -> anyhow::Result<impl Stream<Item = String> + 'a> {
-        
         let rag_context = crate::ai::rag::get_rag_context(pool, prompt, self).await;
-        
+
         // 🛡️ ENHANCED ANTI-INJECTION BOUNDARIES (XML Tags & Strict Directives)
         let system_message = format!(
             "You are Kaspa Pulse, an elite AI exclusively for the Kaspa (KAS) network.\n\n\
@@ -109,7 +118,9 @@ impl LocalAiEngine {
             "stream": true
         });
 
-        let mut res = self.client.post(&url)
+        let mut res = self
+            .client
+            .post(&url)
             .header("Authorization", format!("Bearer {}", self.api_key))
             .json(&body)
             .send()
@@ -123,16 +134,16 @@ impl LocalAiEngine {
             let mut buffer = String::new();
             while let Ok(Some(chunk)) = res.chunk().await {
                 buffer.push_str(&String::from_utf8_lossy(&chunk));
-                
+
                 while let Some(index) = buffer.find('\n') {
                     let line = buffer[..index].to_string();
                     buffer = buffer[index + 1..].to_string();
                     let line = line.trim();
-                    
+
                     if line.starts_with("data: ") {
                         let data = &line[6..];
                         if data == "[DONE]" { break; }
-                        
+
                         if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(data) {
                             if let Some(content) = parsed["choices"][0]["delta"]["content"].as_str() {
                                 yield content.to_string();
@@ -144,12 +155,27 @@ impl LocalAiEngine {
         })
     }
 
-    pub async fn generate_audio(&self, _pool: &PgPool, audio_bytes: Vec<u8>, _live_context: &str) -> anyhow::Result<String> {
+    pub async fn generate_audio(
+        &self,
+        _pool: &PgPool,
+        audio_bytes: Vec<u8>,
+        _live_context: &str,
+    ) -> anyhow::Result<String> {
         let url = format!("{}/audio/transcriptions", self.base_url);
-        let part = reqwest::multipart::Part::bytes(audio_bytes).file_name("audio.ogg").mime_str("audio/ogg")?;
-        let form = reqwest::multipart::Form::new().part("file", part).text("model", self.audio_model.clone());
+        let part = reqwest::multipart::Part::bytes(audio_bytes)
+            .file_name("audio.ogg")
+            .mime_str("audio/ogg")?;
+        let form = reqwest::multipart::Form::new()
+            .part("file", part)
+            .text("model", self.audio_model.clone());
 
-        let res = self.client.post(&url).header("Authorization", format!("Bearer {}", self.api_key)).multipart(form).send().await?;
+        let res = self
+            .client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .multipart(form)
+            .send()
+            .await?;
 
         if res.status().is_success() {
             let json_res: serde_json::Value = res.json().await?;
@@ -160,6 +186,3 @@ impl LocalAiEngine {
         Err(anyhow::anyhow!("Voice transcription failed"))
     }
 }
-
-
-

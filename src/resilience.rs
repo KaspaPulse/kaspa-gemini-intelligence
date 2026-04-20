@@ -1,8 +1,8 @@
 // [INJECTED BY PHASE 4 SECURITY SCRIPT]
 // Enterprise standard utilities for self-healing connections and graceful shutdowns.
 
-use tokio::time::{sleep, Duration};
 use tokio::signal;
+use tokio::time::{sleep, Duration};
 
 /// Wraps any async network call with an Exponential Backoff retry mechanism.
 /// Perfect for wRPC Kaspa Node connections that might drop momentarily.
@@ -20,10 +20,18 @@ where
             Ok(result) => return Ok(result),
             Err(e) => {
                 if retries >= max_retries {
-                    tracing::error!("💥 CRITICAL: Action failed after {} retries. Last error: {:?}", max_retries, e);
+                    tracing::error!(
+                        "💥 CRITICAL: Action failed after {} retries. Last error: {:?}",
+                        max_retries,
+                        e
+                    );
                     return Err(e);
                 }
-                tracing::warn!("⚠️ Connection issue detected: {:?}. Retrying in {:?}...", e, delay);
+                tracing::warn!(
+                    "⚠️ Connection issue detected: {:?}. Retrying in {:?}...",
+                    e,
+                    delay
+                );
                 sleep(delay).await;
                 retries += 1;
                 delay *= 2; // Exponential backoff (2s, 4s, 8s, 16s...)
@@ -35,7 +43,9 @@ where
 /// Listens for OS shutdown signals (Ctrl+C, SIGTERM) to safely close DB connections.
 pub async fn shutdown_signal() {
     let ctrl_c = async {
-        signal::ctrl_c().await.expect("Failed to install Ctrl+C handler");
+        signal::ctrl_c()
+            .await
+            .expect("Failed to install Ctrl+C handler");
     };
 
     #[cfg(unix)]

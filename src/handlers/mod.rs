@@ -25,11 +25,13 @@ pub fn is_local_node() -> bool {
         std::env::var("KASPA_NODE_URL").unwrap_or_default(),
         std::env::var("RPC_URL").unwrap_or_default(),
         std::env::var("NODE_URL").unwrap_or_default(),
-        std::env::var("WS_URL").unwrap_or_default()
+        std::env::var("WS_URL").unwrap_or_default(),
     ];
 
     for url_str in urls_to_check {
-        if url_str.trim().is_empty() { continue; }
+        if url_str.trim().is_empty() {
+            continue;
+        }
         if let Ok(parsed_url) = Url::parse(&url_str) {
             if let Some(host) = parsed_url.host_str() {
                 if host == "127.0.0.1" || host == "localhost" || host == "[::1]" {
@@ -99,7 +101,9 @@ pub async fn handle_callback(
                     if let Err(e) = bot.send_message(chat_id, "⚠️ <b>Sync Blocked (Safety Protocol)</b>\nDisabled on Public Nodes to prevent IP bans. You must connect the bot to a local node (127.0.0.1) to use this feature.").parse_mode(teloxide::types::ParseMode::Html).await { tracing::error!("[TELEGRAM API ERROR] Failed to execute: {}", e); }
                 }
             }
-            if let Err(e) = bot.answer_callback_query(q.id).await { tracing::error!("[TELEGRAM API ERROR] Failed to execute: {}", e); }
+            if let Err(e) = bot.answer_callback_query(q.id).await {
+                tracing::error!("[TELEGRAM API ERROR] Failed to execute: {}", e);
+            }
             return Ok(());
         }
 
@@ -145,7 +149,9 @@ pub async fn handle_callback(
             }
         }
     }
-    if let Err(e) = bot.answer_callback_query(q.id).await { tracing::error!("[TELEGRAM API ERROR] Failed to execute: {}", e); }
+    if let Err(e) = bot.answer_callback_query(q.id).await {
+        tracing::error!("[TELEGRAM API ERROR] Failed to execute: {}", e);
+    }
     Ok(())
 }
 
@@ -235,6 +241,3 @@ async fn execute_command(
     );
     Ok(())
 }
-
-
-

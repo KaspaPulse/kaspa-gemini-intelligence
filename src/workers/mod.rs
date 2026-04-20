@@ -1,7 +1,7 @@
 pub mod live;
+pub mod rss;
 pub mod sync;
 pub mod system;
-pub mod rss;
 
 use crate::context::AppContext;
 use teloxide::prelude::*;
@@ -17,10 +17,10 @@ pub fn start_all(ctx: AppContext, bot: Bot, token: CancellationToken) {
     system::spawn_node_monitor(ctx.clone(), bot.clone(), token.clone());
     live::spawn_utxo_monitor(ctx.clone(), bot, token.clone());
     system::spawn_memory_cleaner(ctx.clone(), token.clone());
-    
+
     // 2. 🕸️ Start RSS Crawler for Dynamic AI Knowledge Base (RAG)
     rss::spawn_rss_crawler(ctx.pool.clone(), token.clone());
-    
+
     // 3. 🧠 Start Autonomous Vectorizer (Indexes DB for Semantic Search)
     crate::ai::rag::spawn_background_vectorizer(ctx, token);
 }

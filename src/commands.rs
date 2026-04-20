@@ -66,4 +66,3 @@ pub enum Command {
     #[command(description = "Admin: Toggle a feature flag.")]
     Toggle(String),
 }
-
