@@ -367,3 +367,99 @@ pub fn verify_admin_access(user_id: Option<u64>) -> bool {
 }
 
 
+
+// ==============================================================================
+// ENTERPRISE DYNAMIC CONTROL PANEL
+// ==============================================================================
+
+pub async fn handle_settings(bot: Bot, chat_id: ChatId, user_id: i64, ctx: &AppContext) {
+    if user_id != ctx.admin_id { return; }
+
+    let env_content = std::fs::read_to_string(".env").unwrap_or_default();
+    let features = vec![
+        ("MAINTENANCE_MODE", "Maintenance Mode: Pauses bot for normal users, admin only access."),
+        ("ALLOW_PUBLIC_USERS", "Public Access: Allows anyone to use the bot. If false, private only."),
+        ("ENABLE_RSS_WORKER", "RSS Worker: Automatically fetches Kaspa news from official sources."),
+        ("ENABLE_MEMORY_CLEANER", "Memory Cleaner: Periodically purges RAM cache to prevent crashes."),
+        ("ENABLE_AI_VECTORIZER", "AI Vectorizer: Indexes articles for advanced search (consumes API)."),
+    ];
+
+    let mut response = String::from("⚙️ <b>Enterprise Control Panel</b> ⚙️\n\n");
+
+    for (key, desc) in features {
+        let is_enabled = env_content.lines().any(|line| line.trim() == format!("{}={}", key, "true"));
+        let status_icon = if is_enabled { "🟢" } else { "🔴" };
+        let status_text = if is_enabled { "ON" } else { "OFF" };
+
+        response.push_str(&format!(
+            "{} <b>{}</b> [{}]\n<i>{}</i>\nToggle: <code>/toggle {}</code>\n\n",
+            status_icon, key, status_text, desc, key
+        ));
+    }
+
+    let _ = bot.send_message(chat_id, response)
+        .parse_mode(teloxide::types::ParseMode::Html)
+        .await;
+}
+
+pub async fn handle_toggle(bot: Bot, chat_id: ChatId, user_id: i64, feature: String, ctx: &AppContext) {
+    if user_id != ctx.admin_id { return; }
+
+    let valid_features = vec![
+        "MAINTENANCE_MODE", "ALLOW_PUBLIC_USERS", "ENABLE_RSS_WORKER",
+        "ENABLE_MEMORY_CLEANER", "ENABLE_AI_VECTORIZER"
+    ];
+
+    let feature = feature.trim().to_uppercase();
+
+    if !valid_features.contains(&feature.as_str()) {
+        let _ = bot.send_message(chat_id, "❌ Error: Invalid feature name.").await;
+        return;
+    }
+
+    let env_content = std::fs::read_to_string(".env").unwrap_or_default();
+    let mut new_lines = Vec::new();
+    let mut found = false;
+    let mut new_state = "true";
+
+    for line in env_content.lines() {
+        if line.starts_with(&format!("{}=", feature)) {
+            found = true;
+            if line.contains("true") {
+                new_state = "false";
+                new_lines.push(format!("{}={}", feature, "false"));
+            } else {
+                new_lines.push(format!("{}={}", feature, "true"));
+            }
+        } else {
+            new_lines.push(line.to_string());
+        }
+    }
+
+    if !found {
+        new_lines.push(format!("{}={}", feature, "true"));
+    }
+
+    if let Err(e) = std::fs::write(".env", new_lines.join("\n")) {
+        let _ = bot.send_message(chat_id, format!("❌ Failed to write to .env: {}", e)).await;
+        return;
+    }
+
+    let status_icon = if new_state == "true" { "🟢" } else { "🔴" };
+    let msg_text = format!(
+        "{} <b>Configuration Updated!</b>\nFeature: <code>{}</code>\nNew State: <b>{}</b>\n\n<i>⏳ Restarting systemd service to apply changes...</i>",
+        status_icon, feature, new_state.to_uppercase()
+    );
+
+    let _ = bot.send_message(chat_id, msg_text)
+        .parse_mode(teloxide::types::ParseMode::Html)
+        .await;
+
+    tracing::info!("[SYSTEM] Feature {} toggled to {}. Exiting for systemd auto-restart...", feature, new_state);
+    
+    // Give Telegram 1.5 seconds to deliver the message, then exit to trigger Systemd restart
+    tokio::spawn(async {
+        tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
+        std::process::exit(0);
+    });
+}
