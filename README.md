@@ -1,4 +1,3 @@
-```markdown
 # 🦀 Kaspa Pulse: The Ultimate Enterprise Miner's Companion
 
 ![Rust](https://img.shields.io/badge/Rust-1.70+-orange.svg?style=flat-square)
@@ -86,41 +85,41 @@ Once deployed:
 
 ### 📌 Public Commands
 
-| Command             | Description                                       |
-| ------------------- | ------------------------------------------------- |
-| `/start`            | Initialize bot and show the interactive menu      |
-| `/help`             | Show command guide                                |
-| `/add <address>`    | Track a specific wallet address                   |
-| `/remove <address>` | Stop tracking a wallet                            |
-| `/list`             | Show all currently tracked wallets                |
-| `/balance`          | Show live balance and UTXO count                  |
-| `/blocks`           | Count mined blocks and lifetime value             |
-| `/miner`            | Estimate solo hashrate (1H / 24H)                 |
-| `/network`          | Check Node sync status, peers, and DAG info       |
-| `/dag`              | Quick overview of BlockDAG headers and blocks     |
-| `/price`            | Current KAS price (via CoinGecko)                 |
-| `/market`           | Current KAS market capitalization                 |
-| `/supply`           | Circulating vs Max Supply percentages             |
-| `/fees`             | Real-time Mempool fee estimation                  |
-| `/donate`           | Support the development of Kaspa Pulse            |
+| Command | Description |
+|---|---|
+| `/start` | Initialize bot and show the interactive menu |
+| `/help` | Show command guide |
+| `/add <address>` | Track a specific wallet address |
+| `/remove <address>` | Stop tracking a wallet |
+| `/list` | Show all currently tracked wallets |
+| `/balance` | Show live balance and UTXO count |
+| `/blocks` | Count mined blocks and lifetime value |
+| `/miner` | Estimate solo hashrate (1H / 24H) |
+| `/network` | Check Node sync status, peers, and DAG info |
+| `/dag` | Quick overview of BlockDAG headers and blocks |
+| `/price` | Current KAS price (via CoinGecko) |
+| `/market` | Current KAS market capitalization |
+| `/supply` | Circulating vs Max Supply percentages |
+| `/fees` | Real-time Mempool fee estimation |
+| `/donate` | Support the development of Kaspa Pulse |
 
 ---
 
 ### 👑 Admin Enterprise Commands (Restricted)
 
-| Command              | Description                                                    |
-| -------------------- | -------------------------------------------------------------- |
-| `/settings`          | Open the Dynamic Enterprise Control Panel                      |
-| `/toggle <FLAG>`     | Toggle a specific configuration flag (e.g., `MAINTENANCE_MODE`)|
-| `/stats`             | View global bot analytics and user reports                     |
-| `/sys`               | Hardware diagnostics (CPU, RAM, Uptime, Disk space)            |
-| `/logs`              | Fetch the last 25 lines of `bot.log` remotely                  |
-| `/broadcast <msg>`   | Send a global message to all users                             |
-| `/pause` / `/resume` | Suspend or resume the background UTXO monitoring               |
-| `/restart`           | Safely restart the bot binary remotely                         |
-| `/learn <text>`      | Manually inject new Kaspa facts into the AI's Vector DB        |
-| `/autolearn`         | Force the AI to scrape official Kaspa RSS feeds                |
-| `/sync`              | Trigger a manual historical BlockDAG reverse-scan              |
+| Command | Description |
+|---|---|
+| `/settings` | Open the Dynamic Enterprise Control Panel |
+| `/toggle <FLAG>` | Toggle a specific configuration flag (e.g., `MAINTENANCE_MODE`) |
+| `/stats` | View global bot analytics and user reports |
+| `/sys` | Hardware diagnostics (CPU, RAM, Uptime, Disk space) |
+| `/logs` | Fetch the last 25 lines of `bot.log` remotely |
+| `/broadcast <msg>` | Send a global message to all users |
+| `/pause` / `/resume` | Suspend or resume the background UTXO monitoring |
+| `/restart` | Safely restart the bot binary remotely |
+| `/learn <text>` | Manually inject new Kaspa facts into the AI's Vector DB |
+| `/autolearn` | Force the AI to scrape official Kaspa RSS feeds |
+| `/sync` | Trigger a manual historical BlockDAG reverse-scan |
 
 ---
 
@@ -135,15 +134,10 @@ Once deployed:
 ```bash
 # Ubuntu Dependencies
 sudo apt update && sudo apt install -y cmake build-essential pkg-config libssl-dev postgresql postgresql-contrib
-```
+🔐 Environment Setup
+Create a .env file in the root directory:
 
----
-
-## 🔐 Environment Setup
-
-Create a `.env` file in the root directory:
-
-```env
+Code snippet
 # 🤖 TELEGRAM BOT CONFIGURATION
 BOT_TOKEN=your_telegram_bot_token_here
 ADMIN_ID=your_telegram_user_id
@@ -166,15 +160,9 @@ ENABLE_RSS_WORKER=true
 ENABLE_MEMORY_CLEANER=true
 ENABLE_LIVE_SYNC=true
 ENABLE_AI_VECTORIZER=false
-```
-
----
-
-## 🛠️ Deployment (Linux)
-
-#### 1. Setup PostgreSQL Database
-
-```bash
+🛠️ Deployment (Linux)
+1. Setup PostgreSQL Database
+Bash
 sudo -u postgres psql
 CREATE DATABASE kaspa_db;
 CREATE USER kaspa_admin WITH PASSWORD 'super_secret_password';
@@ -182,23 +170,15 @@ GRANT ALL PRIVILEGES ON DATABASE kaspa_db TO kaspa_admin;
 \c kaspa_db
 CREATE EXTENSION vector;
 \q
-```
-
-#### 2. Build the Enterprise Binary
-
-```bash
+2. Build the Enterprise Binary
+Bash
 git clone https://github.com/KaspaPulse/kaspa-gemini-intelligence.git
 cd kaspa-gemini-intelligence
 cargo build --release
-```
-
-#### 3. Run as a Systemd Service
-
-```bash
+3. Run as a Systemd Service
+Bash
 sudo nano /etc/systemd/system/kaspa-pulse.service
-```
-
-```ini
+Ini, TOML
 [Unit]
 Description=Kaspa Pulse Enterprise Bot
 After=network.target postgresql.service
@@ -212,33 +192,19 @@ RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
-```
-
-```bash
+Bash
 sudo systemctl daemon-reload
 sudo systemctl enable kaspa-pulse
 sudo systemctl start kaspa-pulse
-```
-
----
-
-## 💖 Support the Developer
-
+💖 Support the Developer
 If Kaspa Pulse has helped you track your solo mining rewards or manage your node, consider supporting the development!
 
-**Kaspa (KAS) Donation Address:**
-```text
+Kaspa (KAS) Donation Address:
+
+Plaintext
 kaspa:qz0yqq8z3twwgg7lq2mjzg6w4edqys45w2wslz7tym2tc6s84580vvx9zr44g
-```
+📜 License
+This project is licensed under the MIT License.
 
----
-
-## 📜 License
-
-This project is licensed under the **MIT License**.
-
----
-
-## 🧠 Final Note
-
+🧠 Final Note
 Built with precision, engineered with Rust, and designed for the true Kaspa ecosystem pioneers. Happy Solo Mining! ⛏️
