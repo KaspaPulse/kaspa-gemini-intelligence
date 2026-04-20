@@ -10,15 +10,13 @@ allow = [
 multiple-versions = "allow"
 
 [advisories]
+# Ignore verified upstream vulnerabilities that have NO fixed version yet
 ignore = [
-    "RUSTSEC-2023-0071", # SQLx compile-time macro vulnerability
-    "RUSTSEC-2025-0134", # rustls-pemfile unmaintained warning
-    "RUSTSEC-2023-0044", # RSA timing side-channel (Kaspa crypto)
-    "RUSTSEC-2023-0072", # Ed25519 fallback warning (Kaspa crypto)
-    "RUSTSEC-2024-0370", # General cryptography advisory
-    "RUSTSEC-2024-0019", # Sub-dependency vulnerability
-    "RUSTSEC-2024-0332", # Ring/Webpki vulnerabilities found in some RPC clients
-    "RUSTSEC-2021-0145"  # Ancient vulnerability buried in Kaspa core
+    "RUSTSEC-2023-0071", # Marvin Attack (rsa crate via sqlx-mysql)
+    "RUSTSEC-2025-0052", # async-std discontinued (via kaspa-wrpc-client)
+    "RUSTSEC-2025-0134", # rustls-pemfile warning
+    "RUSTSEC-2023-0044", # RSA timing (Kaspa crypto)
+    "RUSTSEC-2023-0072"  # Ed25519 warning (Kaspa crypto)
 ]
 
 [sources]
