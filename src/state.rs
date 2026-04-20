@@ -280,7 +280,9 @@ pub async fn get_knowledge_context(pool: &PgPool, keyword: &str) -> Option<Strin
 
 /// Retrieves a dynamic setting from the database, or initializes it with a default value.
 pub async fn get_setting(pool: &PgPool, key: &str, default: &str) -> String {
-    let res = sqlx::query_scalar!("SELECT value_data FROM system_settings WHERE key_name = $1", key)
+    // We use query_scalar without '!' to avoid compile-time DB checks for dynamic settings.
+    let res: Option<String> = sqlx::query_scalar("SELECT value_data FROM system_settings WHERE key_name = $1")
+        .bind(key)
         .fetch_optional(pool)
         .await
         .unwrap_or(None);
@@ -288,7 +290,9 @@ pub async fn get_setting(pool: &PgPool, key: &str, default: &str) -> String {
     match res {
         Some(val) => val,
         None => {
-            let _ = sqlx::query!("INSERT INTO system_settings (key_name, value_data) VALUES ($1, $2) ON CONFLICT DO NOTHING", key, default)
+            let _ = sqlx::query("INSERT INTO system_settings (key_name, value_data) VALUES ($1, $2) ON CONFLICT DO NOTHING")
+                .bind(key)
+                .bind(default)
                 .execute(pool).await;
             default.to_string()
         }
@@ -297,7 +301,9 @@ pub async fn get_setting(pool: &PgPool, key: &str, default: &str) -> String {
 
 /// Safely updates a dynamic setting in the database.
 pub async fn update_setting(pool: &PgPool, key: &str, value: &str) -> Result<(), sqlx::Error> {
-    sqlx::query!("INSERT INTO system_settings (key_name, value_data) VALUES ($1, $2) ON CONFLICT (key_name) DO UPDATE SET value_data = EXCLUDED.value_data, updated_at = CURRENT_TIMESTAMP", key, value)
+    sqlx::query("INSERT INTO system_settings (key_name, value_data) VALUES ($1, $2) ON CONFLICT (key_name) DO UPDATE SET value_data = EXCLUDED.value_data, updated_at = CURRENT_TIMESTAMP")
+        .bind(key)
+        .bind(value)
         .execute(pool).await?;
     Ok(())
 }
