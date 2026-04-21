@@ -16,12 +16,14 @@ ignore = [
     "RUSTSEC-2025-0052", # async-std discontinued (via kaspa-wrpc-client)
     "RUSTSEC-2025-0134", # rustls-pemfile warning
     "RUSTSEC-2023-0044", # RSA timing (Kaspa crypto)
-    "RUSTSEC-2023-0072"  # Ed25519 warning (Kaspa crypto)
+    "RUSTSEC-2023-0072", # Ed25519 warning (Kaspa crypto)
+    "RUSTSEC-2021-0145"  # atty unaligned read warning (via hexplay -> workflow-log)
 ]
 
 [sources]
 unknown-registry = "warn"
 allow-git = [
     "https://github.com/kaspanet/rusty-kaspa",
-    "https://github.com/RustSec/advisory-db"
+    "https://github.com/RustSec/advisory-db",
+    "https://github.com/murar8/serde_nested_with" # Added to fix unknown git source warning
 ]
