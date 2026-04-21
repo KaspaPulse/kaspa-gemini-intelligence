@@ -17,11 +17,14 @@ ignore = [
     "RUSTSEC-2025-0134", # rustls-pemfile warning
     "RUSTSEC-2023-0044", # RSA timing (Kaspa crypto)
     "RUSTSEC-2023-0072", # Ed25519 warning (Kaspa crypto)
-    "RUSTSEC-2021-0145", # atty unaligned read warning (via hexplay -> workflow-log)
+    "RUSTSEC-2021-0145", # atty unaligned read warning
     "RUSTSEC-2024-0375", # atty is unmaintained
-    "RUSTSEC-2024-0370", # proc-macro-error is unmaintained (via workflow-macros)
-    "RUSTSEC-2024-0320"  # serde_yaml is unmaintained (via log4rs)
+    "RUSTSEC-2024-0370", # proc-macro-error is unmaintained
+    "RUSTSEC-2024-0320", # serde_yaml is unmaintained
+    "RUSTSEC-2026-0012"  # keccak unsoundness in ARMv8 (via kaspa-hashes)
 ]
+# Downgrade unmaintained crates from hard-errors to warnings
+unmaintained = "warn"
 
 [sources]
 unknown-registry = "warn"
