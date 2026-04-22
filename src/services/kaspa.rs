@@ -12,7 +12,7 @@ impl KaspaNodeService {
     pub async fn get_balance(
         rpc: &Arc<KaspaRpcClient>,
         wallet_str: &str,
-    ) -> Result<(f64, usize), String> {
+    ) -> Result<(u64, usize), String> {
         let addr =
             Address::try_from(wallet_str).map_err(|_| "Invalid address format".to_string())?;
 
@@ -21,11 +21,7 @@ impl KaspaNodeService {
             .await
             .map_err(|e| format!("Node RPC Error: {}", e))?;
 
-        let balance = utxos
-            .iter()
-            .map(|u| u.utxo_entry.amount as f64)
-            .sum::<f64>()
-            / 1e8;
+        let balance = utxos.iter().map(|u| u.utxo_entry.amount).sum::<u64>();
 
         Ok((balance, utxos.len()))
     }

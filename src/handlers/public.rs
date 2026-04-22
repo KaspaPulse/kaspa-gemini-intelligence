@@ -27,11 +27,14 @@ Equipped with an advanced AI. Ask complex Kaspa questions, or send <b>Voice Note
 
 👇 <i>Select an option below or type /help for commands.</i>";
 
-    let _ = bot
+    if let Err(e) = bot
         .send_message(chat_id, welcome_text)
         .parse_mode(teloxide::types::ParseMode::Html)
         .reply_markup(markup)
-        .await;
+        .await
+    {
+        tracing::error!("[TELEGRAM API ERROR] Failed to send message: {}", e);
+    }
 }
 
 pub async fn handle_help(bot: Bot, chat_id: ChatId) {
@@ -66,10 +69,13 @@ Welcome to the most advanced Kaspa Solo Mining & Node monitoring bot.
 ⚡ <b>Auto-Track:</b> Just paste any <code>kaspa:...</code> address in the chat to start monitoring instantly.
 🔍 <b>Forensics:</b> Extracts Worker IDs and nonces directly from the unindexed BlockDAG.";
 
-    let _ = bot
+    if let Err(e) = bot
         .send_message(chat_id, help_text)
         .parse_mode(teloxide::types::ParseMode::Html)
-        .await;
+        .await
+    {
+        tracing::error!("[TELEGRAM API ERROR] Failed to send message: {}", e);
+    }
 }
 
 pub async fn handle_donate(bot: Bot, chat_id: ChatId) {
@@ -79,13 +85,16 @@ pub async fn handle_donate(bot: Bot, chat_id: ChatId) {
 pub async fn handle_add(bot: Bot, chat_id: ChatId, wallet: String, ctx: &AppContext) {
     let wallet = wallet.trim().to_string();
     if wallet.is_empty() || !wallet.starts_with("kaspa:") {
-        let _ = bot
+        if let Err(e) = bot
             .send_message(
                 chat_id,
                 "⚠️ <b>Invalid Format.</b>\nUse: <code>/add kaspa:q...</code>",
             )
             .parse_mode(teloxide::types::ParseMode::Html)
-            .await;
+            .await
+        {
+            tracing::error!("[TELEGRAM API ERROR] Failed to send message: {}", e);
+        }
         return;
     }
     crate::state::add_wallet_to_db(&ctx.pool, &wallet, chat_id.0).await;
@@ -100,7 +109,7 @@ pub async fn handle_add(bot: Bot, chat_id: ChatId, wallet: String, ctx: &AppCont
     } else {
         "\n\n⚠️ <i>Live tracking active. (Historical sync disabled on public nodes)</i>"
     };
-    let _ = bot
+    if let Err(e) = bot
         .send_message(
             chat_id,
             format!(
@@ -109,7 +118,10 @@ pub async fn handle_add(bot: Bot, chat_id: ChatId, wallet: String, ctx: &AppCont
             ),
         )
         .parse_mode(teloxide::types::ParseMode::Html)
-        .await;
+        .await
+    {
+        tracing::error!("[TELEGRAM API ERROR] Failed to send message: {}", e);
+    }
 
     if is_local {
         let ctx_c = ctx.clone();
@@ -126,10 +138,13 @@ pub async fn handle_remove(bot: Bot, chat_id: ChatId, wallet: String, ctx: &AppC
     if let Some(mut users) = ctx.state.get_mut(&wallet) {
         users.remove(&chat_id.0);
     }
-    let _ = bot
+    if let Err(e) = bot
         .send_message(chat_id, "🗑️ <b>Wallet Removed.</b>")
         .parse_mode(teloxide::types::ParseMode::Html)
-        .await;
+        .await
+    {
+        tracing::error!("[TELEGRAM API ERROR] Failed to send message: {}", e);
+    }
 }
 
 pub async fn handle_list(bot: Bot, chat_id: ChatId, ctx: &AppContext) {
@@ -142,10 +157,13 @@ pub async fn handle_list(bot: Bot, chat_id: ChatId, ctx: &AppContext) {
     } else {
         format!("📂 <b>Tracked Wallets:</b>\n{}", tracked)
     };
-    let _ = bot
+    if let Err(e) = bot
         .send_message(chat_id, text)
         .parse_mode(teloxide::types::ParseMode::Html)
-        .await;
+        .await
+    {
+        tracing::error!("[TELEGRAM API ERROR] Failed to send message: {}", e);
+    }
 }
 
 pub async fn handle_balance(
@@ -155,7 +173,7 @@ pub async fn handle_balance(
     current_utc_time: String,
     edit_msg_id: Option<teloxide::types::MessageId>,
 ) {
-    let mut total = 0.0;
+    let mut total: u64 = 0;
     let mut text = format!(
         "💰 <b>Wallet Analysis & Live Balance</b>\n⏱️ <code>{}</code>\n━━━━━━━━━━━━━━━━━━\n",
         current_utc_time
@@ -174,7 +192,7 @@ pub async fn handle_balance(
             text.push_str(&format!(
                 "⏱️ <code>{}</code>\n├ <b>Live Balance:</b> {:.8} KAS\n└ <b>UTXOs:</b> {}\n\n",
                 format_short_wallet(&wallet_str),
-                balance,
+                (balance as f64 / 1e8),
                 utxo_count
             ));
         } else {
@@ -186,7 +204,7 @@ pub async fn handle_balance(
     }
     text.push_str(&format!(
         "━━━━━━━━━━━━━━━━━━\n💎 <b>Total Holdings:</b> <code>{} KAS</code>",
-        f_num(total)
+        f_num(total as f64 / 1e8)
     ));
     if let Err(e) = send_or_edit_log(
         &bot,
@@ -232,7 +250,7 @@ pub async fn handle_blocks(
         "🧱 <b>Mined Blocks Analysis</b>\n⏱️ <code>{}</code>\n━━━━━━━━━━━━━━━━━━\n",
         current_utc_time
     );
-    let (mut global_blocks, mut global_rewards) = (0, 0.0);
+    let (mut global_blocks, mut global_rewards) = (0, 0i64);
     for w in tracked {
         if let Ok((total_blocks, total_kas)) = crate::state::get_lifetime_stats(&ctx.pool, &w).await
         {
@@ -242,16 +260,18 @@ pub async fn handle_blocks(
                 "💼 <b>{}</b>\n├ <b>Lifetime Blocks:</b> {}\n├ <b>Lifetime Value:</b> {:.8} KAS\n",
                 format_short_wallet(&w),
                 total_blocks,
-                total_kas
+                (total_kas as f64 / 1e8)
             ));
-            let daily_records: Result<Vec<(String, i64, f64)>, sqlx::Error> = sqlx::query_as("SELECT TO_CHAR(timestamp, 'YYYY-MM-DD'), COUNT(*), SUM(amount) FROM mined_blocks WHERE wallet = $1 GROUP BY TO_CHAR(timestamp, 'YYYY-MM-DD') ORDER BY TO_CHAR(timestamp, 'YYYY-MM-DD') DESC LIMIT 5").bind(&w).fetch_all(&ctx.pool).await;
+            let daily_records: Result<Vec<(String, i64, i64)>, sqlx::Error> = sqlx::query_as("SELECT TO_CHAR(timestamp, 'YYYY-MM-DD'), COUNT(*), SUM(amount) FROM mined_blocks WHERE wallet = $1 GROUP BY TO_CHAR(timestamp, 'YYYY-MM-DD') ORDER BY TO_CHAR(timestamp, 'YYYY-MM-DD') DESC LIMIT 5").bind(&w).fetch_all(&ctx.pool).await;
             if let Ok(records) = daily_records {
                 if !records.is_empty() {
                     text.push_str("├ <b>Daily Breakdown:</b>\n");
                     for (date, count, amount) in records {
                         text.push_str(&format!(
                             "│  ▪ <code>{}</code>: {} Blks ({:.2} KAS)\n",
-                            date, count, amount
+                            date,
+                            count,
+                            (amount as f64 / 1e8)
                         ));
                     }
                 }
@@ -261,7 +281,8 @@ pub async fn handle_blocks(
     }
     text.push_str(&format!(
         "━━━━━━━━━━━━━━━━━━\n🏆 <b>Total Blocks:</b> {}\n💎 <b>Total Value:</b> {:.8} KAS",
-        global_blocks, global_rewards
+        global_blocks,
+        (global_rewards as f64 / 1e8)
     ));
     if let Err(e) = send_or_edit_log(
         &bot,

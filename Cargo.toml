@@ -1,11 +1,12 @@
 [package]
-name = "kaspa-solo"
+name = "kaspa-pulse"
 version = "1.2.0"
 edition = "2021"
 license = "MIT"
-description = "Enterprise Kaspa Solo Mining Bot - Hardened & Synced to v1.1.0"
+description = "Enterprise Kaspa Pulse Mining Bot - Hardened & Synced to v1.1.0"
 
 [dependencies]
+rust_decimal = { version = "1.34", features = ["maths"] }
 tempfile = "3.10"
 url = "2.5"
 feed-rs = "1.5"
@@ -73,4 +74,3 @@ serde_nested_with = { git = "https://github.com/murar8/serde_nested_with" }
 [features]
 default = ["ai_engine"]
 ai_engine = []
-

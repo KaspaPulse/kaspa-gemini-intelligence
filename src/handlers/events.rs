@@ -14,7 +14,8 @@ pub async fn handle_block_user(
             "[USER EVENT] User {} blocked the bot. Cleaning up data...",
             update.chat.id.0
         );
-        crate::state::remove_all_user_data(&ctx.pool, &ctx.state, update.chat.id.0).await;
+        // ✅ FIXED: Removed &ctx.state to match the new 2-argument signature in state.rs
+        crate::state::remove_all_user_data(&ctx.pool, update.chat.id.0).await;
     }
     Ok(())
 }
@@ -50,7 +51,7 @@ pub async fn fallback_heuristic_text(
                 "\n\n⚠️ <i>Live tracking active. (Historical sync disabled on public nodes)</i>"
             };
 
-            let _ = bot
+            if let Err(e) = bot
                 .send_message(
                     chat_id,
                     format!(
@@ -59,7 +60,7 @@ pub async fn fallback_heuristic_text(
                     ),
                 )
                 .parse_mode(teloxide::types::ParseMode::Html)
-                .await;
+                .await { tracing::error!("[TELEGRAM API ERROR] Failed to send message: {}", e); }
 
             if is_local {
                 let ctx_c = ctx.clone();
@@ -81,13 +82,16 @@ pub async fn fallback_heuristic_text(
 
         for cmd in known_commands {
             if strsim::levenshtein(&lower_text, cmd) <= 2 && lower_text.len() > 2 {
-                let _ = bot
+                if let Err(e) = bot
                     .send_message(
                         chat_id,
                         format!("🤖 <b>Command not found.</b>\nDid you mean {} ?", cmd),
                     )
                     .parse_mode(teloxide::types::ParseMode::Html)
-                    .await;
+                    .await
+                {
+                    tracing::error!("[TELEGRAM API ERROR] Failed to send message: {}", e);
+                }
                 return Ok(());
             }
         }
@@ -104,10 +108,13 @@ pub async fn fallback_heuristic_text(
         "🤖 <b>Unrecognized Command.</b> Please press /start to view the main menu or simply chat with the AI."
     };
 
-    let _ = bot
+    if let Err(e) = bot
         .send_message(chat_id, response)
         .parse_mode(teloxide::types::ParseMode::Html)
-        .await;
+        .await
+    {
+        tracing::error!("[TELEGRAM API ERROR] Failed to send message: {}", e);
+    }
 
     Ok(())
 }
@@ -118,16 +125,15 @@ pub async fn handle_raw_message_v2(bot: Bot, msg: Message, ctx: AppContext) -> a
     // 🛡️ Security: Anti-Spam Rate Limiting
     if user_id != ctx.admin_id && ctx.rate_limiter.check_key(&user_id).is_err() {
         tracing::warn!("[SECURITY] Spam blocked for UserID: {}", user_id);
-        let _ = bot
+        if let Err(e) = bot
             .send_message(msg.chat.id, "🛑 <b>Rate Limit Exceeded!</b>\nPlease wait a moment before sending more requests.")
             .parse_mode(teloxide::types::ParseMode::Html)
-            .await;
+            .await { tracing::error!("[TELEGRAM API ERROR] Failed to send message: {}", e); }
         return Ok(());
     }
 
     // 🎙️ Routing: Voice Audio
     if msg.voice().is_some() {
-        // 🛡️ AI VOICE GATEWAY
         let ai_voice_enabled =
             crate::state::get_setting(&ctx.pool, "ENABLE_AI_VOICE", "true").await == "true";
         if !ai_voice_enabled {
@@ -151,7 +157,6 @@ pub async fn handle_raw_message_v2(bot: Bot, msg: Message, ctx: AppContext) -> a
         let raw_text = text.trim();
         let lower_text = raw_text.to_lowercase();
 
-        // Check if it's a command or a wallet address
         if raw_text.starts_with('/')
             || lower_text.starts_with("kaspa:")
             || (lower_text.starts_with('q') && lower_text.len() >= 60)
@@ -176,14 +181,13 @@ pub async fn handle_raw_message_v2(bot: Bot, msg: Message, ctx: AppContext) -> a
             return Ok(());
         }
 
-        // Pass generic conversational text to the RAG AI Engine
         return crate::ai::process_conversational_intent(
             bot,
             msg.chat.id,
             msg.id,
             user_id,
             raw_text.to_string(),
-            ctx, // The RAG engine will extract ctx.pool from this context
+            ctx,
         )
         .await;
     }

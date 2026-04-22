@@ -1,6 +1,6 @@
 use kaspa_rpc_core::api::rpc::RpcApi;
 use std::collections::{HashSet, VecDeque};
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::context::AppContext;
 use crate::utils::format_short_wallet;
@@ -33,10 +33,12 @@ pub async fn sync_single_wallet(ctx: AppContext, wallet: String) -> anyhow::Resu
 
     let dag_info = ctx.rpc.get_block_dag_info().await?;
     let pruning_point = dag_info.pruning_point_hash;
+
+    // ✅ Checkpoint Retrieval
     let last_checkpoint = crate::state::get_sync_checkpoint(&ctx.pool, &wallet).await;
 
     info!(
-        "📊 [SYNC STATS] Checkpoint Score: {} | Pruning Point: {}",
+        "📊 [SYNC STATS] Checkpoint Score: {} | Pruning Point Hash: {}",
         last_checkpoint, pruning_point
     );
 
@@ -54,14 +56,17 @@ pub async fn sync_single_wallet(ctx: AppContext, wallet: String) -> anyhow::Resu
         if let Ok(block) = ctx.rpc.get_block(current_hash, true).await {
             scanned_count += 1;
 
-            // [PHASE 6 FIX] Prevent Unbounded Queue OOM by enforcing a maximum scan limit
+            // [PERFORMANCE] Yield to executor to prevent blocking
             if scanned_count % 1000 == 0 {
                 tokio::task::yield_now().await;
             }
+
+            // [SAFETY] Guard against infinite or too deep scans
             if scanned_count > 100_000 {
-                tracing::warn!("⚠️ [SYNC LIMIT] Reached maximum scan depth (100,000 blocks) for {}. Saving checkpoint for pagination.", wallet);
-                crate::state::update_sync_checkpoint(&ctx.pool, &wallet, block.header.daa_score)
-                    .await;
+                warn!(
+                    "⚠️ [SYNC LIMIT] Reached maximum scan depth (100,000 blocks) for {}. Stopping.",
+                    wallet
+                );
                 break;
             }
 
@@ -72,6 +77,7 @@ pub async fn sync_single_wallet(ctx: AppContext, wallet: String) -> anyhow::Resu
                 );
             }
 
+            // Stop scanning this branch if we reached the checkpoint
             if block.header.daa_score <= last_checkpoint {
                 continue;
             }
@@ -87,39 +93,40 @@ pub async fn sync_single_wallet(ctx: AppContext, wallet: String) -> anyhow::Resu
                                             ctx.rpc.get_block(*blue_hash, true).await
                                         {
                                             let script = output.script_public_key.script().to_vec();
+
+                                            // Validate if the reward belongs to the wallet by scanning payload
                                             if blue_block.transactions[0]
                                                 .payload
                                                 .windows(script.len())
                                                 .any(|w| w == script)
                                             {
                                                 discovered_rewards.insert(*blue_hash);
+
                                                 let tx_id = blue_block.transactions[0]
                                                     .verbose_data
                                                     .as_ref()
                                                     .map(|v| v.transaction_id.to_string())
                                                     .unwrap_or_default();
+
+                                                // ✅ Constructing 'outpoint' to match DB Schema (PKey)
                                                 let outpoint = format!("{}:{}", tx_id, index);
 
-                                                let exists = false; // Optimized: Skipping SELECT, relying on PostgreSQL ON CONFLICT DO NOTHING
+                                                // ✅ Call record_recovery_block with corrected signature
+                                                crate::state::record_recovery_block(
+                                                    &ctx.pool,
+                                                    &wallet,
+                                                    &outpoint,
+                                                    output.value as i64,
+                                                    blue_block.header.daa_score,
+                                                )
+                                                .await;
 
-                                                if !exists {
-                                                    crate::state::record_recovery_block(
-                                                        &ctx.pool,
-                                                        &outpoint,
-                                                        &wallet,
-                                                        output.value as f64 / 1e8,
-                                                        blue_block.header.daa_score,
-                                                    )
-                                                    .await;
+                                                recovered_count += 1;
 
-                                                    recovered_count += 1;
-
-                                                    info!("✅ [RECOVERY SUCCESS] | Amount: {:.2} KAS | DAA: {} | Hash: {} | Wallet: {}",
-                                                          output.value as f64 / 1e8,
-                                                          blue_block.header.daa_score,
-                                                          blue_hash,
-                                                          format_short_wallet(&wallet));
-                                                }
+                                                info!("✅ [RECOVERY SUCCESS] | Amount: {:.2} KAS | DAA: {} | Wallet: {}",
+                                                      (output.value as f64 / 1e8),
+                                                      blue_block.header.daa_score,
+                                                      format_short_wallet(&wallet));
                                             }
                                         }
                                     }
@@ -130,6 +137,7 @@ pub async fn sync_single_wallet(ctx: AppContext, wallet: String) -> anyhow::Resu
                 }
             }
 
+            // Traverse DAG backwards
             for level in block.header.parents_by_level {
                 for parent in level {
                     if !visited.contains(&parent) {
@@ -140,7 +148,9 @@ pub async fn sync_single_wallet(ctx: AppContext, wallet: String) -> anyhow::Resu
         }
     }
 
+    // ✅ Update Checkpoint to the virtual tips upon successful scan
     crate::state::update_sync_checkpoint(&ctx.pool, &wallet, dag_info.virtual_daa_score).await;
+
     info!(
         "🏁 [SYNC FINISHED] Wallet: {} | Total Scanned: {} | Total Recovered: {}",
         format_short_wallet(&wallet),

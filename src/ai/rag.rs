@@ -31,7 +31,7 @@ pub async fn get_rag_context(
         "SELECT title, content FROM knowledge_base 
          WHERE embedding IS NOT NULL 
          ORDER BY embedding <=> $1::vector 
-         LIMIT 3",
+         LIMIT 7 /* 🛡️ AI PATCH: Expanded context window for better Re-ranking */",
     )
     .bind(vector_str)
     .fetch_all(pool)
@@ -43,7 +43,14 @@ pub async fn get_rag_context(
             let mut context = String::from("\n[INTERNAL SERVER PROTOCOLS & DATA]:\n");
             for (title, content) in results {
                 let snippet = if content.len() > 800 {
-                    &content[..800]
+                    {
+                        // 🛡️ AI ARCHITECTURE PATCH: Smart Semantic Boundary Chunking
+                        let max_len = 800.min(content.len());
+                        let boundary = content[..max_len]
+                            .rfind(|c: char| c.is_ascii_punctuation() || c.is_whitespace())
+                            .unwrap_or(max_len);
+                        &content[..boundary]
+                    }
                 } else {
                     &content
                 };

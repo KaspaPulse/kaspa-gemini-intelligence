@@ -11,7 +11,7 @@ use teloxide::types::ChatId;
 use tokio::sync::Semaphore;
 use tokio::time::{sleep, Duration};
 use tokio_util::sync::CancellationToken;
-use tracing::info;
+use tracing::{error, info};
 
 use crate::context::AppContext;
 use crate::utils::{format_hash, format_short_wallet};
@@ -28,8 +28,12 @@ pub fn spawn_utxo_monitor(ctx: AppContext, bot: Bot, token: CancellationToken) {
                     let check_list = ctx.state.clone();
                     if check_list.is_empty() { continue; }
 
-                    for entry in check_list.iter() { let wallet = entry.key(); let subs = entry.value();
-                        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await; // Protect Kaspa Node from RPC Spam
+                    for entry in check_list.iter() {
+                        let wallet = entry.key();
+                        let subs = entry.value();
+
+                        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
                         if let Ok(addr) = Address::try_from(wallet.as_str()) {
                             if let Ok(utxos) = ctx.rpc.get_utxos_by_addresses(vec![addr.clone()]).await {
                                 let mut current_outpoints = HashSet::new();
@@ -43,9 +47,11 @@ pub fn spawn_utxo_monitor(ctx: AppContext, bot: Bot, token: CancellationToken) {
                                     current_outpoints.insert(outpoint_id.clone());
 
                                     if !is_first_run && !known.contains(&outpoint_id) {
-                                        new_rewards.push((outpoint_id.clone(), tx_id, entry.utxo_entry.amount as f64 / 1e8, entry.utxo_entry.block_daa_score, entry.utxo_entry.is_coinbase));
+                                        new_rewards.push((outpoint_id.clone(), tx_id, entry.utxo_entry.amount as i64, entry.utxo_entry.block_daa_score, entry.utxo_entry.is_coinbase));
                                         known.insert(outpoint_id);
-                                    } else if is_first_run { known.insert(outpoint_id); }
+                                    } else if is_first_run {
+                                        known.insert(outpoint_id);
+                                    }
                                 }
                                 known.retain(|k| current_outpoints.contains(k));
 
@@ -57,21 +63,26 @@ pub fn spawn_utxo_monitor(ctx: AppContext, bot: Bot, token: CancellationToken) {
                                     let (f_tx, w_cl, rpc_cl) = (tx_id.clone(), wallet.clone(), Arc::clone(&ctx.rpc));
                                     let pool_cl = ctx.pool.clone();
                                     let addr_cl = addr.clone();
+                                    let outp_cl = outp.clone();
 
-                                    // 🛡️ Phase 1 Fix: Safe Semaphore Acquisition (No unwrap panic)
-                                    let permit = match Arc::clone(&semaphore).acquire_owned().await { Ok(p) => p, Err(_) => continue, };
+                                    let permit = match Arc::clone(&semaphore).acquire_owned().await {
+                                        Ok(p) => p,
+                                        Err(_) => continue,
+                                    };
 
                                     join_set.spawn(async move {
                                         let _p = permit;
                                         if is_coinbase {
-                                            crate::state::record_mined_block(&pool_cl, &outp, &w_cl, diff, daa_score).await;
+                                            // ✅ FIXED: Using outp_cl (outpoint) to match database schema
+                                            crate::state::record_mined_block(&pool_cl, &w_cl, &outp_cl, diff, daa_score).await;
                                         }
 
-                                        let (acc_block_hash, actual_mined_blocks, extracted_nonce, extracted_worker, block_time_ms) = analyze_block_payload(Arc::clone(&rpc_cl), f_tx.to_string(), w_cl.to_string(), daa_score, is_coinbase).await;
+                                        let (acc_block_hash, actual_mined_blocks, extracted_nonce, extracted_worker, block_time_ms) =
+                                            analyze_block_payload(Arc::clone(&rpc_cl), f_tx.to_string(), w_cl.to_string(), daa_score, is_coinbase).await;
 
-                                        let mut live_bal = 0.0;
+                                        let mut live_bal: u64 = 0;
                                         if let Ok(live_utxos) = rpc_cl.get_utxos_by_addresses(vec![addr_cl]).await {
-                                            live_bal = live_utxos.iter().map(|u| u.utxo_entry.amount as f64).sum::<f64>() / 1e8;
+                                            live_bal = live_utxos.iter().map(|u| u.utxo_entry.amount).sum::<u64>();
                                         }
 
                                         let time_str = if block_time_ms > 0 {
@@ -84,12 +95,18 @@ pub fn spawn_utxo_monitor(ctx: AppContext, bot: Bot, token: CancellationToken) {
                                         let acc_block_str = if acc_block_hash.is_empty() { "<code>Archived</code>".to_string() } else { format_hash(&acc_block_hash, "blocks") };
                                         let mined_block_str = if !is_coinbase { "<code>N/A</code>".to_string() } else if actual_mined_blocks.is_empty() { "<code>Unknown</code>".to_string() } else { format_hash(&actual_mined_blocks[0], "blocks") };
 
-                                        let mut final_msg = format!("{}\n━━━━━━━━━━━━━━━━━━\n<b>Time:</b> <code>{}</code>\n<b>Wallet:</b> {}\n<b>Amount:</b> <code>+{:.8} KAS</code>\n<b>Balance:</b> <code>{:.8} KAS</code>\n<blockquote expandable>", header_emoji, time_str, format_short_wallet(&w_cl), diff, live_bal);
+                                        let mut final_msg = format!(
+                                            "{}\n━━━━━━━━━━━━━━━━━━\n<b>Time:</b> <code>{}</code>\n<b>Wallet:</b> {}\n<b>Amount:</b> <code>+{:.8} KAS</code>\n<b>Balance:</b> <code>{:.8} KAS</code>\n<blockquote expandable>",
+                                            header_emoji, time_str, format_short_wallet(&w_cl), (diff as f64 / 1e8), (live_bal as f64 / 1e8)
+                                        );
+
                                         final_msg.push_str(&format!("<b>TXID:</b> {}\n", format_hash(&f_tx, "transactions")));
                                         if is_coinbase {
                                             final_msg.push_str(&format!("<b>Mined Block:</b> {}\n<b>Accepting Block:</b> {}\n", mined_block_str, acc_block_str));
                                             if !extracted_nonce.is_empty() { final_msg.push_str(&format!("<b>Worker:</b> <code>{}</code>\n", extracted_worker)); }
-                                        } else { final_msg.push_str(&format!("<b>Accepting Block:</b> {}\n", acc_block_str)); }
+                                        } else {
+                                            final_msg.push_str(&format!("<b>Accepting Block:</b> {}\n", acc_block_str));
+                                        }
                                         final_msg.push_str(&format!("<b>DAA Score:</b> <code>{}</code>\n</blockquote>", daa_score));
 
                                         (block_time_ms, diff, w_cl.to_string(), final_msg.to_string())
@@ -109,14 +126,13 @@ pub fn spawn_utxo_monitor(ctx: AppContext, bot: Bot, token: CancellationToken) {
                                     } else { "Real-time".to_string() };
 
                                     info!("💎 [LIVE BLOCK] | Amount: +{:.4} KAS | Wallet: {} | Time: {} | Status: Delivered",
-                                          diff, format_short_wallet(&w_cl), log_time);
+                                          (diff as f64 / 1e8), format_short_wallet(&w_cl), log_time);
 
                                     for user_id in subs {
-                                        // 🛡️ Phase 3 Fix: Catch Telegram API Errors to prevent silent failures
                                         if let Err(e) = bot.send_message(ChatId(*user_id), &final_msg)
                                             .parse_mode(teloxide::types::ParseMode::Html)
                                             .link_preview_options(teloxide::types::LinkPreviewOptions { url: None, is_disabled: true, show_above_text: false, prefer_small_media: false, prefer_large_media: false })
-                                            .await { tracing::error!("[TELEGRAM API ERROR] Failed to execute: {}", e); }
+                                            .await { error!("[TELEGRAM API ERROR] Failed to execute: {}", e); }
                                     }
                                 }
                             }

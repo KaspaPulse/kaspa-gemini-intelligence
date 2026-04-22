@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT last_daa_score FROM sync_checkpoint WHERE wallet = $1",
+  "query": "SELECT daa_score FROM mined_blocks WHERE wallet = $1 ORDER BY daa_score DESC LIMIT 1",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "last_daa_score",
+        "name": "daa_score",
         "type_info": "Int8"
       }
     ],
@@ -18,5 +18,5 @@
       false
     ]
   },
-  "hash": "6a8c55501f6696571a62db034570d230f4b109bac3e204da2fd1d0f7de0b964d"
+  "hash": "83369012c88a46e9c3d9110b83c362f9de231f582e20d2f41524b3f783b0bad1"
 }

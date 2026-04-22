@@ -43,9 +43,15 @@ pub async fn handle_stats(
         }
     }
 
-    for e in ctx.state.iter() {
-        let wallet = e.key();
-        let users = e.value();
+    // 🛡️ ARCHITECTURE PATCH: Collect snapshot to drop DashMap lock before async network calls
+    let state_snapshot: Vec<(String, std::collections::HashSet<i64>)> = ctx
+        .state
+        .iter()
+        .map(|e| (e.key().clone(), e.value().clone()))
+        .collect();
+    for (wallet_owned, users_owned) in state_snapshot.iter() {
+        let wallet = wallet_owned;
+        let users = users_owned;
         let mut bal = 0.0;
         if let Ok(addr) = Address::try_from(wallet.as_str()) {
             if let Ok(utxos) = ctx.rpc.get_utxos_by_addresses(vec![addr]).await {
@@ -146,14 +152,17 @@ pub async fn handle_sys(
 
 pub async fn handle_pause(bot: Bot, chat_id: ChatId, user_id: i64, pin: String, ctx: &AppContext) {
     if !crate::security_utils::verify_admin_pin(&pin) {
-        let _ = bot
+        if let Err(e) = bot
             .send_message(
                 chat_id,
                 "🚫 <b>Unauthorized:</b> Invalid or missing PIN.\n
 To execute this pause safely, type it with the PIN:\n<code>/pause 778899</code>",
             )
             .parse_mode(teloxide::types::ParseMode::Html)
-            .await;
+            .await
+        {
+            tracing::error!("[TELEGRAM API ERROR] Failed to send message: {}", e);
+        }
         return;
     }
     if user_id == ctx.admin_id {
@@ -174,14 +183,17 @@ To execute this pause safely, type it with the PIN:\n<code>/pause 778899</code>"
 
 pub async fn handle_resume(bot: Bot, chat_id: ChatId, user_id: i64, pin: String, ctx: &AppContext) {
     if !crate::security_utils::verify_admin_pin(&pin) {
-        let _ = bot
+        if let Err(e) = bot
             .send_message(
                 chat_id,
                 "🚫 <b>Unauthorized:</b> Invalid or missing PIN.\n
 To execute this resume safely, type it with the PIN:\n<code>/resume 778899</code>",
             )
             .parse_mode(teloxide::types::ParseMode::Html)
-            .await;
+            .await
+        {
+            tracing::error!("[TELEGRAM API ERROR] Failed to send message: {}", e);
+        }
         return;
     }
     if user_id == ctx.admin_id {
@@ -208,14 +220,17 @@ pub async fn handle_restart(
     ctx: &AppContext,
 ) {
     if !crate::security_utils::verify_admin_pin(&pin) {
-        let _ = bot
+        if let Err(e) = bot
             .send_message(
                 chat_id,
                 "🚫 <b>Unauthorized:</b> Invalid or missing PIN.\n
 To execute this restart safely, type it with the PIN:\n<code>/restart 778899</code>",
             )
             .parse_mode(teloxide::types::ParseMode::Html)
-            .await;
+            .await
+        {
+            tracing::error!("[TELEGRAM API ERROR] Failed to send message: {}", e);
+        }
         return;
     }
     if user_id == ctx.admin_id {
@@ -307,9 +322,12 @@ pub async fn handle_learn(
         return;
     }
     if new_fact.trim().is_empty() {
-        let _ = bot
+        if let Err(e) = bot
             .send_message(chat_id, "⚠️ Usage: /learn [New Kaspa Information]")
-            .await;
+            .await
+        {
+            tracing::error!("[TELEGRAM API ERROR] Failed to send message: {}", e);
+        }
         return;
     }
 
@@ -327,21 +345,27 @@ pub async fn handle_learn(
     .await;
 
     if res.is_ok() {
-        let _ = bot
+        if let Err(e) = bot
             .send_message(
                 chat_id,
                 "🧠 <b>Knowledge Added!</b>\nI have securely stored this in my vector database.",
             )
             .parse_mode(teloxide::types::ParseMode::Html)
-            .await;
+            .await
+        {
+            tracing::error!("[TELEGRAM API ERROR] Failed to send message: {}", e);
+        }
     } else {
-        let _ = bot
+        if let Err(e) = bot
             .send_message(
                 chat_id,
                 "❌ <b>Database Error:</b> Failed to store new knowledge.",
             )
             .parse_mode(teloxide::types::ParseMode::Html)
-            .await;
+            .await
+        {
+            tracing::error!("[TELEGRAM API ERROR] Failed to send message: {}", e);
+        }
     }
 }
 
@@ -350,13 +374,16 @@ pub async fn handle_autolearn(bot: Bot, chat_id: ChatId, user_id: i64, ctx: &App
         return;
     }
     tracing::info!("🔍 [AUTOLEARN] Connecting to Official RSS via Manual Trigger...");
-    let _ = bot
+    if let Err(e) = bot
         .send_message(
             chat_id,
             "🔍 <b>Kaspa AI:</b> Force-scanning the Official Kaspa News Feed...",
         )
         .parse_mode(teloxide::types::ParseMode::Html)
-        .await;
+        .await
+    {
+        tracing::error!("[TELEGRAM API ERROR] Failed to send message: {}", e);
+    }
 
     let feeds =
         vec!["https://api.rss2json.com/v1/api.json?rss_url=https://medium.com/feed/kaspa-currency"];

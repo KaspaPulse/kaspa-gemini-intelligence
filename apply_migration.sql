@@ -1,0 +1,1 @@
+ALTER TABLE mined_blocks ALTER COLUMN amount TYPE BIGINT USING amount::BIGINT;

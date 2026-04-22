@@ -55,7 +55,8 @@ pub fn spawn_memory_cleaner(ctx: AppContext, token: CancellationToken) {
                 _ = token.cancelled() => { break; }
                 _ = tokio::time::sleep(Duration::from_secs(3600)) => {
                     // 1. Clear UTXO cache to free RAM
-                    ctx.utxo_state.clear();
+                                        // 🛡️ ARCHITECTURE PATCH: Smart GC - Only remove caches for untracked wallets
+                    ctx.utxo_state.retain(|wallet, _| ctx.state.contains_key(wallet));
 
                     // 2. Evict inactive users from Rate Limiter (Memory Leak Fix)
                     ctx.rate_limiter.retain_recent();

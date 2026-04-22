@@ -1,17 +1,17 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT COUNT(*) as count, COALESCE(SUM(amount), 0.0) as sum FROM mined_blocks WHERE wallet = $1",
+  "query": "SELECT COUNT(*) as \"count!\", (COALESCE(SUM(amount), 0))::BIGINT as \"sum!\" FROM mined_blocks WHERE wallet = $1",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "count",
+        "name": "count!",
         "type_info": "Int8"
       },
       {
         "ordinal": 1,
-        "name": "sum",
-        "type_info": "Float8"
+        "name": "sum!",
+        "type_info": "Int8"
       }
     ],
     "parameters": {
@@ -24,5 +24,5 @@
       null
     ]
   },
-  "hash": "d78240c571419dbfca0cc3a27d1cf87c88ba034512e671b661bdc6f82ccc546c"
+  "hash": "00f910241f871f0a7d2b32051d77ab4d9010e731d74d7292dd41a5328d439afd"
 }
