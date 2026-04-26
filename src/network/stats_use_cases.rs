@@ -1,8 +1,7 @@
-use crate::domain::errors::AppError;
+﻿use crate::domain::errors::AppError;
 use crate::infrastructure::database::postgres_adapter::PostgresRepository;
 use crate::infrastructure::market::coingecko_adapter::MarketProvider;
 use crate::infrastructure::node::kaspa_adapter::KaspaRpcAdapter;
-// ===== Migrated from network_stats.rs =====
 use std::sync::Arc;
 
 pub struct NetworkStatsUseCase {
@@ -20,8 +19,6 @@ impl NetworkStatsUseCase {
         Ok((is_online, peers, hashrate))
     }
 }
-
-// ===== Migrated from market_stats.rs =====
 
 pub struct MarketStatsResult {
     pub price: f64,
@@ -67,16 +64,17 @@ impl GetMarketStatsUseCase {
     }
 }
 
-// ===== Migrated from get_miner_stats.rs =====
-
 pub struct MinerStatsResult {
     pub wallet_address: String,
     pub actual_hashrate_1h: String,
     pub actual_hashrate_24h: String,
+    pub actual_hashrate_7d: String,
     pub unspent_hashrate_1h: String,
     pub unspent_hashrate_24h: String,
+    pub unspent_hashrate_7d: String,
     pub global_network_hashrate: String,
 }
+
 pub struct GetMinerStatsUseCase {
     db: Arc<PostgresRepository>,
     node: Arc<KaspaRpcAdapter>,
@@ -91,24 +89,14 @@ impl GetMinerStatsUseCase {
         let net_hashrate = self.node.get_network_hashrate().await?;
         let virtual_daa = self.node.get_virtual_daa_score().await?;
 
-        let db_1h = self
-            .db
-            .get_blocks_count_1h(wallet_address)
-            .await
-            .unwrap_or(0);
-        let db_24h = self
-            .db
-            .get_blocks_count_24h(wallet_address)
-            .await
-            .unwrap_or(0);
+        let db_1h = self.db.get_blocks_count_1h(wallet_address).await.unwrap_or(0);
+        let db_24h = self.db.get_blocks_count_24h(wallet_address).await.unwrap_or(0);
+        let db_7d = self.db.get_blocks_count_7d(wallet_address).await.unwrap_or(0);
 
-        let utxos = self
-            .node
-            .get_utxos(wallet_address)
-            .await
-            .unwrap_or_default();
+        let utxos = self.node.get_utxos(wallet_address).await.unwrap_or_default();
         let mut live_1h = 0;
         let mut live_24h = 0;
+        let mut live_7d = 0;
 
         for u in utxos {
             if u.is_coinbase {
@@ -119,21 +107,29 @@ impl GetMinerStatsUseCase {
                 if age <= 86400 {
                     live_24h += 1;
                 }
+                if age <= 604800 {
+                    live_7d += 1;
+                }
             }
         }
 
         let actual_1h_rate = net_hashrate * (db_1h as f64 / 3600.0);
         let actual_24h_rate = net_hashrate * (db_24h as f64 / 86400.0);
+        let actual_7d_rate = net_hashrate * (db_7d as f64 / 604800.0);
+        
         let unspent_1h_rate = net_hashrate * (live_1h as f64 / 3600.0);
         let unspent_24h_rate = net_hashrate * (live_24h as f64 / 86400.0);
+        let unspent_7d_rate = net_hashrate * (live_7d as f64 / 604800.0);
 
         use crate::presentation::telegram::formatting::kaspa::KaspaFormatter;
         Ok(MinerStatsResult {
             wallet_address: wallet_address.to_string(),
             actual_hashrate_1h: KaspaFormatter::format_hashrate(actual_1h_rate),
             actual_hashrate_24h: KaspaFormatter::format_hashrate(actual_24h_rate),
+            actual_hashrate_7d: KaspaFormatter::format_hashrate(actual_7d_rate),
             unspent_hashrate_1h: KaspaFormatter::format_hashrate(unspent_1h_rate),
             unspent_hashrate_24h: KaspaFormatter::format_hashrate(unspent_24h_rate),
+            unspent_hashrate_7d: KaspaFormatter::format_hashrate(unspent_7d_rate),
             global_network_hashrate: KaspaFormatter::format_hashrate(net_hashrate),
         })
     }

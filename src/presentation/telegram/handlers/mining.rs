@@ -58,17 +58,11 @@ pub async fn handle_miner(
     } else {
         let mut text = String::from("⛏️ <b>Solo-Miner Hashrate (Enterprise Engine)</b>\n━━━━━━━━━━━━━━━━━━\n");
         for w in &tracked {
-            let b7d: i64 = sqlx::query_scalar!("SELECT COUNT(*) FROM mined_blocks WHERE wallet = $1 AND timestamp >= CURRENT_TIMESTAMP - INTERVAL '7 days'", w)
-                .fetch_one(&app_context.pool).await.unwrap_or(Some(0)).unwrap_or(0);
-                
             match miner_stats.execute(w).await {
                 Ok(stats) => {
-                    let hash_7d_est = format!("{:.2} PH/s", (b7d as f64) * 0.0001); 
-                    let unspent_7d_est = format!("{:.2} TH/s", (b7d as f64) * 1.35); 
-
                     text.push_str(&format!(
                         "💼 <code>{}</code>\n🌐 <b>Global Hashrate:</b> <code>{}</code>\n📊 <b>Actual Hashrate:</b>\n├ 1H: <code>{}</code> | 24H: <code>{}</code> | 7D: <code>{}</code>\n⚡ <b>Unspent Hashrate:</b>\n├ 1H: <code>{}</code> | 24H: <code>{}</code> | 7D: <code>{}</code>\n\n",
-                        crate::utils::format_short_wallet(w), stats.global_network_hashrate, stats.actual_hashrate_1h, stats.actual_hashrate_24h, hash_7d_est, stats.unspent_hashrate_1h, stats.unspent_hashrate_24h, unspent_7d_est
+                        crate::utils::format_short_wallet(w), stats.global_network_hashrate, stats.actual_hashrate_1h, stats.actual_hashrate_24h, stats.actual_hashrate_7d, stats.unspent_hashrate_1h, stats.unspent_hashrate_24h, stats.unspent_hashrate_7d
                     ));
                 }
                 Err(_) => {
