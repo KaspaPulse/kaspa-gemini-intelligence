@@ -75,13 +75,13 @@ pub fn spawn_node_monitor(ctx: AppContext, bot: Bot, token: CancellationToken) {
                             is_disconnected = true;
                             // Safe sleep mode
                             ctx.live_sync_enabled.store(false, Ordering::Relaxed);
-                            let _ = bot.send_message(ChatId(ctx.admin_id), "⚠️ <b>WARNING:</b> Primary Node connection dropped!\n⏸️ UTXO Monitoring paused safely.\n🔄 Attempting background recovery...")
-                                .parse_mode(teloxide::types::ParseMode::Html).await;
+                            if let Err(e) = bot.send_message(ChatId(ctx.admin_id), "⚠️ <b>WARNING:</b> Primary Node connection dropped!\n⏸️ UTXO Monitoring paused safely.\n🔄 Attempting background recovery...")
+                                .parse_mode(teloxide::types::ParseMode::Html).await { tracing::error!("[TELEGRAM ERROR] Bot API request failed: {}", e); }
                         }
 
                         if failed_attempts % 10 == 0 {
-                            let _ = bot.send_message(ChatId(ctx.admin_id), format!("🚨 <b>CRITICAL:</b> Node still unreachable after {} attempts. Continuing to retry quietly...", failed_attempts))
-                                .parse_mode(teloxide::types::ParseMode::Html).await;
+                            if let Err(e) = bot.send_message(ChatId(ctx.admin_id), format!("🚨 <b>CRITICAL:</b> Node still unreachable after {} attempts. Continuing to retry quietly...", failed_attempts))
+                                .parse_mode(teloxide::types::ParseMode::Html).await { tracing::error!("[TELEGRAM ERROR] Bot API request failed: {}", e); }
                         }
 
                         let _ = ctx.rpc.connect(None).await;
@@ -89,8 +89,8 @@ pub fn spawn_node_monitor(ctx: AppContext, bot: Bot, token: CancellationToken) {
                         if is_disconnected {
                             tracing::info!("[NODE RECOVERED] RPC Tunnel stabilized.");
                             ctx.live_sync_enabled.store(true, Ordering::Relaxed);
-                            let _ = bot.send_message(ChatId(ctx.admin_id), "✅ <b>RECOVERED:</b> Node connection stabilized.\n▶️ UTXO Monitoring resumed smoothly.")
-                                .parse_mode(teloxide::types::ParseMode::Html).await;
+                            if let Err(e) = bot.send_message(ChatId(ctx.admin_id), "✅ <b>RECOVERED:</b> Node connection stabilized.\n▶️ UTXO Monitoring resumed smoothly.")
+                                .parse_mode(teloxide::types::ParseMode::Html).await { tracing::error!("[TELEGRAM ERROR] Bot API request failed: {}", e); }
 
                             failed_attempts = 0;
                             is_disconnected = false;

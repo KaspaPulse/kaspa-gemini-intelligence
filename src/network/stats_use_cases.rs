@@ -127,13 +127,14 @@ impl GetMinerStatsUseCase {
         let unspent_1h_rate = net_hashrate * (live_1h as f64 / 3600.0);
         let unspent_24h_rate = net_hashrate * (live_24h as f64 / 86400.0);
 
+        use crate::presentation::telegram::formatting::kaspa::KaspaFormatter;
         Ok(MinerStatsResult {
             wallet_address: wallet_address.to_string(),
-            actual_hashrate_1h: format!("{:.2} GH/s", actual_1h_rate / 1e9),
-            actual_hashrate_24h: format!("{:.2} GH/s", actual_24h_rate / 1e9),
-            unspent_hashrate_1h: format!("{:.2} GH/s", unspent_1h_rate / 1e9),
-            unspent_hashrate_24h: format!("{:.2} GH/s", unspent_24h_rate / 1e9),
-            global_network_hashrate: format!("{:.2} TH/s", net_hashrate / 1e12),
+            actual_hashrate_1h: KaspaFormatter::format_hashrate(actual_1h_rate),
+            actual_hashrate_24h: KaspaFormatter::format_hashrate(actual_24h_rate),
+            unspent_hashrate_1h: KaspaFormatter::format_hashrate(unspent_1h_rate),
+            unspent_hashrate_24h: KaspaFormatter::format_hashrate(unspent_24h_rate),
+            global_network_hashrate: KaspaFormatter::format_hashrate(net_hashrate),
         })
     }
 }

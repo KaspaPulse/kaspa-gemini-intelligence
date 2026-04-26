@@ -31,7 +31,7 @@ pub async fn verify_pin_and_execute(
     let pin = msg.text().unwrap_or_default();
     
     // Safety: Delete the user's message containing the PIN immediately
-    let _ = bot.delete_message(msg.chat.id, msg.id).await;
+    if let Err(e) = bot.delete_message(msg.chat.id, msg.id).await { tracing::error!("[TELEGRAM ERROR] Bot API request failed: {}", e); }
 
     if crate::infrastructure::security::utils::verify_admin_pin(pin) {
         bot.send_message(msg.chat.id, format!("✅ PIN Verified. Executing: {}", command)).await?;

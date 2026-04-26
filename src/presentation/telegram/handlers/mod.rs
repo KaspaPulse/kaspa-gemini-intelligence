@@ -21,7 +21,11 @@ use std::sync::Arc;
 use teloxide::prelude::*;
 
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct BotUseCases {
+    pub ai_chat: Arc<AiChatUseCase>,
+    pub ai_rag: Arc<crate::ai::ai_use_cases::AiRagUseCase>,
+    pub ai_provider: Arc<AiEngineAdapter>,
     pub wallet_mgt: Arc<WalletManagementUseCase>,
     pub wallet_query: Arc<WalletQueriesUseCase>,
     pub network_stats: Arc<NetworkStatsUseCase>,
@@ -53,7 +57,7 @@ pub fn handle_command(
                         app_context.pool.clone(),
                     ),
                 );
-                let _ = db.remove_all_user_data(cid).await;
+                if let Err(e) = db.remove_all_user_data(cid).await { tracing::error!("[DATABASE ERROR] Repository operation failed: {}", e); }
                 crate::send_logged!(bot, msg, "🗑️ <b>GDPR: All your data and wallets have been permanently deleted from our servers.</b>");
                 return Ok(());
             }
@@ -85,28 +89,28 @@ pub fn handle_command(
 
         match cmd {
             Command::ForgetChat => {
-                let _ = sqlx::query("DELETE FROM chat_history WHERE chat_id = $1")
+                if let Err(e) = sqlx::query("DELETE FROM chat_history WHERE chat_id = $1")
                     .bind(msg.chat.id.0 as i64)
                     .execute(&app_context.pool)
-                    .await;
+                    .await { tracing::error!("[DATABASE ERROR] SQLx query failed: {}", e); }
                 let _ = crate::send_logged!(bot, msg, "🧠 <b>AI Memory Cleared:</b>\nYour conversation history has been wiped. The AI will start fresh.");
             }
             Command::ForgetWallets => {
-                let _ = sqlx::query("DELETE FROM user_wallets WHERE chat_id = $1")
+                if let Err(e) = sqlx::query("DELETE FROM user_wallets WHERE chat_id = $1")
                     .bind(msg.chat.id.0 as i64)
                     .execute(&app_context.pool)
-                    .await;
+                    .await { tracing::error!("[DATABASE ERROR] SQLx query failed: {}", e); }
                 let _ = crate::send_logged!(bot, msg, "🗑️ <b>Wallets Cleared:</b>\nAll your tracked wallets have been removed from the monitoring engine.");
             }
             Command::ForgetAll => {
-                let _ = sqlx::query("DELETE FROM chat_history WHERE chat_id = $1")
+                if let Err(e) = sqlx::query("DELETE FROM chat_history WHERE chat_id = $1")
                     .bind(msg.chat.id.0 as i64)
                     .execute(&app_context.pool)
-                    .await;
-                let _ = sqlx::query("DELETE FROM user_wallets WHERE chat_id = $1")
+                    .await { tracing::error!("[DATABASE ERROR] SQLx query failed: {}", e); }
+                if let Err(e) = sqlx::query("DELETE FROM user_wallets WHERE chat_id = $1")
                     .bind(msg.chat.id.0 as i64)
                     .execute(&app_context.pool)
-                    .await;
+                    .await { tracing::error!("[DATABASE ERROR] SQLx query failed: {}", e); }
                 let _ = crate::send_logged!(bot, msg, "🚨 <b>GDPR Protocol Executed:</b>\nAll your data (Wallets & Chats) has been permanently erased from this server.");
             }
             Command::DbDiag => {
@@ -151,17 +155,17 @@ pub fn handle_command(
                     let _ = crate::send_logged!(bot, msg, "⛔ Unauthorized.");
                     return Ok(());
                 }
-                let _ = sqlx::query("DELETE FROM knowledge_base")
+                if let Err(e) = sqlx::query("DELETE FROM knowledge_base")
                     .execute(&app_context.pool)
-                    .await;
+                    .await { tracing::error!("[DATABASE ERROR] SQLx query failed: {}", e); }
                 let _ = crate::send_logged!(bot, msg, "💥 <b>Knowledge Base Flushed:</b>\nAll learned facts, RSS news, and AI vector data have been completely wiped.");
             }
             Command::Forget => {
                 // Execute direct bypass query to delete stuck/malicious wallets
-                let _ = sqlx::query("DELETE FROM user_wallets WHERE chat_id = $1")
+                if let Err(e) = sqlx::query("DELETE FROM user_wallets WHERE chat_id = $1")
                     .bind(msg.chat.id.0)
                     .execute(&app_context.pool)
-                    .await;
+                    .await { tracing::error!("[DATABASE ERROR] SQLx query failed: {}", e); }
 
                 let _ = crate::send_logged!(
                     bot,
@@ -382,6 +386,7 @@ pub async fn handle_callback(
     app_context: Arc<crate::domain::models::AppContext>,
 ) -> anyhow::Result<()> {
     if let Some(data) = q.data.clone() {
+        tracing::info!("🔘 [CONTROL PANEL ACTION]: Button Clicked -> {}", data);
         if data.starts_with("btn_toggle_") {
             let flag = data.replace("btn_toggle_", "");
             let mut new_state = false;
@@ -443,7 +448,7 @@ pub async fn handle_callback(
                     app_context.pool.clone(),
                 ),
             );
-            let _ = db.update_setting(&flag, &new_state.to_string()).await;
+            if let Err(e) = db.update_setting(&flag, &new_state.to_string()).await { tracing::error!("[DATABASE ERROR] Repository operation failed: {}", e); }
             if let Some(msg) = q.regular_message() {
                 let _ = admin::handle_interactive_settings(
                     bot.clone(),
@@ -453,7 +458,7 @@ pub async fn handle_callback(
                 )
                 .await;
             }
-            let _ = bot.answer_callback_query(q.id).await;
+            if let Err(e) = bot.answer_callback_query(q.id).await { tracing::error!("[TELEGRAM ERROR] Bot API request failed: {}", e); }
             return Ok(());
         }
 
@@ -464,7 +469,7 @@ pub async fn handle_callback(
                     app_context.pool.clone(),
                 ),
             );
-            let _ = db.update_setting("ACTIVE_AI_MODEL", &model).await;
+            if let Err(e) = db.update_setting("ACTIVE_AI_MODEL", &model).await { tracing::error!("[DATABASE ERROR] Repository operation failed: {}", e); }
             if let Some(msg) = q.regular_message() {
                 let _ = admin::handle_interactive_settings(
                     bot.clone(),
@@ -474,11 +479,12 @@ pub async fn handle_callback(
                 )
                 .await;
             }
-            let _ = bot.answer_callback_query(q.id).await;
+            if let Err(e) = bot.answer_callback_query(q.id).await { tracing::error!("[TELEGRAM ERROR] Bot API request failed: {}", e); }
             return Ok(());
         }
     }
     if let Some(data) = q.data.clone() {
+        tracing::info!("🔘 [CONTROL PANEL ACTION]: Button Clicked -> {}", data);
         let cmd = match data.as_str() {
             "cmd_balance" | "refresh_balance" => Some(Command::Balance),
             "cmd_list" | "refresh_list" => Some(Command::List),
@@ -543,7 +549,7 @@ pub async fn handle_callback(
             }
         }
     }
-    let _ = bot.answer_callback_query(q.id).await;
+    if let Err(e) = bot.answer_callback_query(q.id).await { tracing::error!("[TELEGRAM ERROR] Bot API request failed: {}", e); }
     Ok(())
 }
 
@@ -564,3 +570,6 @@ pub async fn handle_block_user(
 ) -> anyhow::Result<()> {
     Ok(())
 }
+
+
+

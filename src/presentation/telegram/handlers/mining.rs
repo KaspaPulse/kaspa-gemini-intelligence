@@ -22,7 +22,8 @@ pub async fn handle_blocks(
             }
 
             let text = format!("🧱 <b>Mined Blocks Forensics</b>\n━━━━━━━━━━━━━━━━━━\n⏱️ <b>Last 1 Hour:</b> <code>{}</code>\n⏳ <b>Last 24 Hours:</b> <code>{}</code>\n🏆 <b>Lifetime Blocks:</b> <code>{}</code>\n📈 <b>Mining Status:</b> {}{}", b1h, b24h, total_lifetime, if b1h > 0 { "Active 🟢" } else { "Idle 🟡" }, daily_breakdown);
-            crate::send_logged!(bot, msg, text);
+            let markup = crate::utils::refresh_markup("refresh_blocks");
+            let _ = crate::utils::send_or_edit_log(&bot, msg.chat.id, None, text, Some(markup)).await;
         }
         Err(e) => {
             crate::send_logged!(bot, msg, format!("❌ Error: {}", e));
@@ -66,7 +67,9 @@ pub async fn handle_miner(
                 }
             }
         }
-        crate::send_logged!(bot, msg, text);
+        crate::send_logged!(bot, msg, text);let markup = crate::utils::refresh_markup("refresh_miner");
+        let _ = crate::utils::send_or_edit_log(&bot, msg.chat.id, None, text, Some(markup)).await;
     }
     Ok(())
 }
+

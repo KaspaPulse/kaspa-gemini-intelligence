@@ -8,10 +8,11 @@ pub enum AppError {
     NodeConnection(String),
 
     #[error("Database execution failed: {0}")]
-    DatabaseError(#[from] sqlx::Error),
+    DatabaseError(String),
 
     #[error("API Request failed: {0}")]
-    ApiError(#[from] reqwest::Error),
+    #[allow(dead_code)]
+    ApiError(String),
 
     #[error("Internal processing error: {0}")]
     Internal(String),

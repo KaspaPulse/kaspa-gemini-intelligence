@@ -29,9 +29,19 @@ pub fn start_system_monitors(sys_tasks: Arc<SystemTasksUseCase>) {
 pub fn start_rss_crawler(rss_use_case: Arc<CrawlNewsUseCase>) {
     tokio::spawn(async move {
         loop {
-            info!("[RSS CRAWLER] Fetching news items. Storing in Knowledge Base...");
+            // STRICT BOOT CHECK: Check the database BEFORE taking any action or logging
+            let is_enabled = rss_use_case.db.get_setting("ENABLE_RSS_WORKER", "false").await.unwrap_or_else(|_| "false".to_string());
+            
+            if is_enabled != "true" {
+                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                continue;
+            }
+
+            tracing::info!("📡 [RSS CRAWLER] Worker activated. Fetching news items...");
             rss_use_case.execute().await;
-            tokio::time::sleep(Duration::from_secs(6 * 3600)).await; // Run every 6 hours
+            tokio::time::sleep(std::time::Duration::from_secs(6 * 3600)).await; // Run every 6 hours
         }
     });
 }
+
+

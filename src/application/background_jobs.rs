@@ -24,7 +24,7 @@ impl CrawlNewsUseCase {
         if let Ok(feed) = self.news.fetch_news(urls).await {
             let mut new_items = 0;
             for item in feed {
-                if let Ok(()) = self
+                if let Ok(true) = self
                     .db
                     .add_to_knowledge_base(&item.title, &item.link, &item.content, &item.source)
                     .await
@@ -59,7 +59,10 @@ impl SystemTasksUseCase {
         Self { db, ai }
     }
 
-    pub async fn execute_memory_cleanup(&self) {
+        pub async fn execute_memory_cleanup(&self) {
+        // STRICT BOOT CHECK
+        let is_enabled = self.db.get_setting("ENABLE_MEMORY_CLEANER", "false").await.unwrap_or_else(|_| "false".to_string());
+        if is_enabled != "true" { return; }
         info!("🧹 [MEMORY CLEANER] Starting enterprise garbage collection...");
         if let Err(e) = self.db.run_memory_cleaner().await {
             error!("[DATABASE ERROR] Failed to purge old chats: {}", e);
@@ -68,7 +71,8 @@ impl SystemTasksUseCase {
         }
     }
 
-    pub async fn execute_ai_vectorizer(&self) {
+    #[allow(unreachable_code)]
+    pub async fn execute_ai_vectorizer(&self) { return; // [KILLED]
         let is_enabled = self
             .db
             .get_setting("ENABLE_AI_VECTORIZER", "false")
@@ -108,3 +112,8 @@ impl SystemTasksUseCase {
         }
     }
 }
+
+
+
+
+

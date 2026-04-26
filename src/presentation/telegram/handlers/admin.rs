@@ -198,7 +198,7 @@ pub async fn handle_toggle(
             app_context.pool.clone(),
         ),
     );
-    let _ = db.update_setting(&flag, &new_state.to_string()).await;
+    if let Err(e) = db.update_setting(&flag, &new_state.to_string()).await { tracing::error!("[DATABASE ERROR] Repository operation failed: {}", e); }
     crate::send_logged!(
         bot,
         msg,
@@ -354,7 +354,7 @@ pub async fn handle_autolearn(
                     if clean_content.len() < 50 {
                         continue;
                     }
-                    if db
+                    if let Ok(true) = db
                         .add_to_knowledge_base(
                             &title,
                             &link,
@@ -362,7 +362,6 @@ pub async fn handle_autolearn(
                             "Admin Autolearn Trigger",
                         )
                         .await
-                        .is_ok()
                     {
                         added_count += 1;
                         titles_added.push_str(&format!("▪ {}\n", title));
@@ -525,3 +524,5 @@ pub async fn handle_interactive_settings(
     }
     Ok(())
 }
+
+

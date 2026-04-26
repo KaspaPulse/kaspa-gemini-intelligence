@@ -6,7 +6,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 pub struct KaspaRpcAdapter {
-    client: Arc<KaspaRpcClient>,
+    pub client: Arc<KaspaRpcClient>,
 }
 
 impl KaspaRpcAdapter {

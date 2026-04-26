@@ -116,7 +116,8 @@ pub async fn handle_balance(
             let fiat_val = total_bal * fiat_price;
 
             let text = format!("💰 <b>Enterprise Wallet Analytics</b>\n━━━━━━━━━━━━━━━━━━\n💵 <b>Total Balance:</b> <code>{:.2} KAS</code>\n💲 <b>Fiat Value:</b> <code>${:.2} USD</code>\n🔄 <b>Active UTXOs:</b> <code>{}</code>\n📊 <b>Avg UTXO Size:</b> <code>{:.2} KAS</code>", total_bal, fiat_val, total_utxos, avg_utxo);
-            crate::send_logged!(bot, msg, text);
+            let markup = crate::utils::refresh_markup("refresh_balance");
+            let _ = crate::utils::send_or_edit_log(&bot, msg.chat.id, None, text, Some(markup)).await;
         }
         Err(e) => {
             crate::send_logged!(bot, msg, format!("❌ Error: {}", e));
@@ -124,3 +125,4 @@ pub async fn handle_balance(
     }
     Ok(())
 }
+

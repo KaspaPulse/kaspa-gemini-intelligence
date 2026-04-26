@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use chrono::{DateTime, Utc};
 use reqwest::header::{ACCEPT, USER_AGENT};
 use reqwest::Client;
@@ -79,3 +80,4 @@ async fn fetch_and_store_feeds(pool: &PgPool, client: &Client) {
         }
     }
 }
+

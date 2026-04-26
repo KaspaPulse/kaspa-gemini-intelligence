@@ -274,7 +274,7 @@ impl UtxoMonitorService {
                         amount: (u.amount as i64),
                         daa_score: u.block_daa_score,
                     };
-                    let _ = db.record_mined_block(block).await;
+                    if let Err(e) = db.record_mined_block(block).await { tracing::error!("[DATABASE ERROR] Repository operation failed: {}", e); }
                 }
 
                 let (acc_block_hash, actual_mined_blocks, _nonce, extracted_worker, block_time_ms) =

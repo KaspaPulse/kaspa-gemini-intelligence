@@ -22,7 +22,7 @@ impl PostgresRepository {
             if let sqlx::Error::RowNotFound = e {
                 crate::domain::errors::AppError::NotFound("Database record not found".to_string())
             } else {
-                crate::domain::errors::AppError::DatabaseError(e)
+                crate::domain::errors::AppError::DatabaseError(e.to_string())
             }
         })?;
         Ok(())
@@ -40,7 +40,7 @@ impl PostgresRepository {
             if let sqlx::Error::RowNotFound = e {
                 crate::domain::errors::AppError::NotFound("Database record not found".to_string())
             } else {
-                crate::domain::errors::AppError::DatabaseError(e)
+                crate::domain::errors::AppError::DatabaseError(e.to_string())
             }
         })?;
         Ok(())
@@ -56,7 +56,7 @@ impl PostgresRepository {
                         "Database record not found".to_string(),
                     )
                 } else {
-                    crate::domain::errors::AppError::DatabaseError(e)
+                    crate::domain::errors::AppError::DatabaseError(e.to_string())
                 }
             })?;
         let wallets = rows
@@ -77,7 +77,7 @@ impl PostgresRepository {
             if let sqlx::Error::RowNotFound = e {
                 crate::domain::errors::AppError::NotFound("Database record not found".to_string())
             } else {
-                crate::domain::errors::AppError::DatabaseError(e)
+                crate::domain::errors::AppError::DatabaseError(e.to_string())
             }
         })?;
         Ok(())
@@ -91,7 +91,7 @@ impl PostgresRepository {
             if let sqlx::Error::RowNotFound = e {
                 crate::domain::errors::AppError::NotFound("Database record not found".to_string())
             } else {
-                crate::domain::errors::AppError::DatabaseError(e)
+                crate::domain::errors::AppError::DatabaseError(e.to_string())
             }
         })?;
         Ok((res.count, res.sum))
@@ -153,8 +153,8 @@ impl PostgresRepository {
         match res {
             Some(val) => Ok(val),
             None => {
-                let _ = sqlx::query("INSERT INTO system_settings (key_name, value_data) VALUES ($1, $2) ON CONFLICT DO NOTHING")
-                    .bind(key).bind(default_val).execute(&self.pool).await;
+                if let Err(e) = sqlx::query("INSERT INTO system_settings (key_name, value_data) VALUES ($1, $2) ON CONFLICT DO NOTHING")
+                    .bind(key).bind(default_val).execute(&self.pool).await { tracing::error!("[DATABASE ERROR] SQLx query failed: {}", e); }
                 Ok(default_val.to_string())
             }
         }
@@ -166,7 +166,7 @@ impl PostgresRepository {
             if let sqlx::Error::RowNotFound = e {
                 crate::domain::errors::AppError::NotFound("Database record not found".to_string())
             } else {
-                crate::domain::errors::AppError::DatabaseError(e)
+                crate::domain::errors::AppError::DatabaseError(e.to_string())
             }
         })?;
         Ok(())
@@ -182,30 +182,26 @@ impl PostgresRepository {
             if let sqlx::Error::RowNotFound = e {
                 crate::domain::errors::AppError::NotFound("Database record not found".to_string())
             } else {
-                crate::domain::errors::AppError::DatabaseError(e)
+                crate::domain::errors::AppError::DatabaseError(e.to_string())
             }
         })?;
         Ok(())
     }
 
-    pub async fn add_to_knowledge_base(
+        pub async fn add_to_knowledge_base(
         &self,
         title: &str,
         link: &str,
         content: &str,
         source: &str,
-    ) -> Result<(), AppError> {
-        sqlx::query!(
+    ) -> Result<bool, AppError> {
+        let result = sqlx::query!(
             "INSERT INTO knowledge_base (title, link, content, source) VALUES ($1, $2, $3, $4) ON CONFLICT (link) DO NOTHING",
             title, link, content, source
         ).execute(&self.pool).await.map_err(|e| {
-            if let sqlx::Error::RowNotFound = e {
-                crate::domain::errors::AppError::NotFound("Database record not found".to_string())
-            } else {
-                crate::domain::errors::AppError::DatabaseError(e)
-            }
+            crate::domain::errors::AppError::DatabaseError(e.to_string())
         })?;
-        Ok(())
+        Ok(result.rows_affected() > 0)
     }
 
     pub async fn get_unindexed_knowledge(
@@ -222,7 +218,7 @@ impl PostgresRepository {
             if let sqlx::Error::RowNotFound = e {
                 crate::domain::errors::AppError::NotFound("Database record not found".to_string())
             } else {
-                crate::domain::errors::AppError::DatabaseError(e)
+                crate::domain::errors::AppError::DatabaseError(e.to_string())
             }
         })?;
         Ok(rows.into_iter().map(|r| (r.id, r.content)).collect())
@@ -245,7 +241,7 @@ impl PostgresRepository {
                         "Database record not found".to_string(),
                     )
                 } else {
-                    crate::domain::errors::AppError::DatabaseError(e)
+                    crate::domain::errors::AppError::DatabaseError(e.to_string())
                 }
             })?;
         Ok(())
@@ -261,7 +257,7 @@ impl PostgresRepository {
                         "Database record not found".to_string(),
                     )
                 } else {
-                    crate::domain::errors::AppError::DatabaseError(e)
+                    crate::domain::errors::AppError::DatabaseError(e.to_string())
                 }
             })?;
         Ok(())
@@ -281,9 +277,10 @@ impl PostgresRepository {
             if let sqlx::Error::RowNotFound = e {
                 crate::domain::errors::AppError::NotFound("Database record not found".to_string())
             } else {
-                crate::domain::errors::AppError::DatabaseError(e)
+                crate::domain::errors::AppError::DatabaseError(e.to_string())
             }
         })?;
         Ok(res)
     }
 }
+

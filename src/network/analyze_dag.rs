@@ -3,7 +3,7 @@ use crate::domain::models::BlockData;
 use crate::infrastructure::node::kaspa_adapter::KaspaRpcAdapter;
 use kaspa_hashes::Hash;
 use kaspa_rpc_core::api::rpc::RpcApi;
-use kaspa_wrpc_client::KaspaRpcClient;
+
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::time::{sleep, Duration};
@@ -36,17 +36,7 @@ impl AnalyzeDagUseCase {
         let mut block_time_ms: u64 = 0;
 
         // Bypassing abstract traits to guarantee raw access to verbose_data for forensics
-        let url =
-            std::env::var("NODE_URL_01").unwrap_or_else(|_| "ws://127.0.0.1:16110".to_string());
-        let rpc_cl = KaspaRpcClient::new(
-            kaspa_wrpc_client::WrpcEncoding::SerdeJson,
-            Some(&url),
-            None,
-            None,
-            None,
-        )
-        .unwrap();
-        let _ = rpc_cl.connect(None).await;
+        let rpc_cl = self.node.client.clone();
 
         let mut visited = HashSet::new();
         let mut current_hashes = match rpc_cl.get_block_dag_info().await {
@@ -143,7 +133,7 @@ impl AnalyzeDagUseCase {
             }
         }
 
-        let _ = rpc_cl.disconnect().await;
+        // Dependency Injection: Connection is shared, do not disconnect here.
         Ok((
             acc_block_hash,
             actual_mined_blocks,

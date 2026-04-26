@@ -158,6 +158,23 @@ async fn main() -> anyhow::Result<()> {
         admin_id,
     ));
 
+        // --- UI/DB STATE SYNC PATCH ---
+    {
+        let is_rss = db_repo.get_setting("ENABLE_RSS_WORKER", "false").await.unwrap_or_else(|_| "false".to_string()) == "true";
+        app_context.rss_worker_enabled.store(is_rss, std::sync::atomic::Ordering::Relaxed);
+        let is_mem = db_repo.get_setting("ENABLE_MEMORY_CLEANER", "false").await.unwrap_or_else(|_| "false".to_string()) == "true";
+        app_context.memory_cleaner_enabled.store(is_mem, std::sync::atomic::Ordering::Relaxed);
+        let is_sync = db_repo.get_setting("ENABLE_LIVE_SYNC", "true").await.unwrap_or_else(|_| "true".to_string()) == "true";
+        app_context.live_sync_enabled.store(is_sync, std::sync::atomic::Ordering::Relaxed);
+        let is_vec = db_repo.get_setting("ENABLE_AI_VECTORIZER", "false").await.unwrap_or_else(|_| "false".to_string()) == "true";
+        app_context.ai_vectorizer_enabled.store(is_vec, std::sync::atomic::Ordering::Relaxed);
+        let is_chat = db_repo.get_setting("ENABLE_AI_CHAT", "false").await.unwrap_or_else(|_| "false".to_string()) == "true";
+        app_context.ai_chat_enabled.store(is_chat, std::sync::atomic::Ordering::Relaxed);
+        let is_voice = db_repo.get_setting("ENABLE_AI_VOICE", "false").await.unwrap_or_else(|_| "false".to_string()) == "true";
+        app_context.ai_voice_enabled.store(is_voice, std::sync::atomic::Ordering::Relaxed);
+        let is_maint = db_repo.get_setting("MAINTENANCE_MODE", "false").await.unwrap_or_else(|_| "false".to_string()) == "true";
+        app_context.maintenance_mode.store(is_maint, std::sync::atomic::Ordering::Relaxed);
+    }
     let pool_shutdown = pool.clone();
     let ct_ctrlc = cancel_token.clone();
 
@@ -190,11 +207,8 @@ async fn main() -> anyhow::Result<()> {
     );
 
     // 🚀 PHASE 1 WIRES: RSS Crawler & Memory Cleaner
-    tracing::info!("[SYSTEM] Wiring Phase 1: Activating RSS Crawler & Memory Cleaner...");
-    crate::infrastructure::external_services::rss::spawn_rss_crawler(
-        pool.clone(),
-        cancel_token.clone(),
-    );
+    tracing::info!("[SYSTEM] Wiring Phase 1: Spawning Daemons (Sleeping until toggled ON)...");
+    // [KILLED] Duplicate external_services RSS crawler disabled.
     crate::infrastructure::external_services::system::spawn_memory_cleaner(
         (*app_context).clone(),
         cancel_token.clone(),
@@ -242,6 +256,9 @@ async fn main() -> anyhow::Result<()> {
 
     // 🛡️ Fixed: Removed all duplicate dependencies
     let bot_use_cases = crate::presentation::telegram::handlers::BotUseCases {
+        ai_chat: ai_chat_uc.clone(),
+        ai_rag: ai_rag_uc.clone(),
+        ai_provider: ai_provider.clone(),
         wallet_mgt: wallet_management_uc.clone(),
         wallet_query: wallet_queries_uc.clone(),
         network_stats: network_stats_uc.clone(),
@@ -295,3 +312,7 @@ async fn main() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+
+
+
