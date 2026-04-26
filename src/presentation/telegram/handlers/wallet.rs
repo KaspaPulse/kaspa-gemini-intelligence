@@ -116,7 +116,8 @@ pub async fn handle_balance(
             let fiat_val = total_bal * fiat_price;
 
             let text = format!("💰 <b>Enterprise Wallet Analytics</b>\n━━━━━━━━━━━━━━━━━━\n💵 <b>Total Balance:</b> <code>{:.2} KAS</code>\n💲 <b>Fiat Value:</b> <code>${:.2} USD</code>\n🔄 <b>Active UTXOs:</b> <code>{}</code>\n📊 <b>Avg UTXO Size:</b> <code>{:.2} KAS</code>", total_bal, fiat_val, total_utxos, avg_utxo);
-            let markup = crate::utils::refresh_markup("refresh_balance");
+            let text = format!("{}\n\n⏱️ <code>{}</code>", text, chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC"));
+        let markup = crate::utils::refresh_markup("refresh_balance");
             let _ = crate::utils::send_or_edit_log(&bot, msg.chat.id, msg.from.as_ref().filter(|u| u.is_bot).map(|_| msg.id), text, Some(markup)).await;
         }
         Err(e) => {

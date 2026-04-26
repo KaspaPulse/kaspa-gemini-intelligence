@@ -57,7 +57,8 @@ pub async fn handle_network_overview(
             dag.tip_hashes.len()
         ));
     }
-    let markup = crate::utils::refresh_markup("refresh_network");
+    let text = format!("{}\n\n⏱️ <code>{}</code>", text, chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC"));
+        let markup = crate::utils::refresh_markup("refresh_network");
     let _ = crate::utils::send_or_edit_log(&bot, msg.chat.id, msg.from.as_ref().filter(|u| u.is_bot).map(|_| msg.id), text, Some(markup)).await;
     Ok(())
 }
@@ -115,6 +116,7 @@ pub async fn handle_dag(
             "Syncing 🟡"
         };
         text.push_str(&format!("\n🩺 <b>DAG Health:</b> {}", health));
+        let text = format!("{}\n\n⏱️ <code>{}</code>", text, chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC"));
         let markup = crate::utils::refresh_markup("refresh_dag");
         let _ = crate::utils::send_or_edit_log(&bot, msg.chat.id, msg.from.as_ref().filter(|u| u.is_bot).map(|_| msg.id), text, Some(markup)).await;
     } else {
@@ -172,7 +174,8 @@ pub async fn handle_market_data(
             };
             let text = format!("📈 <b>Kaspa Market Data (Enterprise)</b>\n━━━━━━━━━━━━━━━━━━\n💲 <b>Price:</b> <code>${:.4} USD</code>\n🏦 <b>Market Cap:</b> <code>${:.0}</code>\n⛏️ <b>Network Hashrate:</b> <code>{}</code>\n👥 <b>Node Peers:</b> <code>{}</code>\n🩺 <b>Status:</b> {}\n✂️ <b>Pruning Pt:</b> <code>{}...</code>",
                 res.price, res.mcap, KaspaFormatter::format_hashrate(res.hashrate), res.peers, online_indicator, &res.pruning_point.chars().take(8).collect::<String>());
-            let markup = crate::utils::refresh_markup("refresh_market");
+            let text = format!("{}\n\n⏱️ <code>{}</code>", text, chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC"));
+        let markup = crate::utils::refresh_markup("refresh_market");
             let _ = crate::utils::send_or_edit_log(&bot, msg.chat.id, msg.from.as_ref().filter(|u| u.is_bot).map(|_| msg.id), text, Some(markup)).await;
         }
         Err(_) => {
