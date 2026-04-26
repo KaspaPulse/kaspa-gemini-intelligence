@@ -116,6 +116,12 @@ impl PostgresRepository {
         Ok(count.unwrap_or(0))
     }
 
+    pub async fn get_blocks_count_7d(&self, address: &str) -> Result<i64, AppError> {
+        let count = sqlx::query_scalar!("SELECT COUNT(*) FROM mined_blocks WHERE wallet = $1 AND timestamp >= CURRENT_TIMESTAMP - INTERVAL '7 days'", address)
+            .fetch_one(&self.pool).await.unwrap_or(Some(0));
+        Ok(count.unwrap_or(0))
+    }
+
     pub async fn get_setting(&self, key: &str, default_val: &str) -> Result<String, AppError> {
         let res: Option<String> =
             sqlx::query_scalar("SELECT value_data FROM system_settings WHERE key_name = $1")
