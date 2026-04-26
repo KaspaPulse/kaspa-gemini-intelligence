@@ -154,7 +154,7 @@ pub async fn send_reply_or_edit_log(
         if let Some(m) = markup { req = req.reply_markup(m); }
         let _ = req.await;
     } else {
-        let mut req = bot.send_message(chat_id, text).reply_to_message_id(reply_to).parse_mode(teloxide::types::ParseMode::Html);
+        let mut req = bot.send_message(chat_id, text).reply_parameters(teloxide::types::ReplyParameters::new(reply_to)).parse_mode(teloxide::types::ParseMode::Html);
         if let Some(m) = markup { req = req.reply_markup(m); }
         let _ = req.await;
     }
