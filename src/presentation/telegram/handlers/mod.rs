@@ -1,4 +1,4 @@
-pub mod wallet;
+﻿pub mod wallet;
 use crate::infrastructure::ai::ai_engine_adapter::AiEngineAdapter;
 // --- Enterprise Modular Monolith Imports ---
 use crate::ai::ai_use_cases::AiChatUseCase;
@@ -544,7 +544,11 @@ pub async fn handle_callback(
                     .answer_callback_query(q.id.clone())
                     .text(toast_msg)
                     .await;
-                let _ = handle_command(bot.clone(), msg.clone(), c, ucs, app_context).await;
+                let mut target_msg = msg.clone();
+                if data.starts_with("cmd_") {
+                    target_msg.from = Some(q.from.clone());
+                }
+                let _ = handle_command(bot.clone(), target_msg, c, ucs, app_context).await;
                 return Ok(());
             }
         }
