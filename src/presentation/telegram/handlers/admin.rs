@@ -128,7 +128,7 @@ pub async fn handle_stats(
             .join(", ");
         text.push_str(&format!(
             "▪ <code>{}</code>\n  ├ User: @{} [{}]\n  ├ Balance: {:.2} KAS\n  └ Mined Blocks: {}\n\n",
-            crate::utils::format_short_wallet(&wallet), msg.from().and_then(|u| u.username.clone()).unwrap_or_else(|| "Unknown".to_string()), u_names,
+            crate::utils::format_short_wallet(&wallet), msg.from.as_ref().and_then(|u| u.username.clone()).unwrap_or_else(|| "Unknown".to_string()), u_names,
             bal,
             blocks_count
         ));
