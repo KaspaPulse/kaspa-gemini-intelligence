@@ -64,6 +64,7 @@ impl GetMarketStatsUseCase {
     }
 }
 
+#[allow(dead_code)]
 pub struct MinerStatsResult {
     pub wallet_address: String,
     pub actual_hashrate_1h: String,
