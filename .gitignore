@@ -35,3 +35,7 @@ Thumbs.db
 # ==============================================================================
 *.pid
 *.tmp
+
+# Local database audit reports
+db_audit_*.txt
+db_audit_remote_*.txt
