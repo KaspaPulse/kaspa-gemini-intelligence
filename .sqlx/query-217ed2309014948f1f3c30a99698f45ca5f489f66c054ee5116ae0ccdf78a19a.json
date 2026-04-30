@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT wallet, chat_id as \"chat_id!\" FROM user_wallets",
+  "query": "\n            SELECT wallet, chat_id as \"chat_id!\"\n            FROM user_wallets\n            ",
   "describe": {
     "columns": [
       {
@@ -22,5 +22,5 @@
       false
     ]
   },
-  "hash": "abe266376dd1fedc1e2c7cc7590aa7d14e2c5aad201ec108e387953fbfa03e56"
+  "hash": "217ed2309014948f1f3c30a99698f45ca5f489f66c054ee5116ae0ccdf78a19a"
 }

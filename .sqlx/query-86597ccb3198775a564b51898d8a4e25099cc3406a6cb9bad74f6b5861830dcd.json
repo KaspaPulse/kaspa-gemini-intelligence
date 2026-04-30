@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT COUNT(*) FROM mined_blocks WHERE wallet = $1 AND timestamp >= CURRENT_TIMESTAMP - INTERVAL '1 hour'",
+  "query": "SELECT COUNT(*)\n             FROM user_wallets\n             WHERE chat_id = $1",
   "describe": {
     "columns": [
       {
@@ -11,12 +11,12 @@
     ],
     "parameters": {
       "Left": [
-        "Text"
+        "Int8"
       ]
     },
     "nullable": [
       null
     ]
   },
-  "hash": "6e7ca51f3329b4c305873d4cd0c71a26fbc98244743edf5eb172ebee01560245"
+  "hash": "86597ccb3198775a564b51898d8a4e25099cc3406a6cb9bad74f6b5861830dcd"
 }
