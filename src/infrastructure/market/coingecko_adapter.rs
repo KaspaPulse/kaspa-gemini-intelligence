@@ -12,7 +12,7 @@ type SharedCache = Arc<RwLock<CachedEntry>>;
 pub struct CoinGeckoAdapter {
     client: Client,
     cache: SharedCache,
-    circuit_breaker: crate::infrastructure::enterprise::circuit_breaker::CircuitBreaker,
+    circuit_breaker: crate::infrastructure::resilience::circuit_breaker::CircuitBreaker,
 }
 
 impl Default for CoinGeckoAdapter {
@@ -24,10 +24,10 @@ impl Default for CoinGeckoAdapter {
 impl CoinGeckoAdapter {
     pub fn new() -> Self {
         Self {
-            client: Client::new(),
+            client: build_http_client(),
             cache: Arc::new(RwLock::new(None)),
             circuit_breaker:
-                crate::infrastructure::enterprise::circuit_breaker::CircuitBreaker::new(3, 300), // 3 failures = block for 5 minutes
+                crate::infrastructure::resilience::circuit_breaker::CircuitBreaker::new(3, 300), // 3 failures = block for 5 minutes
         }
     }
 }
@@ -97,4 +97,19 @@ use async_trait::async_trait;
 pub trait MarketProvider: Send + Sync {
     /// Returns (Price in USD, Market Cap)
     async fn get_kaspa_market_data(&self) -> Result<(f64, f64), AppError>;
+}
+fn build_http_client() -> Client {
+    Client::builder()
+        .timeout(Duration::from_secs(env_u64("HTTP_TIMEOUT_SECS", 10)))
+        .connect_timeout(Duration::from_secs(env_u64("HTTP_CONNECT_TIMEOUT_SECS", 5)))
+        .user_agent("KaspaPulse/1.2")
+        .build()
+        .expect("failed to build HTTP client")
+}
+
+fn env_u64(key: &str, default_value: u64) -> u64 {
+    std::env::var(key)
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(default_value)
 }

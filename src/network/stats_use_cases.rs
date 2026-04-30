@@ -1,4 +1,4 @@
-﻿use crate::domain::errors::AppError;
+use crate::domain::errors::AppError;
 use crate::infrastructure::database::postgres_adapter::PostgresRepository;
 use crate::infrastructure::market::coingecko_adapter::MarketProvider;
 use crate::infrastructure::node::kaspa_adapter::KaspaRpcAdapter;
@@ -90,11 +90,27 @@ impl GetMinerStatsUseCase {
         let net_hashrate = self.node.get_network_hashrate().await?;
         let virtual_daa = self.node.get_virtual_daa_score().await?;
 
-        let db_1h = self.db.get_blocks_count_1h(wallet_address).await.unwrap_or(0);
-        let db_24h = self.db.get_blocks_count_24h(wallet_address).await.unwrap_or(0);
-        let db_7d = self.db.get_blocks_count_7d(wallet_address).await.unwrap_or(0);
+        let db_1h = self
+            .db
+            .get_blocks_count_1h(wallet_address)
+            .await
+            .unwrap_or(0);
+        let db_24h = self
+            .db
+            .get_blocks_count_24h(wallet_address)
+            .await
+            .unwrap_or(0);
+        let db_7d = self
+            .db
+            .get_blocks_count_7d(wallet_address)
+            .await
+            .unwrap_or(0);
 
-        let utxos = self.node.get_utxos(wallet_address).await.unwrap_or_default();
+        let utxos = self
+            .node
+            .get_utxos(wallet_address)
+            .await
+            .unwrap_or_default();
         let mut live_1h = 0;
         let mut live_24h = 0;
         let mut live_7d = 0;
@@ -117,7 +133,7 @@ impl GetMinerStatsUseCase {
         let actual_1h_rate = net_hashrate * (db_1h as f64 / 3600.0);
         let actual_24h_rate = net_hashrate * (db_24h as f64 / 86400.0);
         let actual_7d_rate = net_hashrate * (db_7d as f64 / 604800.0);
-        
+
         let unspent_1h_rate = net_hashrate * (live_1h as f64 / 3600.0);
         let unspent_24h_rate = net_hashrate * (live_24h as f64 / 86400.0);
         let unspent_7d_rate = net_hashrate * (live_7d as f64 / 604800.0);

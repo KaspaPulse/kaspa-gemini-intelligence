@@ -9,7 +9,7 @@ use crate::domain::models::AppContext;
 
 pub fn spawn_price_monitor(ctx: AppContext, token: CancellationToken) {
     tokio::spawn(async move {
-        let client = reqwest::Client::new();
+        let client = build_http_client();
 
         // Fetch instantly on boot
         let mut p = 0.0;
@@ -117,4 +117,19 @@ pub fn spawn_memory_cleaner(ctx: AppContext, token: CancellationToken) {
             }
         }
     });
+}
+fn build_http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(env_u64("HTTP_TIMEOUT_SECS", 10)))
+        .connect_timeout(Duration::from_secs(env_u64("HTTP_CONNECT_TIMEOUT_SECS", 5)))
+        .user_agent("KaspaPulse/1.2")
+        .build()
+        .expect("failed to build HTTP client")
+}
+
+fn env_u64(key: &str, default_value: u64) -> u64 {
+    std::env::var(key)
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(default_value)
 }

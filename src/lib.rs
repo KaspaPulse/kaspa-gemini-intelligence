@@ -1,5 +1,4 @@
 #[allow(clippy::too_many_arguments)]
-pub mod ai;
 pub mod application;
 pub mod config;
 pub mod domain;

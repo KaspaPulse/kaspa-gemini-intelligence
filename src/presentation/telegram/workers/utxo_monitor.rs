@@ -17,7 +17,7 @@ pub fn start_utxo_monitor(bot: Bot, node: Arc<KaspaRpcAdapter>, db: Arc<Postgres
     let semaphore = Arc::new(Semaphore::new(10));
 
     tokio::spawn(async move {
-        info!("🚀 [WORKER] Enterprise UTXO Monitor Engine Started...");
+        info!("🚀 [WORKER] UTXO monitor started.");
 
         loop {
             tokio::time::sleep(Duration::from_secs(10)).await;

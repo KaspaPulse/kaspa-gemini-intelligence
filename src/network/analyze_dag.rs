@@ -21,7 +21,7 @@ impl AnalyzeDagUseCase {
         self.node.get_block(hash).await.ok()
     }
 
-    // 🚀 RESTORED ORIGINAL FORENSICS ALGORITHM
+    // 🚀 RESTORED ORIGINAL DETAILS ALGORITHM
     pub async fn execute(
         &self,
         f_tx: &str,
@@ -35,7 +35,7 @@ impl AnalyzeDagUseCase {
         let mut extracted_worker = String::new();
         let mut block_time_ms: u64 = 0;
 
-        // Bypassing abstract traits to guarantee raw access to verbose_data for forensics
+        // Bypassing abstract traits to guarantee raw access to verbose_data for details
         let rpc_cl = self.node.client.clone();
 
         let mut visited = HashSet::new();
@@ -103,7 +103,7 @@ impl AnalyzeDagUseCase {
                             for blue_hash in &verbose.merge_set_blues_hashes {
                                 if let Ok(blue_block) = rpc_cl.get_block(*blue_hash, true).await {
                                     if let Some(m_tx0) = blue_block.transactions.first() {
-                                        // 🔍 THE REAL FORENSICS: Searching for user bytes in the payload
+                                        // 🔍 THE REAL DETAILS: Searching for user bytes in the payload
                                         if let Some(pos) = m_tx0
                                             .payload
                                             .windows(user_script_bytes.len())
