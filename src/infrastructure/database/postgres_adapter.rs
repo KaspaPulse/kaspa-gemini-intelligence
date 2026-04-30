@@ -112,14 +112,8 @@ impl PostgresRepository {
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-
-        let _ = sqlx::query!(
-            "DELETE FROM chat_history
-             WHERE chat_id = $1",
-            chat_id
-        )
-        .execute(&self.pool)
-        .await;
+        // chat_history was removed with AI/RSS cleanup.
+        // Nothing to delete here anymore.
 
         Ok(())
     }
@@ -293,13 +287,8 @@ impl PostgresRepository {
     }
 
     pub async fn run_memory_cleaner(&self) -> Result<(), AppError> {
-        sqlx::query!(
-            "DELETE FROM chat_history
-             WHERE timestamp < CURRENT_TIMESTAMP - INTERVAL '30 days'"
-        )
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        // chat_history was removed with AI/RSS cleanup.
+        // Cleanup is now a no-op.
 
         Ok(())
     }
