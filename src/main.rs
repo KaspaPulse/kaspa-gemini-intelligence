@@ -1,4 +1,4 @@
-use crate::domain::models::{BotEventType, EventSeverity};
+use crate::domain::models::{BotEventRecord, BotEventType, EventSeverity};
 use crate::infrastructure::database::postgres_adapter::PostgresRepository;
 use crate::infrastructure::node::kaspa_adapter::KaspaRpcAdapter;
 
@@ -80,23 +80,11 @@ async fn main() -> anyhow::Result<()> {
 
     let db_repo = Arc::new(PostgresRepository::new(pool.clone()));
 
-    let _ = db_repo
-        .record_bot_event_typed(
-            BotEventType::SystemStart,
-            EventSeverity::Info,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            Some("ok"),
-            None,
-            None,
-            "{}",
-        )
-        .await;
+    let mut system_start_event =
+        BotEventRecord::new(BotEventType::SystemStart, EventSeverity::Info);
+    system_start_event.status = Some("ok");
+
+    let _ = db_repo.record_bot_event_record(system_start_event).await;
 
     let network_id =
         kaspa_consensus_core::network::NetworkId::from_str("mainnet").unwrap_or_else(|_| {
