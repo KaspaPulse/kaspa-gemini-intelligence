@@ -63,15 +63,27 @@ pub enum Command {
     Logs,
     #[command(description = "Admin: Show recent bot event log.")]
     Events,
-    #[command(description = "Admin: Show recent error events.")]
+    #[command(rename = "errors", description = "Admin: Show recent error events.")]
     Errors,
-    #[command(description = "Admin: Show alert delivery summary.")]
+    #[command(
+        rename = "delivery",
+        description = "Admin: Show alert delivery summary."
+    )]
     Delivery,
-    #[command(description = "Admin: Show wallet subscribers.")]
+    #[command(
+        rename = "subscribers",
+        description = "Admin: Show wallet subscribers."
+    )]
     Subscribers(String),
-    #[command(description = "Admin: Show wallet event history.")]
+    #[command(
+        rename = "wallet_events",
+        description = "Admin: Show wallet event history."
+    )]
     WalletEvents(String),
-    #[command(description = "Admin: Cleanup old bot events.")]
+    #[command(
+        rename = "cleanup_events",
+        description = "Admin: Cleanup old bot events."
+    )]
     CleanupEvents,
     #[command(
         rename = "db_diag",
