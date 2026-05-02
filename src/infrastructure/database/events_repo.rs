@@ -96,6 +96,34 @@ impl PostgresRepository {
         Ok(result.rows_affected())
     }
 
+    pub async fn purge_old_wallet_alert_dedup(&self, days: i64) -> Result<u64, AppError> {
+        let days = days.clamp(1, 365);
+        let result = sqlx::query(
+            "DELETE FROM wallet_alert_dedup
+             WHERE created_at < NOW() - ($1::text || ' days')::interval",
+        )
+        .bind(days.to_string())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+        Ok(result.rows_affected())
+    }
+
+    pub async fn purge_old_seen_utxos(&self, days: i64) -> Result<u64, AppError> {
+        let days = days.clamp(1, 365);
+        let result = sqlx::query(
+            "DELETE FROM wallet_seen_utxos
+             WHERE last_seen_at < NOW() - ($1::text || ' days')::interval",
+        )
+        .bind(days.to_string())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+        Ok(result.rows_affected())
+    }
+
     #[allow(dead_code)]
     pub async fn get_delivery_summary_24h(&self) -> Result<(i64, i64, i64), AppError> {
         let detected: i64 = sqlx::query_scalar::<_, i64>(

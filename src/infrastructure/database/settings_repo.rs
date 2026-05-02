@@ -49,11 +49,37 @@ impl PostgresRepository {
 
     pub async fn run_memory_cleaner(&self) -> Result<(), AppError> {
         let deleted_events = self.purge_old_bot_events(60).await?;
+        let deleted_alert_dedup = self.purge_old_wallet_alert_dedup(14).await?;
+        let deleted_seen_utxos = self.purge_old_seen_utxos(30).await?;
 
         tracing::info!(
-            "[MEMORY CLEANER] Old bot events cleanup complete. Deleted rows: {}",
-            deleted_events
+            "[MEMORY CLEANER] Cleanup complete. Events: {}, Alert dedup: {}, Seen UTXOs: {}",
+            deleted_events,
+            deleted_alert_dedup,
+            deleted_seen_utxos
         );
+
+        let metadata = format!(
+            r#"{{"bot_event_log":{},"wallet_alert_dedup":{},"wallet_seen_utxos":{},"retention_days":{{"bot_event_log":60,"wallet_alert_dedup":14,"wallet_seen_utxos":30}}}}"#,
+            deleted_events, deleted_alert_dedup, deleted_seen_utxos
+        );
+
+        self.record_bot_event_typed(
+            crate::domain::models::BotEventType::EventLogPurged,
+            crate::domain::models::EventSeverity::Info,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some("cleanup_complete"),
+            None,
+            None,
+            &metadata,
+        )
+        .await?;
 
         Ok(())
     }
