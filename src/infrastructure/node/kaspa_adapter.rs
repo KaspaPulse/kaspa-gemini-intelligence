@@ -181,8 +181,15 @@ impl KaspaRpcAdapter {
     ) -> Result<Vec<kaspa_rpc_core::RpcUtxosByAddressesEntry>, AppError> {
         let addresses = addrs
             .into_iter()
-            .map(|a| kaspa_addresses::Address::try_from(a.as_str()).unwrap())
-            .collect();
+            .map(|a| {
+                kaspa_addresses::Address::try_from(a.as_str()).map_err(|_| {
+                    AppError::NodeError(format!(
+                        "Invalid Kaspa address passed to get_utxos_by_addresses: {}",
+                        crate::utils::format_short_wallet(&a)
+                    ))
+                })
+            })
+            .collect::<Result<Vec<_>, AppError>>()?;
 
         self.client
             .get_utxos_by_addresses(addresses)
