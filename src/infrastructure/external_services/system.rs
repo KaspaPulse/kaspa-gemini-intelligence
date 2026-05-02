@@ -1,3 +1,4 @@
+use crate::domain::models::{BotEventType, EventSeverity};
 use kaspa_rpc_core::api::rpc::RpcApi;
 use std::sync::atomic::Ordering;
 use teloxide::prelude::*;
@@ -74,6 +75,8 @@ pub fn spawn_node_monitor(ctx: AppContext, bot: Bot, token: CancellationToken) {
                             "INSERT INTO bot_event_log (event_type, severity, status, error_message, metadata)
                              VALUES ('RPC_ERROR', 'error', 'node_unreachable', 'RPC connection lost', $1::jsonb)"
                         )
+                        .bind(BotEventType::RpcError.as_str())
+                        .bind(EventSeverity::Error.as_str())
                         .bind(format!(r#"{{"attempt":{}}}"#, failed_attempts))
                         .execute(&ctx.pool)
                         .await;
@@ -99,8 +102,10 @@ pub fn spawn_node_monitor(ctx: AppContext, bot: Bot, token: CancellationToken) {
                                 "INSERT INTO bot_event_log (event_type, severity, status, metadata)
                                  VALUES ('RPC_RECOVERED', 'info', 'recovered', $1::jsonb)"
                             )
-                            .bind(format!(r#"{{"failed_attempts":{}}}"#, failed_attempts))
-                            .execute(&ctx.pool)
+                            .bind(BotEventType::RpcRecovered.as_str())
+                                .bind(EventSeverity::Info.as_str())
+                                .bind(format!(r#"{{"failed_attempts":{}}}"#, failed_attempts))
+                                .execute(&ctx.pool)
                             .await;
                             ctx.live_sync_enabled.store(true, Ordering::Relaxed);
                             if let Err(e) = bot.send_message(ChatId(ctx.admin_id), "✅ <b>RECOVERED:</b> Node connection stabilized.\n▶️ UTXO Monitoring resumed smoothly.")

@@ -1,3 +1,4 @@
+use crate::domain::models::{BotEventType, EventSeverity};
 use crate::infrastructure::database::postgres_adapter::PostgresRepository;
 use crate::infrastructure::node::kaspa_adapter::KaspaRpcAdapter;
 use chrono::{TimeZone, Utc};
@@ -113,9 +114,9 @@ pub fn start_utxo_monitor(
                                     .map(|h| crate::utils::format_short_wallet(h));
 
                                 let _ = db_clone
-                                    .record_bot_event(
-                                        "ALERT_DETECTED",
-                                        "info",
+                                    .record_bot_event_typed(
+                                        BotEventType::AlertDetected,
+                                        EventSeverity::Info,
                                         None,
                                         None,
                                         None,
@@ -161,9 +162,9 @@ for chat_id in &chat_ids {
                                             );
 
                                             let _ = db_clone
-                                                .record_bot_event(
-                                                    "ALERT_DELIVERED",
-                                                    "info",
+                                                .record_bot_event_typed(
+                                                    BotEventType::AlertDelivered,
+                                                    EventSeverity::Info,
                                                     Some(*chat_id),
                                                     None,
                                                     None,
@@ -190,9 +191,9 @@ for chat_id in &chat_ids {
 
                                             let err_text = e.to_string();
                                             let _ = db_clone
-                                                .record_bot_event(
-                                                    "ALERT_DELIVERY_FAILED",
-                                                    "error",
+                                                .record_bot_event_typed(
+                                                    BotEventType::AlertDeliveryFailed,
+                                                    EventSeverity::Error,
                                                     Some(*chat_id),
                                                     None,
                                                     None,

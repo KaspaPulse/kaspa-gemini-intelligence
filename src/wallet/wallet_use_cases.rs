@@ -1,6 +1,7 @@
 use crate::domain::entities::{MinedBlock, TrackedWallet};
 use crate::domain::errors::AppError;
 use crate::domain::models::LiveBlockEvent;
+use crate::domain::models::{BotEventType, EventSeverity};
 use crate::infrastructure::database::postgres_adapter::PostgresRepository;
 use crate::infrastructure::node::kaspa_adapter::KaspaRpcAdapter;
 use crate::network::analyze_dag::AnalyzeDagUseCase;
@@ -208,9 +209,9 @@ impl UtxoMonitorService {
         {
             let _ = self
                 .db
-                .record_bot_event(
-                    "DB_ERROR",
-                    "error",
+                .record_bot_event_typed(
+                    BotEventType::DbError,
+                    EventSeverity::Error,
                     None,
                     None,
                     None,
@@ -259,9 +260,9 @@ impl UtxoMonitorService {
 
                     if let Err(e) = db.record_mined_block(block).await {
                         let _ = db
-                            .record_bot_event(
-                                "DB_ERROR",
-                                "error",
+                            .record_bot_event_typed(
+                                BotEventType::DbError,
+                                EventSeverity::Error,
                                 None,
                                 None,
                                 None,
@@ -294,9 +295,9 @@ impl UtxoMonitorService {
                         Ok(data) => data,
                         Err(e) => {
                             let _ = db
-                                .record_bot_event(
-                                    "RPC_ERROR",
-                                    "error",
+                                .record_bot_event_typed(
+                                    BotEventType::RpcError,
+                                    EventSeverity::Error,
                                     None,
                                     None,
                                     None,
@@ -344,9 +345,9 @@ impl UtxoMonitorService {
 
                 if !should_send {
                     let _ = db
-                        .record_bot_event(
-                            "ALERT_DUPLICATE_SKIPPED",
-                            "info",
+                        .record_bot_event_typed(
+                            BotEventType::AlertDuplicateSkipped,
+                            EventSeverity::Info,
                             None,
                             None,
                             None,
