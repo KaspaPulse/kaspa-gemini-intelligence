@@ -4,6 +4,7 @@ use crate::domain::models::{BotEventType, EventSeverity};
 use super::postgres_adapter::PostgresRepository;
 
 impl PostgresRepository {
+    #[allow(clippy::too_many_arguments)]
     pub async fn record_bot_event_typed(
         &self,
         event_type: BotEventType,
@@ -38,6 +39,7 @@ impl PostgresRepository {
         .await
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn record_bot_event(
         &self,
         event_type: &str,
