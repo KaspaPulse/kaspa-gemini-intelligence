@@ -14,7 +14,9 @@ pub mod utils;
 
 use dotenvy::dotenv;
 use std::env;
+use std::fs;
 use std::net::{IpAddr, SocketAddr};
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 use teloxide::dptree;
@@ -31,6 +33,116 @@ use crate::presentation::telegram::commands::Command;
 use crate::wallet::wallet_use_cases::WalletManagementUseCase;
 use crate::wallet::wallet_use_cases::WalletQueriesUseCase;
 
+fn panic_event_marker_path() -> PathBuf {
+    env::var("PANIC_EVENT_MARKER_PATH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("panic_event_pending.json"))
+}
+
+fn truncate_panic_text(value: &str, max_chars: usize) -> String {
+    let mut text = value
+        .replace('\u{0000}', "")
+        .replace(['\r', '\n'], " ")
+        .trim()
+        .to_string();
+
+    if text.chars().count() > max_chars {
+        text = text.chars().take(max_chars).collect::<String>();
+        text.push_str("...[truncated]");
+    }
+
+    text
+}
+
+fn write_pending_panic_marker(location: &str, message: &str) {
+    let marker_path = panic_event_marker_path();
+
+    let payload = serde_json::json!({
+        "event_type": "PANIC_EVENT",
+        "status": "pending_recovery",
+        "location": truncate_panic_text(location, 300),
+        "message": truncate_panic_text(message, 1000),
+        "created_at": chrono::Utc::now().to_rfc3339(),
+        "pid": std::process::id()
+    });
+
+    if let Err(e) = fs::write(&marker_path, payload.to_string()) {
+        tracing::error!(
+            "[PANIC_EVENT] Failed to write pending panic marker at {:?}: {}",
+            marker_path,
+            e
+        );
+    }
+}
+
+async fn record_pending_panic_marker(
+    db_repo: &Arc<PostgresRepository>,
+) -> Result<(), crate::domain::errors::AppError> {
+    let marker_path = panic_event_marker_path();
+
+    if !marker_path.exists() {
+        return Ok(());
+    }
+
+    let marker_content = match fs::read_to_string(&marker_path) {
+        Ok(content) => content,
+        Err(e) => {
+            tracing::error!(
+                "[PANIC_EVENT] Failed to read pending panic marker at {:?}: {}",
+                marker_path,
+                e
+            );
+            return Ok(());
+        }
+    };
+
+    let marker_json: serde_json::Value =
+        serde_json::from_str(&marker_content).unwrap_or_else(|_| {
+            serde_json::json!({
+                "event_type": "PANIC_EVENT",
+                "status": "pending_recovery",
+                "message": truncate_panic_text(&marker_content, 1000)
+            })
+        });
+
+    let message = marker_json
+        .get("message")
+        .and_then(|value| value.as_str())
+        .unwrap_or("panic marker recovered");
+
+    let metadata_json = marker_json.to_string();
+
+    db_repo
+        .record_bot_event_typed(
+            BotEventType::PanicEvent,
+            EventSeverity::Error,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some("recovered_after_restart"),
+            Some(message),
+            None,
+            &metadata_json,
+        )
+        .await?;
+
+    if let Err(e) = fs::remove_file(&marker_path) {
+        tracing::warn!(
+            "[PANIC_EVENT] Failed to remove pending panic marker at {:?}: {}",
+            marker_path,
+            e
+        );
+    } else {
+        tracing::info!("[PANIC_EVENT] Recovered pending panic marker into bot_event_log.");
+    }
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenv().ok();
@@ -44,9 +156,24 @@ async fn main() -> anyhow::Result<()> {
             .map(|loc| format!("{}:{}", loc.file(), loc.line()))
             .unwrap_or_else(|| "unknown".to_string());
 
+        let message = panic_info
+            .payload()
+            .downcast_ref::<&str>()
+            .map(|value| (*value).to_string())
+            .or_else(|| {
+                panic_info
+                    .payload()
+                    .downcast_ref::<String>()
+                    .map(|value| value.to_string())
+            })
+            .unwrap_or_else(|| "unknown panic payload".to_string());
+
+        write_pending_panic_marker(&location, &message);
+
         tracing::error!(
             event_type = "PANIC_EVENT",
             location = %location,
+            message = %message,
             "panic captured by global panic hook"
         );
     }));
@@ -81,6 +208,9 @@ async fn main() -> anyhow::Result<()> {
 
     let db_repo = Arc::new(PostgresRepository::new(pool.clone()));
 
+    if let Err(e) = record_pending_panic_marker(&db_repo).await {
+        tracing::error!("[PANIC_EVENT] Failed to record pending panic marker: {}", e);
+    }
     let mut system_start_event =
         BotEventRecord::new(BotEventType::SystemStart, EventSeverity::Info);
     system_start_event.status = Some("ok");
