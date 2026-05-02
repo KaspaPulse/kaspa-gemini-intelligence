@@ -1,3 +1,4 @@
+use crate::domain::models::{BotEventType, EventSeverity};
 use crate::infrastructure::database::postgres_adapter::PostgresRepository;
 use crate::infrastructure::node::kaspa_adapter::KaspaRpcAdapter;
 
@@ -80,9 +81,9 @@ async fn main() -> anyhow::Result<()> {
     let db_repo = Arc::new(PostgresRepository::new(pool.clone()));
 
     let _ = db_repo
-        .record_bot_event(
-            "SYSTEM_START",
-            "info",
+        .record_bot_event_typed(
+            BotEventType::SystemStart,
+            EventSeverity::Info,
             None,
             None,
             None,
@@ -270,7 +271,7 @@ async fn main() -> anyhow::Result<()> {
 
     let mut dispatcher = Dispatcher::builder(bot.clone(), handler)
         .dependencies(dptree::deps![
-            db_repo,
+            db_repo.clone(),
             node_provider,
             app_context,
             dag_uc,
@@ -318,17 +319,26 @@ async fn main() -> anyhow::Result<()> {
 
         let addr = SocketAddr::new(bind_ip, port);
         let url = format!("https://{}/webhook", domain).parse()?;
-
-        let _ = sqlx::query(
-            "INSERT INTO bot_event_log (event_type, severity, status, metadata)
-             VALUES ('WEBHOOK_START', 'info', 'listening', $1::jsonb)",
-        )
-        .bind(format!(
-            r#"{{"domain":"{}","bind":"{}","port":{}}}"#,
-            domain, bind_ip, port
-        ))
-        .execute(&pool)
-        .await;
+        let _ = db_repo
+            .record_bot_event_typed(
+                BotEventType::WebhookStart,
+                EventSeverity::Info,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some("listening"),
+                None,
+                None,
+                &format!(
+                    r#"{{"domain":"{}","bind":"{}","port":{}}}"#,
+                    domain, bind_ip, port
+                ),
+            )
+            .await;
 
         tracing::info!(
             "[WEBHOOK] Listening on {}:{} for domain {}",

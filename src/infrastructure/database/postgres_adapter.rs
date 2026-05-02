@@ -419,6 +419,39 @@ impl PostgresRepository {
 
         Ok(rows.into_iter().map(|row| row.0).collect())
     }
+    pub async fn record_bot_event_typed(
+        &self,
+        event_type: crate::domain::models::BotEventType,
+        severity: crate::domain::models::EventSeverity,
+        chat_id: Option<i64>,
+        user_name: Option<&str>,
+        command: Option<&str>,
+        callback_data: Option<&str>,
+        wallet_masked: Option<&str>,
+        txid_masked: Option<&str>,
+        block_hash_masked: Option<&str>,
+        status: Option<&str>,
+        error_message: Option<&str>,
+        duration_ms: Option<i64>,
+        metadata_json: &str,
+    ) -> Result<(), AppError> {
+        self.record_bot_event(
+            event_type.as_str(),
+            severity.as_str(),
+            chat_id,
+            user_name,
+            command,
+            callback_data,
+            wallet_masked,
+            txid_masked,
+            block_hash_masked,
+            status,
+            error_message,
+            duration_ms,
+            metadata_json,
+        )
+        .await
+    }
 
     pub async fn record_bot_event(
         &self,
