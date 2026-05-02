@@ -431,7 +431,7 @@ pub async fn handle_events(
             metadata::text AS metadata_text
         FROM bot_event_log
         ORDER BY created_at DESC
-        LIMIT 20
+        LIMIT 10
         "#,
     )
     .fetch_all(&app_context.pool)
@@ -538,8 +538,8 @@ pub async fn handle_events(
         }
     }
 
-    if text.chars().count() > 3900 {
-        text = text.chars().take(3900).collect::<String>();
+    if text.chars().count() > 3400 {
+        text = text.chars().take(3400).collect::<String>();
         text.push_str("\n\n… truncated");
     }
 
@@ -572,7 +572,7 @@ pub async fn handle_errors(
         FROM bot_event_log
         WHERE severity = 'error'
         ORDER BY created_at DESC
-        LIMIT 20
+        LIMIT 10
         "#,
     )
     .fetch_all(&app_context.pool)
@@ -619,8 +619,8 @@ pub async fn handle_errors(
         }
     }
 
-    if text.chars().count() > 3900 {
-        text = text.chars().take(3900).collect::<String>();
+    if text.chars().count() > 3400 {
+        text = text.chars().take(3400).collect::<String>();
         text.push_str("\n… truncated");
     }
 
@@ -725,7 +725,7 @@ pub async fn handle_wallet_events(
         FROM bot_event_log
         WHERE wallet_masked = $1
         ORDER BY created_at DESC
-        LIMIT 20
+        LIMIT 10
         "#,
     )
     .bind(&wallet_masked)
@@ -763,8 +763,8 @@ pub async fn handle_wallet_events(
         }
     }
 
-    if text.chars().count() > 3900 {
-        text = text.chars().take(3900).collect::<String>();
+    if text.chars().count() > 3400 {
+        text = text.chars().take(3400).collect::<String>();
         text.push_str("\n… truncated");
     }
 
