@@ -226,12 +226,43 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let pool_shutdown = pool.clone();
-    let ct_ctrlc = cancel_token.clone();
+    let ct_shutdown = cancel_token.clone();
 
     tokio::spawn(async move {
-        let _ = tokio::signal::ctrl_c().await;
-        tracing::warn!("[SYSTEM] SIGINT received. Starting graceful shutdown.");
-        ct_ctrlc.cancel();
+        #[cfg(unix)]
+        {
+            use tokio::signal::unix::{signal, SignalKind};
+
+            let mut sigterm = match signal(SignalKind::terminate()) {
+                Ok(signal) => signal,
+                Err(e) => {
+                    tracing::error!("[SYSTEM] Failed to install SIGTERM handler: {}", e);
+                    let _ = tokio::signal::ctrl_c().await;
+                    tracing::warn!("[SYSTEM] SIGINT received. Starting graceful shutdown.");
+                    ct_shutdown.cancel();
+                    pool_shutdown.close().await;
+                    tracing::info!("[SYSTEM] Database connections closed safely.");
+                    return;
+                }
+            };
+
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {
+                    tracing::warn!("[SYSTEM] SIGINT received. Starting graceful shutdown.");
+                }
+                _ = sigterm.recv() => {
+                    tracing::warn!("[SYSTEM] SIGTERM received. Starting graceful shutdown.");
+                }
+            }
+        }
+
+        #[cfg(not(unix))]
+        {
+            let _ = tokio::signal::ctrl_c().await;
+            tracing::warn!("[SYSTEM] SIGINT received. Starting graceful shutdown.");
+        }
+
+        ct_shutdown.cancel();
         pool_shutdown.close().await;
         tracing::info!("[SYSTEM] Database connections closed safely.");
     });
@@ -372,16 +403,24 @@ async fn main() -> anyhow::Result<()> {
 
         let listener = teloxide::update_listeners::webhooks::axum(bot, options).await?;
 
-        dispatcher
-            .dispatch_with_listener(
+        tokio::select! {
+            _ = cancel_token.cancelled() => {
+                tracing::info!("[SYSTEM] Webhook dispatcher shutdown requested.");
+            }
+            _ = dispatcher.dispatch_with_listener(
                 listener,
                 LoggingErrorHandler::with_custom_text("Webhook Error"),
-            )
-            .await;
+            ) => {}
+        }
     } else {
         info!("Running in POLLING mode");
         bot.delete_webhook().await?;
-        dispatcher.dispatch().await;
+        tokio::select! {
+            _ = cancel_token.cancelled() => {
+                tracing::info!("[SYSTEM] Polling dispatcher shutdown requested.");
+            }
+            _ = dispatcher.dispatch() => {}
+        }
     }
 
     Ok(())
