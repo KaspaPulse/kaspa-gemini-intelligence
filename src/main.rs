@@ -35,6 +35,19 @@ async fn main() -> anyhow::Result<()> {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     registry().with(fmt::layer()).with(filter).init();
 
+    std::panic::set_hook(Box::new(|panic_info| {
+        let location = panic_info
+            .location()
+            .map(|loc| format!("{}:{}", loc.file(), loc.line()))
+            .unwrap_or_else(|| "unknown".to_string());
+
+        tracing::error!(
+            event_type = "PANIC_EVENT",
+            location = %location,
+            "panic captured by global panic hook"
+        );
+    }));
+
     info!("Kaspa Pulse starting.");
 
     let db_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set in .env");
@@ -207,6 +220,7 @@ async fn main() -> anyhow::Result<()> {
         bot.clone(),
         node_provider.clone(),
         db_repo.clone(),
+        cancel_token.clone(),
     );
 
     crate::infrastructure::external_services::system::spawn_node_monitor(

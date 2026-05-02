@@ -232,6 +232,42 @@ pub fn handle_command(
                 )
                 .await?;
             }
+            Command::Errors => {
+                if !is_admin {
+                    crate::send_logged!(bot, msg, "⛔ Unauthorized.");
+                    return Ok(());
+                }
+                admin::handle_errors(bot, msg, app_context).await?
+            }
+            Command::Delivery => {
+                if !is_admin {
+                    crate::send_logged!(bot, msg, "⛔ Unauthorized.");
+                    return Ok(());
+                }
+                admin::handle_delivery(bot, msg, app_context).await?
+            }
+            Command::Subscribers(wallet) => {
+                if !is_admin {
+                    crate::send_logged!(bot, msg, "⛔ Unauthorized.");
+                    return Ok(());
+                }
+                admin::handle_subscribers(bot, msg, wallet, app_context).await?
+            }
+            Command::WalletEvents(wallet) => {
+                if !is_admin {
+                    crate::send_logged!(bot, msg, "⛔ Unauthorized.");
+                    return Ok(());
+                }
+                admin::handle_wallet_events(bot, msg, wallet, app_context).await?
+            }
+            Command::CleanupEvents => {
+                if !is_admin {
+                    crate::send_logged!(bot, msg, "⛔ Unauthorized.");
+                    return Ok(());
+                }
+                admin::handle_cleanup_events(bot, msg, app_context).await?
+            }
+
             Command::Events => {
                 if !is_admin {
                     crate::send_logged!(bot, msg, "⛔ Unauthorized.");
@@ -722,6 +758,9 @@ pub async fn handle_callback(
         "cmd_sys" => Some(Command::Sys),
         "cmd_logs" => Some(Command::Logs),
         "cmd_events" => Some(Command::Events),
+        "cmd_errors" => Some(Command::Errors),
+        "cmd_cleanup_events" => Some(Command::CleanupEvents),
+        "cmd_delivery" => Some(Command::Delivery),
         "cmd_pause" => Some(Command::Pause),
         "cmd_resume" => Some(Command::Resume),
         "cmd_restart" => Some(Command::Restart),

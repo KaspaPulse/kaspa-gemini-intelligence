@@ -54,10 +54,9 @@ pub async fn handle_health(
     let node_ok = app_context.rpc.get_server_info().await.is_ok();
 
     let tracked_wallets: i64 = if db_ok {
-        sqlx::query_scalar("SELECT COUNT(*) FROM user_wallets")
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM user_wallets")
             .fetch_one(&app_context.pool)
             .await
-            .unwrap_or(Some(0))
             .unwrap_or(0)
     } else {
         0
@@ -115,19 +114,16 @@ pub async fn handle_stats(
     let users_count: i64 = sqlx::query_scalar("SELECT COUNT(DISTINCT chat_id) FROM user_wallets")
         .fetch_one(&app_context.pool)
         .await
-        .unwrap_or(Some(0))
         .unwrap_or(0);
 
-    let wallets_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM user_wallets")
+    let wallets_count: i64 = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM user_wallets")
         .fetch_one(&app_context.pool)
         .await
-        .unwrap_or(Some(0))
         .unwrap_or(0);
 
-    let blocks_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM mined_blocks")
+    let blocks_count: i64 = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM mined_blocks")
         .fetch_one(&app_context.pool)
         .await
-        .unwrap_or(Some(0))
         .unwrap_or(0);
 
     let text = format!(
@@ -311,30 +307,27 @@ pub async fn handle_db_diag(
         .unwrap_or(false);
 
     let settings_count: i64 = if connection_ok {
-        sqlx::query_scalar("SELECT COUNT(*) FROM system_settings")
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM system_settings")
             .fetch_one(&app_context.pool)
             .await
-            .unwrap_or(Some(0))
             .unwrap_or(0)
     } else {
         0
     };
 
     let wallets_count: i64 = if connection_ok {
-        sqlx::query_scalar("SELECT COUNT(*) FROM user_wallets")
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM user_wallets")
             .fetch_one(&app_context.pool)
             .await
-            .unwrap_or(Some(0))
             .unwrap_or(0)
     } else {
         0
     };
 
     let mined_count: i64 = if connection_ok {
-        sqlx::query_scalar("SELECT COUNT(*) FROM mined_blocks")
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM mined_blocks")
             .fetch_one(&app_context.pool)
             .await
-            .unwrap_or(Some(0))
             .unwrap_or(0)
     } else {
         0
@@ -566,4 +559,244 @@ fn format_uptime(seconds: u64) -> String {
     } else {
         format!("{}m", minutes)
     }
+}
+
+pub async fn handle_errors(
+    bot: Bot,
+    msg: Message,
+    app_context: Arc<AppContext>,
+) -> anyhow::Result<()> {
+    let rows = sqlx::query(
+        r#"
+        SELECT created_at, event_type, severity, chat_id, wallet_masked, status, error_message
+        FROM bot_event_log
+        WHERE severity = 'error'
+        ORDER BY created_at DESC
+        LIMIT 20
+        "#,
+    )
+    .fetch_all(&app_context.pool)
+    .await?;
+
+    let mut text = String::from("🚨 <b>Recent Error Events</b>\n━━━━━━━━━━━━━━━━━━\n");
+
+    if rows.is_empty() {
+        text.push_str("No recent errors.");
+    }
+
+    for row in rows {
+        let created_at: chrono::DateTime<chrono::Utc> = row.try_get("created_at")?;
+        let event_type: String = row.try_get("event_type")?;
+        let chat_id: Option<i64> = row.try_get("chat_id")?;
+        let wallet: Option<String> = row.try_get("wallet_masked")?;
+        let status: Option<String> = row.try_get("status")?;
+        let err: Option<String> = row.try_get("error_message")?;
+
+        text.push_str(&format!(
+            "\n🔴 <b>{}</b>\n⏱️ <code>{}</code>\n",
+            event_type,
+            created_at.format("%Y-%m-%d %H:%M:%S UTC")
+        ));
+
+        if let Some(status) = status {
+            text.push_str(&format!("Status: <code>{}</code>\n", status));
+        }
+        if let Some(chat_id) = chat_id {
+            text.push_str(&format!("Chat: <code>{}</code>\n", chat_id));
+        }
+        if let Some(wallet) = wallet {
+            if !wallet.is_empty() {
+                text.push_str(&format!("Wallet: <code>{}</code>\n", wallet));
+            }
+        }
+        if let Some(err) = err {
+            let short = if err.chars().count() > 120 {
+                format!("{}...", err.chars().take(120).collect::<String>())
+            } else {
+                err
+            };
+            text.push_str(&format!("Error: <code>{}</code>\n", short));
+        }
+    }
+
+    if text.chars().count() > 3900 {
+        text = text.chars().take(3900).collect::<String>();
+        text.push_str("\n… truncated");
+    }
+
+    crate::send_logged!(bot, msg, text);
+    Ok(())
+}
+
+pub async fn handle_delivery(
+    bot: Bot,
+    msg: Message,
+    app_context: Arc<AppContext>,
+) -> anyhow::Result<()> {
+    let detected: i64 = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM bot_event_log WHERE event_type = 'ALERT_DETECTED' AND created_at >= NOW() - INTERVAL '24 hours'",
+    )
+    .fetch_one(&app_context.pool)
+    .await?;
+
+    let delivered: i64 = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM bot_event_log WHERE event_type = 'ALERT_DELIVERED' AND created_at >= NOW() - INTERVAL '24 hours'",
+    )
+    .fetch_one(&app_context.pool)
+    .await?;
+
+    let failed: i64 = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM bot_event_log WHERE event_type = 'ALERT_DELIVERY_FAILED' AND created_at >= NOW() - INTERVAL '24 hours'",
+    )
+    .fetch_one(&app_context.pool)
+    .await?;
+
+    let unique_wallets: i64 = sqlx::query_scalar(
+        "SELECT COUNT(DISTINCT wallet_masked) FROM bot_event_log WHERE event_type LIKE 'ALERT_%' AND created_at >= NOW() - INTERVAL '24 hours'",
+    )
+    .fetch_one(&app_context.pool)
+    .await?;
+
+    let text = format!(
+        "📬 <b>Alert Delivery Summary</b>\n━━━━━━━━━━━━━━━━━━\n⏱️ Window: <code>Last 24 hours</code>\n🔎 Detected: <code>{}</code>\n✅ Delivered: <code>{}</code>\n❌ Failed: <code>{}</code>\n👛 Wallets: <code>{}</code>",
+        detected, delivered, failed, unique_wallets
+    );
+
+    crate::send_logged!(bot, msg, text);
+    Ok(())
+}
+
+pub async fn handle_subscribers(
+    bot: Bot,
+    msg: Message,
+    wallet: String,
+    app_context: Arc<AppContext>,
+) -> anyhow::Result<()> {
+    let clean_wallet = wallet.trim();
+
+    if clean_wallet.is_empty() {
+        crate::send_logged!(
+            bot,
+            msg,
+            "⚠️ <b>Usage:</b> /subscribers <code>kaspa:wallet</code>"
+        );
+        return Ok(());
+    }
+
+    let rows: Vec<(i64,)> =
+        sqlx::query_as("SELECT chat_id FROM user_wallets WHERE wallet = $1 ORDER BY chat_id")
+            .bind(clean_wallet)
+            .fetch_all(&app_context.pool)
+            .await?;
+
+    let mut text = format!(
+        "👥 <b>Wallet Subscribers</b>\n━━━━━━━━━━━━━━━━━━\nWallet: <code>{}</code>\nSubscribers: <code>{}</code>\n",
+        crate::utils::format_short_wallet(clean_wallet),
+        rows.len()
+    );
+
+    for (idx, row) in rows.iter().enumerate() {
+        text.push_str(&format!("\n{}. <code>{}</code>", idx + 1, row.0));
+    }
+
+    crate::send_logged!(bot, msg, text);
+    Ok(())
+}
+
+pub async fn handle_wallet_events(
+    bot: Bot,
+    msg: Message,
+    wallet: String,
+    app_context: Arc<AppContext>,
+) -> anyhow::Result<()> {
+    let clean_wallet = wallet.trim();
+
+    if clean_wallet.is_empty() {
+        crate::send_logged!(
+            bot,
+            msg,
+            "⚠️ <b>Usage:</b> /wallet_events <code>kaspa:wallet</code>"
+        );
+        return Ok(());
+    }
+
+    let wallet_masked = crate::utils::format_short_wallet(clean_wallet);
+
+    let rows = sqlx::query(
+        r#"
+        SELECT created_at, event_type, severity, chat_id, status
+        FROM bot_event_log
+        WHERE wallet_masked = $1
+        ORDER BY created_at DESC
+        LIMIT 20
+        "#,
+    )
+    .bind(&wallet_masked)
+    .fetch_all(&app_context.pool)
+    .await?;
+
+    let mut text = format!(
+        "👛 <b>Wallet Events</b>\n━━━━━━━━━━━━━━━━━━\nWallet: <code>{}</code>\n",
+        wallet_masked
+    );
+
+    if rows.is_empty() {
+        text.push_str("\nNo events found.");
+    }
+
+    for row in rows {
+        let created_at: chrono::DateTime<chrono::Utc> = row.try_get("created_at")?;
+        let event_type: String = row.try_get("event_type")?;
+        let severity: String = row.try_get("severity")?;
+        let chat_id: Option<i64> = row.try_get("chat_id")?;
+        let status: Option<String> = row.try_get("status")?;
+
+        text.push_str(&format!(
+            "\n{} <b>{}</b>\n⏱️ <code>{}</code>\n",
+            if severity == "error" { "🔴" } else { "🟢" },
+            event_type,
+            created_at.format("%Y-%m-%d %H:%M:%S UTC")
+        ));
+
+        if let Some(status) = status {
+            text.push_str(&format!("Status: <code>{}</code>\n", status));
+        }
+        if let Some(chat_id) = chat_id {
+            text.push_str(&format!("Chat: <code>{}</code>\n", chat_id));
+        }
+    }
+
+    if text.chars().count() > 3900 {
+        text = text.chars().take(3900).collect::<String>();
+        text.push_str("\n… truncated");
+    }
+
+    crate::send_logged!(bot, msg, text);
+    Ok(())
+}
+
+pub async fn handle_cleanup_events(
+    bot: Bot,
+    msg: Message,
+    app_context: Arc<AppContext>,
+) -> anyhow::Result<()> {
+    let retention_days: i64 = std::env::var("BOT_EVENT_LOG_RETENTION_DAYS")
+        .ok()
+        .and_then(|v| v.parse::<i64>().ok())
+        .unwrap_or(60)
+        .clamp(1, 365);
+
+    let result = sqlx::query(
+        "DELETE FROM bot_event_log
+         WHERE created_at < NOW() - ($1::text || ' days')::interval",
+    )
+    .bind(retention_days.to_string())
+    .execute(&app_context.pool)
+    .await?;
+
+    let text = format!(
+        "🧹 <b>Events Cleanup Complete</b>\n━━━━━━━━━━━━━━━━━━\nRetention: <code>{} days</code>\nDeleted rows: <code>{}</code>",
+        retention_days,
+        result.rows_affected()
+    );
+
+    crate::send_logged!(bot, msg, text);
+    Ok(())
 }

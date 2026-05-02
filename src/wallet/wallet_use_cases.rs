@@ -161,27 +161,80 @@ impl UtxoMonitorService {
         wallet_address: &str,
     ) -> Result<Vec<LiveBlockEvent>, AppError> {
         let utxos = self.node.get_utxos(wallet_address).await?;
+
         let mut current_outpoints = HashSet::new();
+        let mut current_outpoints_vec = Vec::new();
         let mut new_rewards = Vec::new();
-        let mut known = self
+
+        let mut known_db = self
+            .db
+            .get_seen_utxos(wallet_address)
+            .await
+            .unwrap_or_default();
+        let mut known_mem = self
             .known_utxos
             .entry(wallet_address.to_string())
             .or_default();
 
-        let is_first_run = known.is_empty();
-
-        for utxo in utxos {
-            current_outpoints.insert(utxo.outpoint.clone());
-
-            if !is_first_run && !known.contains(&utxo.outpoint) {
-                new_rewards.push(utxo.clone());
-                known.insert(utxo.outpoint.clone());
-            } else if is_first_run {
-                known.insert(utxo.outpoint.clone());
+        if known_mem.is_empty() && !known_db.is_empty() {
+            for outpoint in &known_db {
+                known_mem.insert(outpoint.clone());
             }
         }
 
-        known.retain(|outpoint| current_outpoints.contains(outpoint));
+        let is_first_run = known_mem.is_empty() && known_db.is_empty();
+
+        for utxo in utxos {
+            current_outpoints.insert(utxo.outpoint.clone());
+            current_outpoints_vec.push(utxo.outpoint.clone());
+
+            let seen_before =
+                known_mem.contains(&utxo.outpoint) || known_db.contains(&utxo.outpoint);
+
+            if !is_first_run && !seen_before {
+                new_rewards.push(utxo.clone());
+            }
+
+            known_mem.insert(utxo.outpoint.clone());
+            known_db.insert(utxo.outpoint.clone());
+        }
+
+        known_mem.retain(|outpoint| current_outpoints.contains(outpoint));
+
+        if let Err(e) = self
+            .db
+            .upsert_seen_utxos(wallet_address, &current_outpoints_vec)
+            .await
+        {
+            let _ = self
+                .db
+                .record_bot_event(
+                    "DB_ERROR",
+                    "error",
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(&crate::utils::format_short_wallet(wallet_address)),
+                    None,
+                    None,
+                    Some("seen_utxo_upsert_failed"),
+                    Some(&e.to_string()),
+                    None,
+                    "{}",
+                )
+                .await;
+
+            tracing::error!("[DATABASE ERROR] Failed to persist seen UTXOs: {}", e);
+        }
+
+        if let Err(e) = self
+            .db
+            .prune_seen_utxos(wallet_address, &current_outpoints_vec)
+            .await
+        {
+            tracing::warn!("[DATABASE WARNING] Failed to prune seen UTXOs: {}", e);
+        }
 
         if new_rewards.is_empty() {
             return Ok(vec![]);
@@ -205,20 +258,111 @@ impl UtxoMonitorService {
                     };
 
                     if let Err(e) = db.record_mined_block(block).await {
+                        let _ = db
+                            .record_bot_event(
+                                "DB_ERROR",
+                                "error",
+                                None,
+                                None,
+                                None,
+                                None,
+                                Some(&crate::utils::format_short_wallet(&wallet)),
+                                Some(&crate::utils::format_short_wallet(&utxo.transaction_id)),
+                                None,
+                                Some("record_mined_block_failed"),
+                                Some(&e.to_string()),
+                                None,
+                                "{}",
+                            )
+                            .await;
+
                         tracing::error!("[DATABASE ERROR] Failed to record mined block: {}", e);
                     }
                 }
 
+                let analysis = analyzer
+                    .execute(
+                        &utxo.transaction_id,
+                        &wallet,
+                        utxo.block_daa_score,
+                        utxo.is_coinbase,
+                    )
+                    .await;
+
                 let (acc_block_hash, actual_mined_blocks, _nonce, extracted_worker, block_time_ms) =
-                    analyzer
-                        .execute(
-                            &utxo.transaction_id,
-                            &wallet,
-                            utxo.block_daa_score,
-                            utxo.is_coinbase,
+                    match analysis {
+                        Ok(data) => data,
+                        Err(e) => {
+                            let _ = db
+                                .record_bot_event(
+                                    "RPC_ERROR",
+                                    "error",
+                                    None,
+                                    None,
+                                    None,
+                                    None,
+                                    Some(&crate::utils::format_short_wallet(&wallet)),
+                                    Some(&crate::utils::format_short_wallet(&utxo.transaction_id)),
+                                    None,
+                                    Some("dag_analysis_failed"),
+                                    Some(&e.to_string()),
+                                    None,
+                                    "{}",
+                                )
+                                .await;
+
+                            tracing::error!(
+                                "[DAG ERROR] Failed to analyze reward {} for {}: {}",
+                                crate::utils::format_short_wallet(&utxo.transaction_id),
+                                crate::utils::format_short_wallet(&wallet),
+                                e
+                            );
+
+                            return None;
+                        }
+                    };
+
+                let mined_block_hash = actual_mined_blocks.first().cloned();
+                let alert_key = mined_block_hash
+                    .clone()
+                    .unwrap_or_else(|| utxo.transaction_id.clone());
+
+                let txid_masked = crate::utils::format_short_wallet(&utxo.transaction_id);
+                let block_masked = mined_block_hash
+                    .as_ref()
+                    .map(|h| crate::utils::format_short_wallet(h));
+
+                let should_send = db
+                    .try_claim_alert_key(
+                        &wallet,
+                        &alert_key,
+                        Some(&txid_masked),
+                        block_masked.as_deref(),
+                    )
+                    .await
+                    .unwrap_or(true);
+
+                if !should_send {
+                    let _ = db
+                        .record_bot_event(
+                            "ALERT_DUPLICATE_SKIPPED",
+                            "info",
+                            None,
+                            None,
+                            None,
+                            None,
+                            Some(&crate::utils::format_short_wallet(&wallet)),
+                            Some(&txid_masked),
+                            block_masked.as_deref(),
+                            Some("duplicate_skipped"),
+                            None,
+                            None,
+                            "{}",
                         )
-                        .await
-                        .unwrap_or_default();
+                        .await;
+
+                    return None;
+                }
 
                 let live_balance = node.get_balance(&wallet).await.map(|(b, _)| b).unwrap_or(0);
 
@@ -230,7 +374,7 @@ impl UtxoMonitorService {
                     tx_id: utxo.transaction_id,
                     block_time_ms,
                     acc_block_hash,
-                    mined_block_hash: actual_mined_blocks.first().cloned(),
+                    mined_block_hash,
                     extracted_worker: if extracted_worker.is_empty() {
                         None
                     } else {
@@ -239,14 +383,14 @@ impl UtxoMonitorService {
                     daa_score: utxo.block_daa_score,
                 };
 
-                (block_time_ms, event)
+                Some((block_time_ms, event))
             });
         }
 
         let mut sorted_events = Vec::new();
 
         while let Some(result) = join_set.join_next().await {
-            if let Ok(data) = result {
+            if let Ok(Some(data)) = result {
                 sorted_events.push(data);
             }
         }

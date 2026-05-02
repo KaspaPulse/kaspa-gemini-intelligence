@@ -20,10 +20,9 @@ impl PostgresRepository {
         )
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| AppError::DatabaseError(e.to_string()))?
-        .unwrap_or(0);
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
-        Ok(count)
+        Ok(count.unwrap_or(0))
     }
 
     pub async fn user_wallet_exists(&self, address: &str, chat_id: i64) -> Result<bool, AppError> {
@@ -202,10 +201,9 @@ impl PostgresRepository {
         )
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| AppError::DatabaseError(e.to_string()))?
-        .unwrap_or(0);
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
-        Ok(count)
+        Ok(count.unwrap_or(0))
     }
 
     pub async fn get_blocks_count_24h(&self, address: &str) -> Result<i64, AppError> {
@@ -218,10 +216,9 @@ impl PostgresRepository {
         )
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| AppError::DatabaseError(e.to_string()))?
-        .unwrap_or(0);
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
-        Ok(count)
+        Ok(count.unwrap_or(0))
     }
 
     pub async fn get_blocks_count_7d(&self, address: &str) -> Result<i64, AppError> {
@@ -234,10 +231,9 @@ impl PostgresRepository {
         )
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| AppError::DatabaseError(e.to_string()))?
-        .unwrap_or(0);
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
-        Ok(count)
+        Ok(count.unwrap_or(0))
     }
 
     pub async fn get_setting(&self, key: &str, default_val: &str) -> Result<String, AppError> {
@@ -283,6 +279,147 @@ impl PostgresRepository {
 
         Ok(())
     }
+    pub async fn get_seen_utxos(
+        &self,
+        wallet: &str,
+    ) -> Result<std::collections::HashSet<String>, AppError> {
+        let rows: Vec<(String,)> =
+            sqlx::query_as("SELECT outpoint FROM wallet_seen_utxos WHERE wallet = $1")
+                .bind(wallet)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+        Ok(rows.into_iter().map(|row| row.0).collect())
+    }
+
+    pub async fn upsert_seen_utxos(
+        &self,
+        wallet: &str,
+        outpoints: &[String],
+    ) -> Result<(), AppError> {
+        for outpoint in outpoints {
+            sqlx::query(
+                "INSERT INTO wallet_seen_utxos (wallet, outpoint)
+                 VALUES ($1, $2)
+                 ON CONFLICT (wallet, outpoint)
+                 DO UPDATE SET last_seen_at = CURRENT_TIMESTAMP",
+            )
+            .bind(wallet)
+            .bind(outpoint)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        }
+
+        Ok(())
+    }
+
+    pub async fn prune_seen_utxos(
+        &self,
+        wallet: &str,
+        current_outpoints: &[String],
+    ) -> Result<(), AppError> {
+        if current_outpoints.is_empty() {
+            return Ok(());
+        }
+
+        sqlx::query(
+            "DELETE FROM wallet_seen_utxos
+             WHERE wallet = $1
+             AND NOT (outpoint = ANY($2))",
+        )
+        .bind(wallet)
+        .bind(current_outpoints)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+        Ok(())
+    }
+
+    pub async fn try_claim_alert_key(
+        &self,
+        wallet: &str,
+        alert_key: &str,
+        txid_masked: Option<&str>,
+        block_hash_masked: Option<&str>,
+    ) -> Result<bool, AppError> {
+        let result = sqlx::query(
+            "INSERT INTO wallet_alert_dedup (wallet, alert_key, txid_masked, block_hash_masked)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (wallet, alert_key) DO NOTHING",
+        )
+        .bind(wallet)
+        .bind(alert_key)
+        .bind(txid_masked)
+        .bind(block_hash_masked)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    #[allow(dead_code)]
+    pub async fn purge_old_bot_events(&self, days: i64) -> Result<u64, AppError> {
+        let days = days.clamp(1, 365);
+        let result = sqlx::query(
+            "DELETE FROM bot_event_log
+             WHERE created_at < NOW() - ($1::text || ' days')::interval",
+        )
+        .bind(days.to_string())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+        Ok(result.rows_affected())
+    }
+
+    #[allow(dead_code)]
+    pub async fn get_delivery_summary_24h(&self) -> Result<(i64, i64, i64), AppError> {
+        let detected: i64 = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM bot_event_log
+             WHERE event_type = 'ALERT_DETECTED'
+             AND created_at >= NOW() - INTERVAL '24 hours'",
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+        let delivered: i64 = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM bot_event_log
+             WHERE event_type = 'ALERT_DELIVERED'
+             AND created_at >= NOW() - INTERVAL '24 hours'",
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+        let failed: i64 = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM bot_event_log
+             WHERE event_type = 'ALERT_DELIVERY_FAILED'
+             AND created_at >= NOW() - INTERVAL '24 hours'",
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+        Ok((detected, delivered, failed))
+    }
+
+    #[allow(dead_code)]
+    pub async fn get_subscribers_for_wallet(&self, wallet: &str) -> Result<Vec<i64>, AppError> {
+        let rows: Vec<(i64,)> =
+            sqlx::query_as("SELECT chat_id FROM user_wallets WHERE wallet = $1 ORDER BY chat_id")
+                .bind(wallet)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+        Ok(rows.into_iter().map(|row| row.0).collect())
+    }
+
     pub async fn record_bot_event(
         &self,
         event_type: &str,

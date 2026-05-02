@@ -7,12 +7,18 @@ use std::time::Duration;
 use teloxide::prelude::*;
 use teloxide::types::ChatId;
 use tokio::sync::Semaphore;
+use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
 use crate::network::analyze_dag::AnalyzeDagUseCase;
 use crate::wallet::wallet_use_cases::UtxoMonitorService;
 
-pub fn start_utxo_monitor(bot: Bot, node: Arc<KaspaRpcAdapter>, db: Arc<PostgresRepository>) {
+pub fn start_utxo_monitor(
+    bot: Bot,
+    node: Arc<KaspaRpcAdapter>,
+    db: Arc<PostgresRepository>,
+    token: CancellationToken,
+) {
     let analyzer = Arc::new(AnalyzeDagUseCase::new(node.clone()));
     let utxo_service = Arc::new(UtxoMonitorService::new(node.clone(), db.clone(), analyzer));
     let semaphore = Arc::new(Semaphore::new(10));
@@ -21,7 +27,13 @@ pub fn start_utxo_monitor(bot: Bot, node: Arc<KaspaRpcAdapter>, db: Arc<Postgres
         info!("🚀 [WORKER] UTXO monitor started.");
 
         loop {
-            tokio::time::sleep(Duration::from_secs(10)).await;
+            tokio::select! {
+                _ = token.cancelled() => {
+                    info!("[WORKER] UTXO monitor shutdown requested.");
+                    break;
+                }
+                _ = tokio::time::sleep(Duration::from_secs(10)) => {}
+            }
 
             if let Ok((is_online, _)) = node.get_node_health().await {
                 if !is_online {

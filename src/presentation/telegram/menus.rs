@@ -55,6 +55,9 @@ impl TelegramMenus {
             InlineKeyboardButton::callback("🔄 Restart", "cmd_restart"),
             InlineKeyboardButton::callback("🗄️ DB Diag", "cmd_db_diag"),
             InlineKeyboardButton::callback("📜 Events", "cmd_events"),
+            InlineKeyboardButton::callback("🚨 Errors", "cmd_errors"),
+            InlineKeyboardButton::callback("📬 Delivery", "cmd_delivery"),
+            InlineKeyboardButton::callback("🧹 Cleanup Events", "cmd_cleanup_events"),
             InlineKeyboardButton::callback("🚨 Delete My Data", "confirm_forget_all"),
         ];
 

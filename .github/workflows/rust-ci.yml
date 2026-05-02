@@ -1,0 +1,61 @@
+name: Rust CI
+
+on:
+  push:
+    branches: ["main", "dev"]
+  pull_request:
+    branches: ["main", "dev"]
+
+env:
+  SQLX_OFFLINE: "true"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Secret scan
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -RInE "(BOT_TOKEN=|DATABASE_URL=postgres://|WEBHOOK_SECRET_TOKEN=|ADMIN_PIN=)" \
+            --exclude=".env.example" \
+            --exclude-dir=".git" \
+            --exclude-dir="target" \
+            --exclude-dir=".sqlx" \
+            .; then
+            echo "Potential secret found in repository."
+            exit 1
+          fi
+
+      - name: Format check
+        run: cargo fmt --check
+
+      - name: Cargo check
+        run: cargo check --locked
+
+      - name: Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked
+
+      - name: Cargo deny
+        run: cargo deny check
+
+      - name: Install cargo-machete
+        run: cargo install cargo-machete --locked
+
+      - name: Cargo machete
+        run: cargo machete

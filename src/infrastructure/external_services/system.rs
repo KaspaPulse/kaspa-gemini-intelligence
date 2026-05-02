@@ -70,6 +70,13 @@ pub fn spawn_node_monitor(ctx: AppContext, bot: Bot, token: CancellationToken) {
                     if ctx.rpc.get_server_info().await.is_err() {
                         failed_attempts += 1;
                         tracing::error!("[NODE ALERT] RPC Connection Lost! Attempt {}...", failed_attempts);
+                        let _ = sqlx::query(
+                            "INSERT INTO bot_event_log (event_type, severity, status, error_message, metadata)
+                             VALUES ('RPC_ERROR', 'error', 'node_unreachable', 'RPC connection lost', $1::jsonb)"
+                        )
+                        .bind(format!(r#"{{"attempt":{}}}"#, failed_attempts))
+                        .execute(&ctx.pool)
+                        .await;
 
                         if failed_attempts == 1 {
                             is_disconnected = true;
@@ -88,6 +95,13 @@ pub fn spawn_node_monitor(ctx: AppContext, bot: Bot, token: CancellationToken) {
                     } else {
                         if is_disconnected {
                             tracing::info!("[NODE RECOVERED] RPC Tunnel stabilized.");
+                            let _ = sqlx::query(
+                                "INSERT INTO bot_event_log (event_type, severity, status, metadata)
+                                 VALUES ('RPC_RECOVERED', 'info', 'recovered', $1::jsonb)"
+                            )
+                            .bind(format!(r#"{{"failed_attempts":{}}}"#, failed_attempts))
+                            .execute(&ctx.pool)
+                            .await;
                             ctx.live_sync_enabled.store(true, Ordering::Relaxed);
                             if let Err(e) = bot.send_message(ChatId(ctx.admin_id), "✅ <b>RECOVERED:</b> Node connection stabilized.\n▶️ UTXO Monitoring resumed smoothly.")
                                 .parse_mode(teloxide::types::ParseMode::Html).await { tracing::error!("[TELEGRAM ERROR] Bot API request failed: {}", e); }
@@ -110,7 +124,31 @@ pub fn spawn_memory_cleaner(ctx: AppContext, token: CancellationToken) {
                 _ = tokio::time::sleep(Duration::from_secs(3600)) => {
                     ctx.utxo_state.retain(|wallet, _| ctx.state.contains_key(wallet));
                     ctx.rate_limiter.retain_recent();
-                    tracing::info!("[MEMORY CLEANER] Purged UTXO cache, inactive rate limits, and 30-day chat history.");
+                    let retention_days: i64 = std::env::var("BOT_EVENT_LOG_RETENTION_DAYS")
+                        .ok()
+                        .and_then(|v| v.parse::<i64>().ok())
+                        .unwrap_or(60)
+                        .clamp(1, 365);
+
+                    let purge_result = sqlx::query(
+                        "DELETE FROM bot_event_log
+                         WHERE created_at < NOW() - ($1::text || ' days')::interval"
+                    )
+                    .bind(retention_days.to_string())
+                    .execute(&ctx.pool)
+                    .await;
+
+                    match purge_result {
+                        Ok(result) => {
+                            tracing::info!(
+                                "[MEMORY CLEANER] Purged in-memory runtime state and {} old bot events.",
+                                result.rows_affected()
+                            );
+                        }
+                        Err(e) => {
+                            tracing::error!("[DATABASE ERROR] Failed to purge old bot events: {}", e);
+                        }
+                    }
                 }
             }
         }
