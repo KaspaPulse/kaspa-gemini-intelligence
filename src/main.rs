@@ -141,25 +141,6 @@ async fn main() -> anyhow::Result<()> {
     let _ = bot.delete_my_commands().await;
 
     // Telegram keeps command menus per scope. Clear common scopes first to remove stale legacy commands.
-    let _ = bot.delete_my_commands().await;
-    let _ = bot
-        .delete_my_commands()
-        .scope(BotCommandScope::AllPrivateChats)
-        .await;
-    let _ = bot
-        .delete_my_commands()
-        .scope(BotCommandScope::AllGroupChats)
-        .await;
-    let _ = bot
-        .delete_my_commands()
-        .scope(BotCommandScope::AllChatAdministrators)
-        .await;
-
-    let _ = bot
-        .set_my_commands(crate::presentation::telegram::commands::public_bot_commands())
-        .await;
-
-    tracing::info!("[SYSTEM] Telegram commands synced.");
 
     let admin_id_raw = env::var("ADMIN_ID")
         .map_err(|_| anyhow::anyhow!("ADMIN_ID must be set in .env for production safety"))?;
