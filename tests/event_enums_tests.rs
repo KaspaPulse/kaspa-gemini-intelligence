@@ -1,4 +1,4 @@
-use kaspa_pulse::domain::models::{BotEventType, EventSeverity};
+use kaspa_pulse::domain::models::{BotEventRecord, BotEventType, EventSeverity};
 
 #[test]
 fn bot_event_type_strings_are_stable() {
@@ -31,4 +31,15 @@ fn event_severity_strings_are_stable() {
     assert_eq!(EventSeverity::Info.as_str(), "info");
     assert_eq!(EventSeverity::Warn.as_str(), "warn");
     assert_eq!(EventSeverity::Error.as_str(), "error");
+}
+
+#[test]
+fn bot_event_record_defaults_are_safe() {
+    let record = BotEventRecord::new(BotEventType::SystemStart, EventSeverity::Info);
+
+    assert_eq!(record.event_type.as_str(), "SYSTEM_START");
+    assert_eq!(record.severity.as_str(), "info");
+    assert_eq!(record.chat_id, None);
+    assert_eq!(record.status, None);
+    assert_eq!(record.metadata_json, "{}");
 }

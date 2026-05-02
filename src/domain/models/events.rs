@@ -73,3 +73,40 @@ impl EventSeverity {
         }
     }
 }
+
+#[derive(Debug, Clone)]
+pub struct BotEventRecord<'a> {
+    pub event_type: BotEventType,
+    pub severity: EventSeverity,
+    pub chat_id: Option<i64>,
+    pub user_name: Option<&'a str>,
+    pub command: Option<&'a str>,
+    pub callback_data: Option<&'a str>,
+    pub wallet_masked: Option<&'a str>,
+    pub txid_masked: Option<&'a str>,
+    pub block_hash_masked: Option<&'a str>,
+    pub status: Option<&'a str>,
+    pub error_message: Option<&'a str>,
+    pub duration_ms: Option<i64>,
+    pub metadata_json: &'a str,
+}
+
+impl<'a> BotEventRecord<'a> {
+    pub const fn new(event_type: BotEventType, severity: EventSeverity) -> Self {
+        Self {
+            event_type,
+            severity,
+            chat_id: None,
+            user_name: None,
+            command: None,
+            callback_data: None,
+            wallet_masked: None,
+            txid_masked: None,
+            block_hash_masked: None,
+            status: None,
+            error_message: None,
+            duration_ms: None,
+            metadata_json: "{}",
+        }
+    }
+}

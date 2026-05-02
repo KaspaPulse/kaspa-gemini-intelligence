@@ -1,60 +1,12 @@
 use crate::domain::errors::AppError;
-use crate::domain::models::{BotEventType, EventSeverity};
+use crate::domain::models::{BotEventRecord, BotEventType, EventSeverity};
 
 use super::postgres_adapter::PostgresRepository;
 
 impl PostgresRepository {
-    #[allow(clippy::too_many_arguments)]
-    pub async fn record_bot_event_typed(
+    pub async fn record_bot_event_record(
         &self,
-        event_type: BotEventType,
-        severity: EventSeverity,
-        chat_id: Option<i64>,
-        user_name: Option<&str>,
-        command: Option<&str>,
-        callback_data: Option<&str>,
-        wallet_masked: Option<&str>,
-        txid_masked: Option<&str>,
-        block_hash_masked: Option<&str>,
-        status: Option<&str>,
-        error_message: Option<&str>,
-        duration_ms: Option<i64>,
-        metadata_json: &str,
-    ) -> Result<(), AppError> {
-        self.record_bot_event(
-            event_type.as_str(),
-            severity.as_str(),
-            chat_id,
-            user_name,
-            command,
-            callback_data,
-            wallet_masked,
-            txid_masked,
-            block_hash_masked,
-            status,
-            error_message,
-            duration_ms,
-            metadata_json,
-        )
-        .await
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub async fn record_bot_event(
-        &self,
-        event_type: &str,
-        severity: &str,
-        chat_id: Option<i64>,
-        user_name: Option<&str>,
-        command: Option<&str>,
-        callback_data: Option<&str>,
-        wallet_masked: Option<&str>,
-        txid_masked: Option<&str>,
-        block_hash_masked: Option<&str>,
-        status: Option<&str>,
-        error_message: Option<&str>,
-        duration_ms: Option<i64>,
-        metadata_json: &str,
+        record: BotEventRecord<'_>,
     ) -> Result<(), AppError> {
         sqlx::query(
             r#"
@@ -78,26 +30,59 @@ impl PostgresRepository {
             )
             "#,
         )
-        .bind(event_type)
-        .bind(severity)
-        .bind(chat_id)
-        .bind(user_name)
-        .bind(command)
-        .bind(callback_data)
-        .bind(wallet_masked)
-        .bind(txid_masked)
-        .bind(block_hash_masked)
-        .bind(status)
-        .bind(error_message)
-        .bind(duration_ms)
-        .bind(metadata_json)
+        .bind(record.event_type.as_str())
+        .bind(record.severity.as_str())
+        .bind(record.chat_id)
+        .bind(record.user_name)
+        .bind(record.command)
+        .bind(record.callback_data)
+        .bind(record.wallet_masked)
+        .bind(record.txid_masked)
+        .bind(record.block_hash_masked)
+        .bind(record.status)
+        .bind(record.error_message)
+        .bind(record.duration_ms)
+        .bind(record.metadata_json)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
         Ok(())
     }
+    #[allow(clippy::too_many_arguments)]
+    pub async fn record_bot_event_typed(
+        &self,
+        event_type: BotEventType,
+        severity: EventSeverity,
+        chat_id: Option<i64>,
+        user_name: Option<&str>,
+        command: Option<&str>,
+        callback_data: Option<&str>,
+        wallet_masked: Option<&str>,
+        txid_masked: Option<&str>,
+        block_hash_masked: Option<&str>,
+        status: Option<&str>,
+        error_message: Option<&str>,
+        duration_ms: Option<i64>,
+        metadata_json: &str,
+    ) -> Result<(), AppError> {
+        let mut record = BotEventRecord::new(event_type, severity);
+        record.chat_id = chat_id;
+        record.user_name = user_name;
+        record.command = command;
+        record.callback_data = callback_data;
+        record.wallet_masked = wallet_masked;
+        record.txid_masked = txid_masked;
+        record.block_hash_masked = block_hash_masked;
+        record.status = status;
+        record.error_message = error_message;
+        record.duration_ms = duration_ms;
+        record.metadata_json = metadata_json;
 
+        self.record_bot_event_record(record).await
+    }
+
+    #[allow(clippy::too_many_arguments)]
     #[allow(dead_code)]
     pub async fn purge_old_bot_events(&self, days: i64) -> Result<u64, AppError> {
         let days = days.clamp(1, 365);
