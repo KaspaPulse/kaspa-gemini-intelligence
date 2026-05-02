@@ -1,7 +1,7 @@
 pub mod admin;
-pub mod ai_chat;
 pub mod mining;
 pub mod network;
+pub mod raw_message;
 pub mod wallet;
 
 use crate::infrastructure::database::postgres_adapter::PostgresRepository;
@@ -873,7 +873,7 @@ pub async fn handle_raw_message(
     msg: Message,
     app_context: Arc<crate::domain::models::AppContext>,
 ) -> anyhow::Result<()> {
-    ai_chat::handle_raw_message(bot, msg, app_context).await
+    raw_message::handle_raw_message(bot, msg, app_context).await
 }
 
 pub async fn handle_block_user(

@@ -112,8 +112,6 @@ impl PostgresRepository {
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-        // chat_history was removed with AI/RSS cleanup.
-        // Nothing to delete here anymore.
 
         Ok(())
     }
@@ -344,9 +342,6 @@ impl PostgresRepository {
     }
 
     pub async fn run_memory_cleaner(&self) -> Result<(), AppError> {
-        // chat_history was removed with AI/RSS cleanup.
-        // Cleanup is now a no-op.
-
         Ok(())
     }
 }
