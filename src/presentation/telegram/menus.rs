@@ -35,36 +35,53 @@ impl TelegramMenus {
         let mut rows = Self::main_menu_markup().inline_keyboard;
 
         let divider = vec![InlineKeyboardButton::callback(
-            "🛡️ ━━━━ ADMIN CONTROL CENTER ━━━━ 🛡️",
+            "🛡️ Admin Panel",
             "cmd_ignore",
         )];
 
         let admin_row1 = vec![
             InlineKeyboardButton::callback("🩺 Health", "cmd_health"),
-            InlineKeyboardButton::callback("⚙️ Sys Diag", "cmd_sys"),
-            InlineKeyboardButton::callback("📊 Stats", "cmd_stats"),
+            InlineKeyboardButton::callback("⚙️ System", "cmd_sys"),
         ];
 
         let admin_row2 = vec![
+            InlineKeyboardButton::callback("📊 Stats", "cmd_stats"),
             InlineKeyboardButton::callback("⚙️ Settings", "cmd_settings"),
+        ];
+
+        let admin_row3 = vec![
             InlineKeyboardButton::callback("⏸️ Pause", "cmd_pause"),
             InlineKeyboardButton::callback("▶️ Resume", "cmd_resume"),
         ];
 
-        let admin_row3 = vec![
+        let admin_row4 = vec![
             InlineKeyboardButton::callback("🔄 Restart", "cmd_restart"),
-            InlineKeyboardButton::callback("🗄️ DB Diag", "cmd_db_diag"),
+            InlineKeyboardButton::callback("🗄️ DB", "cmd_db_diag"),
+        ];
+
+        let admin_row5 = vec![
             InlineKeyboardButton::callback("📜 Events", "cmd_events"),
             InlineKeyboardButton::callback("🚨 Errors", "cmd_errors"),
-            InlineKeyboardButton::callback("📬 Delivery", "cmd_delivery"),
-            InlineKeyboardButton::callback("🧹 Cleanup Events", "cmd_cleanup_events"),
-            InlineKeyboardButton::callback("🚨 Delete My Data", "confirm_forget_all"),
         ];
+
+        let admin_row6 = vec![
+            InlineKeyboardButton::callback("📬 Delivery", "cmd_delivery"),
+            InlineKeyboardButton::callback("🧹 Cleanup", "cmd_cleanup_events"),
+        ];
+
+        let admin_row7 = vec![InlineKeyboardButton::callback(
+            "🚨 Delete My Data",
+            "confirm_forget_all",
+        )];
 
         rows.push(divider);
         rows.push(admin_row1);
         rows.push(admin_row2);
         rows.push(admin_row3);
+        rows.push(admin_row4);
+        rows.push(admin_row5);
+        rows.push(admin_row6);
+        rows.push(admin_row7);
 
         InlineKeyboardMarkup::new(rows)
     }
