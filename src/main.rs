@@ -13,6 +13,7 @@ pub mod utils;
 
 use dotenvy::dotenv;
 use std::env;
+use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
 use teloxide::dptree;
@@ -281,19 +282,66 @@ async fn main() -> anyhow::Result<()> {
     if env::var("USE_WEBHOOK").unwrap_or_else(|_| "false".to_string()) == "true" {
         info!("Running in WEBHOOK mode");
 
-        let domain = env::var("WEBHOOK_DOMAIN").expect("WEBHOOK_DOMAIN required");
+        let domain = env::var("WEBHOOK_DOMAIN")
+            .map_err(|_| anyhow::anyhow!("WEBHOOK_DOMAIN must be set when USE_WEBHOOK=true"))?;
+
         let port: u16 = env::var("WEBHOOK_PORT")
             .unwrap_or_else(|_| "8443".to_string())
-            .parse()?;
+            .parse()
+            .map_err(|_| anyhow::anyhow!("WEBHOOK_PORT must be a valid u16 port"))?;
 
-        let addr = ([0, 0, 0, 0], port).into();
+        let bind_ip_raw = env::var("WEBHOOK_BIND").unwrap_or_else(|_| "127.0.0.1".to_string());
+        let bind_ip: IpAddr = bind_ip_raw
+            .parse()
+            .map_err(|_| anyhow::anyhow!("WEBHOOK_BIND must be a valid IP address"))?;
+
+        let secret_token = env::var("WEBHOOK_SECRET_TOKEN")
+            .map(|value| value.trim().to_string())
+            .map_err(|_| {
+                anyhow::anyhow!("WEBHOOK_SECRET_TOKEN must be set when USE_WEBHOOK=true")
+            })?;
+
+        if secret_token.len() < 16 || secret_token.len() > 256 {
+            return Err(anyhow::anyhow!(
+                "WEBHOOK_SECRET_TOKEN must be between 16 and 256 characters"
+            ));
+        }
+
+        if !secret_token
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        {
+            return Err(anyhow::anyhow!(
+                "WEBHOOK_SECRET_TOKEN may contain only A-Z, a-z, 0-9, '_' and '-'"
+            ));
+        }
+
+        let addr = SocketAddr::new(bind_ip, port);
         let url = format!("https://{}/webhook", domain).parse()?;
 
-        let listener = teloxide::update_listeners::webhooks::axum(
-            bot,
-            teloxide::update_listeners::webhooks::Options::new(addr, url),
+        let _ = sqlx::query(
+            "INSERT INTO bot_event_log (event_type, severity, status, metadata)
+             VALUES ('WEBHOOK_START', 'info', 'listening', $1::jsonb)",
         )
-        .await?;
+        .bind(format!(
+            r#"{{"domain":"{}","bind":"{}","port":{}}}"#,
+            domain, bind_ip, port
+        ))
+        .execute(&pool)
+        .await;
+
+        tracing::info!(
+            "[WEBHOOK] Listening on {}:{} for domain {}",
+            bind_ip,
+            port,
+            domain
+        );
+
+        let options = teloxide::update_listeners::webhooks::Options::new(addr, url)
+            .secret_token(secret_token)
+            .max_connections(20);
+
+        let listener = teloxide::update_listeners::webhooks::axum(bot, options).await?;
 
         dispatcher
             .dispatch_with_listener(
