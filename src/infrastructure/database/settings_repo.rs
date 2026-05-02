@@ -48,8 +48,13 @@ impl PostgresRepository {
     }
 
     pub async fn run_memory_cleaner(&self) -> Result<(), AppError> {
-        // Database chat history cleanup was removed with the community build.
-        // Runtime cache cleanup is handled by the in-memory worker.
+        let deleted_events = self.purge_old_bot_events(60).await?;
+
+        tracing::info!(
+            "[MEMORY CLEANER] Old bot events cleanup complete. Deleted rows: {}",
+            deleted_events
+        );
+
         Ok(())
     }
 }

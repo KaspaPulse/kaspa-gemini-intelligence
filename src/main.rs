@@ -137,10 +137,7 @@ async fn main() -> anyhow::Result<()> {
 
     let bot_token = env::var("BOT_TOKEN").expect("BOT_TOKEN must be set in .env");
     let bot = Bot::new(bot_token);
-
-    let _ = bot.delete_my_commands().await;
-
-    // Telegram keeps command menus per scope. Clear common scopes first to remove stale legacy commands.
+    // Telegram command scopes are synchronized after ADMIN_ID validation.
 
     let admin_id_raw = env::var("ADMIN_ID")
         .map_err(|_| anyhow::anyhow!("ADMIN_ID must be set in .env for production safety"))?;
@@ -267,6 +264,7 @@ async fn main() -> anyhow::Result<()> {
 
     crate::presentation::telegram::workers::periodic_tasks::start_system_monitors(
         system_tasks_uc.clone(),
+        cancel_token.clone(),
     );
 
     use crate::presentation::telegram::handlers;

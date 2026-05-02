@@ -82,8 +82,6 @@ impl PostgresRepository {
         self.record_bot_event_record(record).await
     }
 
-    #[allow(clippy::too_many_arguments)]
-    #[allow(dead_code)]
     pub async fn purge_old_bot_events(&self, days: i64) -> Result<u64, AppError> {
         let days = days.clamp(1, 365);
         let result = sqlx::query(
