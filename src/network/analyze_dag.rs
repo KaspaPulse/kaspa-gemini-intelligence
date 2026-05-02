@@ -101,7 +101,13 @@ impl AnalyzeDagUseCase {
         }
 
         if is_coinbase && !acc_block_hash.is_empty() {
-            if let Ok(acc_hash_obj) = acc_block_hash.parse::<Hash>() {
+            let acc_hash_obj = acc_block_hash.parse::<Hash>().map_err(|e| {
+                AppError::NodeError(format!(
+                    "Acceptance block hash parse failed. acc_block_hash={} tx={}: {}",
+                    acc_block_hash, f_tx, e
+                ))
+            })?;
+            {
                 let full_acc_block = match rpc_cl.get_block(acc_hash_obj, true).await {
                     Ok(block) => block,
                     Err(e) => {
