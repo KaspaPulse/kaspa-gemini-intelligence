@@ -458,7 +458,9 @@ pub async fn handle_events(
         return Ok(());
     }
 
-    let mut text = String::from("📜 <b>Recent Bot Events</b>\n━━━━━━━━━━━━━━━━━━\n");
+    let mut text = String::from(
+        "📜 <b>Recent Bot Events</b>\n━━━━━━━━━━━━━━━━━━\nShowing latest <code>10</code> events\n",
+    );
 
     for row in rows {
         let created_at: chrono::DateTime<chrono::Utc> = row.try_get("created_at")?;
@@ -733,7 +735,7 @@ pub async fn handle_wallet_events(
     .await?;
 
     let mut text = format!(
-        "👛 <b>Wallet Events</b>\n━━━━━━━━━━━━━━━━━━\nWallet: <code>{}</code>\n",
+        "👛 <b>Wallet Events</b>\n━━━━━━━━━━━━━━━━━━\nShowing latest <code>10</code> events\nWallet: <code>{}</code>\n",
         wallet_masked
     );
 
