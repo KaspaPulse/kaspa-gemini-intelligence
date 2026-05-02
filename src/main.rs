@@ -174,6 +174,42 @@ async fn main() -> anyhow::Result<()> {
         ));
     }
 
+    // Clear stale Telegram command scopes so deleted legacy commands disappear.
+    let _ = bot.delete_my_commands().await;
+    let _ = bot
+        .delete_my_commands()
+        .scope(BotCommandScope::AllPrivateChats)
+        .await;
+    let _ = bot
+        .delete_my_commands()
+        .scope(BotCommandScope::AllGroupChats)
+        .await;
+    let _ = bot
+        .delete_my_commands()
+        .scope(BotCommandScope::AllChatAdministrators)
+        .await;
+    let _ = bot
+        .delete_my_commands()
+        .scope(BotCommandScope::Chat {
+            chat_id: teloxide::types::Recipient::Id(ChatId(admin_id)),
+        })
+        .await;
+
+    // Public commands for all users.
+    let _ = bot
+        .set_my_commands(crate::presentation::telegram::commands::public_bot_commands())
+        .await;
+
+    // Admin commands only in the admin chat.
+    let _ = bot
+        .set_my_commands(crate::presentation::telegram::commands::admin_bot_commands())
+        .scope(BotCommandScope::Chat {
+            chat_id: teloxide::types::Recipient::Id(ChatId(admin_id)),
+        })
+        .await;
+
+    tracing::info!("[SYSTEM] Telegram commands synced.");
+
     let cancel_token = tokio_util::sync::CancellationToken::new();
 
     let app_context = std::sync::Arc::new(crate::domain::models::AppContext::new(
