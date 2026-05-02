@@ -474,6 +474,7 @@ pub async fn handle_events(
 
         let icon = match event_type.as_str() {
             "SYSTEM_START" => "🚀",
+            "SYSTEM_SHUTDOWN" => "🛑",
             "ALERT_DETECTED" => "🔎",
             "ALERT_DELIVERED" => "✅",
             "ALERT_DELIVERY_FAILED" => "❌",

@@ -16,6 +16,7 @@ pub struct LiveBlockEvent {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BotEventType {
     SystemStart,
+    SystemShutdown,
     WebhookStart,
     AlertDetected,
     AlertDelivered,
@@ -37,6 +38,7 @@ impl BotEventType {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::SystemStart => "SYSTEM_START",
+            Self::SystemShutdown => "SYSTEM_SHUTDOWN",
             Self::WebhookStart => "WEBHOOK_START",
             Self::AlertDetected => "ALERT_DETECTED",
             Self::AlertDelivered => "ALERT_DELIVERED",

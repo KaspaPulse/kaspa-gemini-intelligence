@@ -226,6 +226,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let pool_shutdown = pool.clone();
+    let db_shutdown = db_repo.clone();
     let ct_shutdown = cancel_token.clone();
 
     tokio::spawn(async move {
@@ -240,6 +241,14 @@ async fn main() -> anyhow::Result<()> {
                     let _ = tokio::signal::ctrl_c().await;
                     tracing::warn!("[SYSTEM] SIGINT received. Starting graceful shutdown.");
                     ct_shutdown.cancel();
+
+                    let mut shutdown_event =
+                        BotEventRecord::new(BotEventType::SystemShutdown, EventSeverity::Info);
+                    shutdown_event.status = Some("ok");
+                    shutdown_event.metadata_json = r#"{"reason":"signal"}"#;
+
+                    let _ = db_shutdown.record_bot_event_record(shutdown_event).await;
+
                     pool_shutdown.close().await;
                     tracing::info!("[SYSTEM] Database connections closed safely.");
                     return;
@@ -263,6 +272,14 @@ async fn main() -> anyhow::Result<()> {
         }
 
         ct_shutdown.cancel();
+
+        let mut shutdown_event =
+            BotEventRecord::new(BotEventType::SystemShutdown, EventSeverity::Info);
+        shutdown_event.status = Some("ok");
+        shutdown_event.metadata_json = r#"{"reason":"signal"}"#;
+
+        let _ = db_shutdown.record_bot_event_record(shutdown_event).await;
+
         pool_shutdown.close().await;
         tracing::info!("[SYSTEM] Database connections closed safely.");
     });

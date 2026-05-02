@@ -3,6 +3,7 @@ use kaspa_pulse::domain::models::{BotEventRecord, BotEventType, EventSeverity};
 #[test]
 fn bot_event_type_strings_are_stable() {
     assert_eq!(BotEventType::SystemStart.as_str(), "SYSTEM_START");
+    assert_eq!(BotEventType::SystemShutdown.as_str(), "SYSTEM_SHUTDOWN");
     assert_eq!(BotEventType::WebhookStart.as_str(), "WEBHOOK_START");
     assert_eq!(BotEventType::AlertDetected.as_str(), "ALERT_DETECTED");
     assert_eq!(BotEventType::AlertDelivered.as_str(), "ALERT_DELIVERED");
