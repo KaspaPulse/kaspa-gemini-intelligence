@@ -142,16 +142,4 @@ impl PostgresRepository {
 
         Ok((detected, delivered, failed))
     }
-
-    #[allow(dead_code)]
-    pub async fn get_subscribers_for_wallet(&self, wallet: &str) -> Result<Vec<i64>, AppError> {
-        let rows: Vec<(i64,)> =
-            sqlx::query_as("SELECT chat_id FROM user_wallets WHERE wallet = $1 ORDER BY chat_id")
-                .bind(wallet)
-                .fetch_all(&self.pool)
-                .await
-                .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-
-        Ok(rows.into_iter().map(|row| row.0).collect())
-    }
 }
