@@ -1,7 +1,7 @@
 use crate::domain::entities::{MinedBlock, TrackedWallet};
 use crate::domain::errors::AppError;
 use crate::domain::models::LiveBlockEvent;
-use crate::domain::models::{BotEventType, EventSeverity};
+use crate::domain::models::{BotEventRecord, BotEventType, EventSeverity};
 use crate::infrastructure::database::postgres_adapter::PostgresRepository;
 use crate::infrastructure::node::kaspa_adapter::KaspaRpcAdapter;
 use crate::network::analyze_dag::AnalyzeDagUseCase;
@@ -207,24 +207,16 @@ impl UtxoMonitorService {
             .upsert_seen_utxos(wallet_address, &current_outpoints_vec)
             .await
         {
-            let _ = self
-                .db
-                .record_bot_event_typed(
-                    BotEventType::DbError,
-                    EventSeverity::Error,
-                    None,
-                    None,
-                    None,
-                    None,
-                    Some(&crate::utils::format_short_wallet(wallet_address)),
-                    None,
-                    None,
-                    Some("seen_utxo_upsert_failed"),
-                    Some(&e.to_string()),
-                    None,
-                    "{}",
-                )
-                .await;
+            let wallet_masked = crate::utils::format_short_wallet(wallet_address);
+            let error_text = e.to_string();
+
+            let mut db_error_event =
+                BotEventRecord::new(BotEventType::DbError, EventSeverity::Error);
+            db_error_event.wallet_masked = Some(&wallet_masked);
+            db_error_event.status = Some("seen_utxo_upsert_failed");
+            db_error_event.error_message = Some(&error_text);
+
+            let _ = self.db.record_bot_event_record(db_error_event).await;
 
             tracing::error!("[DATABASE ERROR] Failed to persist seen UTXOs: {}", e);
         }
@@ -259,23 +251,18 @@ impl UtxoMonitorService {
                     };
 
                     if let Err(e) = db.record_mined_block(block).await {
-                        let _ = db
-                            .record_bot_event_typed(
-                                BotEventType::DbError,
-                                EventSeverity::Error,
-                                None,
-                                None,
-                                None,
-                                None,
-                                Some(&crate::utils::format_short_wallet(&wallet)),
-                                Some(&crate::utils::format_short_wallet(&utxo.transaction_id)),
-                                None,
-                                Some("record_mined_block_failed"),
-                                Some(&e.to_string()),
-                                None,
-                                "{}",
-                            )
-                            .await;
+                        let wallet_masked = crate::utils::format_short_wallet(&wallet);
+                        let txid_masked = crate::utils::format_short_wallet(&utxo.transaction_id);
+                        let error_text = e.to_string();
+
+                        let mut db_error_event =
+                            BotEventRecord::new(BotEventType::DbError, EventSeverity::Error);
+                        db_error_event.wallet_masked = Some(&wallet_masked);
+                        db_error_event.txid_masked = Some(&txid_masked);
+                        db_error_event.status = Some("record_mined_block_failed");
+                        db_error_event.error_message = Some(&error_text);
+
+                        let _ = db.record_bot_event_record(db_error_event).await;
 
                         tracing::error!("[DATABASE ERROR] Failed to record mined block: {}", e);
                     }
@@ -294,23 +281,19 @@ impl UtxoMonitorService {
                     match analysis {
                         Ok(data) => data,
                         Err(e) => {
-                            let _ = db
-                                .record_bot_event_typed(
-                                    BotEventType::RpcError,
-                                    EventSeverity::Error,
-                                    None,
-                                    None,
-                                    None,
-                                    None,
-                                    Some(&crate::utils::format_short_wallet(&wallet)),
-                                    Some(&crate::utils::format_short_wallet(&utxo.transaction_id)),
-                                    None,
-                                    Some("dag_analysis_failed"),
-                                    Some(&e.to_string()),
-                                    None,
-                                    "{}",
-                                )
-                                .await;
+                            let wallet_masked = crate::utils::format_short_wallet(&wallet);
+                            let txid_masked =
+                                crate::utils::format_short_wallet(&utxo.transaction_id);
+                            let error_text = e.to_string();
+
+                            let mut rpc_error_event =
+                                BotEventRecord::new(BotEventType::RpcError, EventSeverity::Error);
+                            rpc_error_event.wallet_masked = Some(&wallet_masked);
+                            rpc_error_event.txid_masked = Some(&txid_masked);
+                            rpc_error_event.status = Some("dag_analysis_failed");
+                            rpc_error_event.error_message = Some(&error_text);
+
+                            let _ = db.record_bot_event_record(rpc_error_event).await;
 
                             tracing::error!(
                                 "[DAG ERROR] Failed to analyze reward {} for {}: {}",
@@ -344,23 +327,18 @@ impl UtxoMonitorService {
                     .unwrap_or(true);
 
                 if !should_send {
-                    let _ = db
-                        .record_bot_event_typed(
-                            BotEventType::AlertDuplicateSkipped,
-                            EventSeverity::Info,
-                            None,
-                            None,
-                            None,
-                            None,
-                            Some(&crate::utils::format_short_wallet(&wallet)),
-                            Some(&txid_masked),
-                            block_masked.as_deref(),
-                            Some("duplicate_skipped"),
-                            None,
-                            None,
-                            "{}",
-                        )
-                        .await;
+                    let wallet_masked = crate::utils::format_short_wallet(&wallet);
+
+                    let mut duplicate_event = BotEventRecord::new(
+                        BotEventType::AlertDuplicateSkipped,
+                        EventSeverity::Info,
+                    );
+                    duplicate_event.wallet_masked = Some(&wallet_masked);
+                    duplicate_event.txid_masked = Some(&txid_masked);
+                    duplicate_event.block_hash_masked = block_masked.as_deref();
+                    duplicate_event.status = Some("duplicate_skipped");
+
+                    let _ = db.record_bot_event_record(duplicate_event).await;
 
                     return None;
                 }
