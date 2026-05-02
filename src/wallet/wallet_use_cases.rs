@@ -111,16 +111,95 @@ impl WalletQueriesUseCase {
         let mut details = Vec::new();
 
         for wallet in wallets {
-            let blocks_1h = self.db.get_blocks_count_1h(&wallet).await.unwrap_or(0);
-            let blocks_24h = self.db.get_blocks_count_24h(&wallet).await.unwrap_or(0);
-            let blocks_7d = self.db.get_blocks_count_7d(&wallet).await.unwrap_or(0);
-            let lifetime_blocks = self
-                .db
-                .get_lifetime_stats(&wallet)
-                .await
-                .map(|(count, _)| count)
-                .unwrap_or(0);
-            let daily_blocks = self.db.get_daily_blocks(&wallet).await.unwrap_or_default();
+            let stats_wallet_masked = crate::utils::format_short_wallet(&wallet);
+
+            let blocks_1h = match self.db.get_blocks_count_1h(&wallet).await {
+                Ok(value) => value,
+                Err(e) => {
+                    let error_message = e.to_string();
+                    let mut db_event =
+                        BotEventRecord::new(BotEventType::DbError, EventSeverity::Error);
+                    db_event.wallet_masked = Some(&stats_wallet_masked);
+                    db_event.status = Some("stats_1h_fallback");
+                    db_event.error_message = Some(&error_message);
+                    db_event.metadata_json = r#"{"operation":"get_blocks_count_1h","fallback":0}"#;
+
+                    let _ = self.db.record_bot_event_record(db_event).await;
+
+                    0
+                }
+            };
+
+            let blocks_24h = match self.db.get_blocks_count_24h(&wallet).await {
+                Ok(value) => value,
+                Err(e) => {
+                    let error_message = e.to_string();
+                    let mut db_event =
+                        BotEventRecord::new(BotEventType::DbError, EventSeverity::Error);
+                    db_event.wallet_masked = Some(&stats_wallet_masked);
+                    db_event.status = Some("stats_24h_fallback");
+                    db_event.error_message = Some(&error_message);
+                    db_event.metadata_json = r#"{"operation":"get_blocks_count_24h","fallback":0}"#;
+
+                    let _ = self.db.record_bot_event_record(db_event).await;
+
+                    0
+                }
+            };
+
+            let blocks_7d = match self.db.get_blocks_count_7d(&wallet).await {
+                Ok(value) => value,
+                Err(e) => {
+                    let error_message = e.to_string();
+                    let mut db_event =
+                        BotEventRecord::new(BotEventType::DbError, EventSeverity::Error);
+                    db_event.wallet_masked = Some(&stats_wallet_masked);
+                    db_event.status = Some("stats_7d_fallback");
+                    db_event.error_message = Some(&error_message);
+                    db_event.metadata_json = r#"{"operation":"get_blocks_count_7d","fallback":0}"#;
+
+                    let _ = self.db.record_bot_event_record(db_event).await;
+
+                    0
+                }
+            };
+            let lifetime_blocks = match self.db.get_lifetime_stats(&wallet).await {
+                Ok((count, _)) => count,
+                Err(e) => {
+                    let error_message = e.to_string();
+                    let lifetime_wallet_masked = crate::utils::format_short_wallet(&wallet);
+
+                    let mut db_event =
+                        BotEventRecord::new(BotEventType::DbError, EventSeverity::Error);
+                    db_event.wallet_masked = Some(&lifetime_wallet_masked);
+                    db_event.status = Some("lifetime_stats_fallback");
+                    db_event.error_message = Some(&error_message);
+                    db_event.metadata_json = r#"{"operation":"get_lifetime_stats","fallback":0}"#;
+
+                    let _ = self.db.record_bot_event_record(db_event).await;
+
+                    0
+                }
+            };
+            let daily_blocks = match self.db.get_daily_blocks(&wallet).await {
+                Ok(value) => value,
+                Err(e) => {
+                    let error_message = e.to_string();
+                    let daily_wallet_masked = crate::utils::format_short_wallet(&wallet);
+
+                    let mut db_event =
+                        BotEventRecord::new(BotEventType::DbError, EventSeverity::Error);
+                    db_event.wallet_masked = Some(&daily_wallet_masked);
+                    db_event.status = Some("daily_blocks_fallback");
+                    db_event.error_message = Some(&error_message);
+                    db_event.metadata_json =
+                        r#"{"operation":"get_daily_blocks","fallback":"empty_list"}"#;
+
+                    let _ = self.db.record_bot_event_record(db_event).await;
+
+                    Vec::new()
+                }
+            };
 
             details.push(WalletBlocksDetail {
                 address: wallet,
@@ -167,11 +246,31 @@ impl UtxoMonitorService {
         let mut current_outpoints_vec = Vec::new();
         let mut new_rewards = Vec::new();
 
-        let mut known_db = self
-            .db
-            .get_seen_utxos(wallet_address)
-            .await
-            .unwrap_or_default();
+        let mut known_db = match self.db.get_seen_utxos(wallet_address).await {
+            Ok(value) => value,
+            Err(e) => {
+                let wallet_masked = crate::utils::format_short_wallet(wallet_address);
+                let error_text = e.to_string();
+
+                let mut db_error_event =
+                    BotEventRecord::new(BotEventType::DbError, EventSeverity::Error);
+                db_error_event.wallet_masked = Some(&wallet_masked);
+                db_error_event.status = Some("seen_utxo_load_failed");
+                db_error_event.error_message = Some(&error_text);
+                db_error_event.metadata_json =
+                    r#"{"operation":"get_seen_utxos","action":"abort_wallet_scan"}"#;
+
+                let _ = self.db.record_bot_event_record(db_error_event).await;
+
+                tracing::error!(
+                    "[DATABASE ERROR] Failed to load seen UTXOs for wallet {}: {}",
+                    wallet_masked,
+                    error_text
+                );
+
+                return Err(e);
+            }
+        };
         let mut known_mem = self
             .known_utxos
             .entry(wallet_address.to_string())
@@ -343,7 +442,28 @@ impl UtxoMonitorService {
                     return None;
                 }
 
-                let live_balance = node.get_balance(&wallet).await.map(|(b, _)| b).unwrap_or(0);
+                let live_balance = match node.get_balance(&wallet).await {
+                    Ok((balance, _)) => balance,
+                    Err(e) => {
+                        let error_message = e.to_string();
+                        let wallet_masked = crate::utils::format_short_wallet(&wallet);
+                        let txid_masked_for_balance =
+                            crate::utils::format_short_wallet(&utxo.transaction_id);
+
+                        let mut rpc_event =
+                            BotEventRecord::new(BotEventType::RpcError, EventSeverity::Error);
+                        rpc_event.wallet_masked = Some(&wallet_masked);
+                        rpc_event.txid_masked = Some(&txid_masked_for_balance);
+                        rpc_event.status = Some("live_balance_failed");
+                        rpc_event.error_message = Some(&error_message);
+                        rpc_event.metadata_json =
+                            r#"{"operation":"get_balance","fallback_balance_sompi":0}"#;
+
+                        let _ = db.record_bot_event_record(rpc_event).await;
+
+                        0
+                    }
+                };
 
                 let event = LiveBlockEvent {
                     is_coinbase: utxo.is_coinbase,

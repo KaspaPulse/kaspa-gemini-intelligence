@@ -39,10 +39,16 @@ impl AnalyzeDagUseCase {
         let rpc_cl = self.node.client.clone();
 
         let mut visited = HashSet::new();
-        let mut current_hashes = match rpc_cl.get_block_dag_info().await {
-            Ok(info) => info.tip_hashes,
-            Err(_) => vec![],
-        };
+        let mut current_hashes = rpc_cl
+            .get_block_dag_info()
+            .await
+            .map_err(|e| {
+                AppError::NodeError(format!(
+                    "DAG tip lookup failed while analyzing tx {}: {}",
+                    f_tx, e
+                ))
+            })?
+            .tip_hashes;
 
         for _attempt in 1..=800 {
             if current_hashes.is_empty() {
