@@ -34,6 +34,7 @@ impl AnalyzeDagUseCase {
         let mut extracted_nonce = String::new();
         let mut extracted_worker = String::new();
         let mut block_time_ms: u64 = 0;
+        let mut blue_block_fetch_errors: usize = 0;
 
         // Bypassing abstract traits to guarantee raw access to verbose_data for details
         let rpc_cl = self.node.client.clone();
@@ -59,7 +60,16 @@ impl AnalyzeDagUseCase {
                 if !visited.insert(*hash) {
                     continue;
                 }
-                if let Ok(block) = rpc_cl.get_block(*hash, true).await {
+                let block = match rpc_cl.get_block(*hash, true).await {
+                    Ok(block) => block,
+                    Err(e) => {
+                        return Err(AppError::NodeError(format!(
+                            "DAG block fetch failed while searching acceptance block. hash={} tx={}: {}",
+                            hash, f_tx, e
+                        )));
+                    }
+                };
+                {
                     let mut found_tx = false;
                     for tx in &block.transactions {
                         if let Some(tx_verb) = &tx.verbose_data {
@@ -92,7 +102,16 @@ impl AnalyzeDagUseCase {
 
         if is_coinbase && !acc_block_hash.is_empty() {
             if let Ok(acc_hash_obj) = acc_block_hash.parse::<Hash>() {
-                if let Ok(full_acc_block) = rpc_cl.get_block(acc_hash_obj, true).await {
+                let full_acc_block = match rpc_cl.get_block(acc_hash_obj, true).await {
+                    Ok(block) => block,
+                    Err(e) => {
+                        return Err(AppError::NodeError(format!(
+                            "Acceptance block fetch failed while extracting mined block details. acc_block_hash={} tx={}: {}",
+                            acc_block_hash, f_tx, e
+                        )));
+                    }
+                };
+                {
                     let mut user_script_bytes: Vec<u8> = Vec::new();
                     if let Some(tx0) = full_acc_block.transactions.first() {
                         for out in &tx0.outputs {
@@ -107,7 +126,22 @@ impl AnalyzeDagUseCase {
                     if !user_script_bytes.is_empty() {
                         if let Some(verbose) = &full_acc_block.verbose_data {
                             for blue_hash in &verbose.merge_set_blues_hashes {
-                                if let Ok(blue_block) = rpc_cl.get_block(*blue_hash, true).await {
+                                let blue_block = match rpc_cl.get_block(*blue_hash, true).await {
+                                    Ok(block) => block,
+                                    Err(e) => {
+                                        blue_block_fetch_errors += 1;
+
+                                        tracing::warn!(
+                                            "[DAG ANALYSIS] Failed to fetch blue block while extracting mined block details. blue_hash={} tx={}: {}",
+                                            blue_hash,
+                                            f_tx,
+                                            e
+                                        );
+
+                                        continue;
+                                    }
+                                };
+                                {
                                     if let Some(m_tx0) = blue_block.transactions.first() {
                                         // 🔍 THE REAL DETAILS: Searching for user bytes in the payload
                                         if let Some(pos) = m_tx0
@@ -138,7 +172,16 @@ impl AnalyzeDagUseCase {
                 }
             }
         }
-
+        if is_coinbase
+            && !acc_block_hash.is_empty()
+            && actual_mined_blocks.is_empty()
+            && blue_block_fetch_errors > 0
+        {
+            return Err(AppError::NodeError(format!(
+                "Blue block fetch failed during mined block extraction. acc_block_hash={} tx={} failed_blue_blocks={}",
+                acc_block_hash, f_tx, blue_block_fetch_errors
+            )));
+        }
         // Dependency Injection: Connection is shared, do not disconnect here.
         Ok((
             acc_block_hash,
