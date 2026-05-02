@@ -62,6 +62,7 @@ pub fn start_utxo_monitor(bot: Bot, node: Arc<KaspaRpcAdapter>, db: Arc<Postgres
                 let sem = semaphore.clone();
                 let service = utxo_service.clone();
                 let bot_clone = bot.clone();
+                let db_clone = db.clone();
 
                 join_set.spawn(async move {
                     let _permit = match sem.acquire_owned().await {
@@ -92,7 +93,36 @@ pub fn start_utxo_monitor(bot: Bot, node: Arc<KaspaRpcAdapter>, db: Arc<Postgres
                                     chat_ids.len()
                                 );
 
-                                for chat_id in &chat_ids {
+                                let wallet_masked = crate::utils::format_short_wallet(&event.wallet_address);
+                                let txid_masked = crate::utils::format_short_wallet(&event.tx_id);
+                                let block_masked = event
+                                    .mined_block_hash
+                                    .as_ref()
+                                    .map(|h| crate::utils::format_short_wallet(h));
+
+                                let _ = db_clone
+                                    .record_bot_event(
+                                        "ALERT_DETECTED",
+                                        "info",
+                                        None,
+                                        None,
+                                        None,
+                                        None,
+                                        Some(&wallet_masked),
+                                        Some(&txid_masked),
+                                        block_masked.as_deref(),
+                                        Some("detected"),
+                                        None,
+                                        None,
+                                        &format!(
+                                            r#"{{"amount_kas":{},"recipients":{},"daa_score":{}}}"#,
+                                            event.amount_kas,
+                                            chat_ids.len(),
+                                            event.daa_score
+                                        ),
+                                    )
+                                    .await;
+for chat_id in &chat_ids {
                                     crate::utils::log_multiline(
                                         &format!("📤 [BOT OUT] Chat: {}", chat_id),
                                         &final_msg,
@@ -117,13 +147,58 @@ pub fn start_utxo_monitor(bot: Bot, node: Arc<KaspaRpcAdapter>, db: Arc<Postgres
                                                 crate::utils::format_short_wallet(&event.wallet_address),
                                                 chat_id
                                             );
-                                        }
+
+                                            let _ = db_clone
+                                                .record_bot_event(
+                                                    "ALERT_DELIVERED",
+                                                    "info",
+                                                    Some(*chat_id),
+                                                    None,
+                                                    None,
+                                                    None,
+                                                    Some(&wallet_masked),
+                                                    Some(&txid_masked),
+                                                    block_masked.as_deref(),
+                                                    Some("delivered"),
+                                                    None,
+                                                    None,
+                                                    &format!(
+                                                        r#"{{"amount_kas":{},"daa_score":{}}}"#,
+                                                        event.amount_kas,
+                                                        event.daa_score
+                                                    ),
+                                                )
+                                                .await;
+}
                                         Err(e) => {
                                             error!(
                                                 "[TELEGRAM ERROR] Failed to send wallet alert to chat {}: {}",
                                                 chat_id, e
                                             );
-                                        }
+
+                                            let err_text = e.to_string();
+                                            let _ = db_clone
+                                                .record_bot_event(
+                                                    "ALERT_DELIVERY_FAILED",
+                                                    "error",
+                                                    Some(*chat_id),
+                                                    None,
+                                                    None,
+                                                    None,
+                                                    Some(&wallet_masked),
+                                                    Some(&txid_masked),
+                                                    block_masked.as_deref(),
+                                                    Some("failed"),
+                                                    Some(&err_text),
+                                                    None,
+                                                    &format!(
+                                                        r#"{{"amount_kas":{},"daa_score":{}}}"#,
+                                                        event.amount_kas,
+                                                        event.daa_score
+                                                    ),
+                                                )
+                                                .await;
+}
                                     }
                                 }
                             }

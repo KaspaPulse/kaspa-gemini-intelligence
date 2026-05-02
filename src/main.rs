@@ -65,6 +65,24 @@ async fn main() -> anyhow::Result<()> {
 
     let db_repo = Arc::new(PostgresRepository::new(pool.clone()));
 
+    let _ = db_repo
+        .record_bot_event(
+            "SYSTEM_START",
+            "info",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some("ok"),
+            None,
+            None,
+            "{}",
+        )
+        .await;
+
     let network_id =
         kaspa_consensus_core::network::NetworkId::from_str("mainnet").unwrap_or_else(|_| {
             kaspa_consensus_core::network::NetworkId::from_str("testnet-12").unwrap()

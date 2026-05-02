@@ -285,6 +285,63 @@ impl PostgresRepository {
 
         Ok(())
     }
+    pub async fn record_bot_event(
+        &self,
+        event_type: &str,
+        severity: &str,
+        chat_id: Option<i64>,
+        user_name: Option<&str>,
+        command: Option<&str>,
+        callback_data: Option<&str>,
+        wallet_masked: Option<&str>,
+        txid_masked: Option<&str>,
+        block_hash_masked: Option<&str>,
+        status: Option<&str>,
+        error_message: Option<&str>,
+        duration_ms: Option<i64>,
+        metadata_json: &str,
+    ) -> Result<(), AppError> {
+        sqlx::query(
+            r#"
+            INSERT INTO bot_event_log (
+                event_type,
+                severity,
+                chat_id,
+                user_name,
+                command,
+                callback_data,
+                wallet_masked,
+                txid_masked,
+                block_hash_masked,
+                status,
+                error_message,
+                duration_ms,
+                metadata
+            )
+            VALUES (
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, COALESCE($13::jsonb, '{}'::jsonb)
+            )
+            "#,
+        )
+        .bind(event_type)
+        .bind(severity)
+        .bind(chat_id)
+        .bind(user_name)
+        .bind(command)
+        .bind(callback_data)
+        .bind(wallet_masked)
+        .bind(txid_masked)
+        .bind(block_hash_masked)
+        .bind(status)
+        .bind(error_message)
+        .bind(duration_ms)
+        .bind(metadata_json)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+        Ok(())
+    }
 
     pub async fn run_memory_cleaner(&self) -> Result<(), AppError> {
         // chat_history was removed with AI/RSS cleanup.
