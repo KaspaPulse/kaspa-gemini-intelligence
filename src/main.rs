@@ -516,26 +516,17 @@ async fn main() -> anyhow::Result<()> {
 
         let addr = SocketAddr::new(bind_ip, port);
         let url = format!("https://{}/webhook", domain).parse()?;
-        let _ = db_repo
-            .record_bot_event_typed(
-                BotEventType::WebhookStart,
-                EventSeverity::Info,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                Some("listening"),
-                None,
-                None,
-                &format!(
-                    r#"{{"domain":"{}","bind":"{}","port":{}}}"#,
-                    domain, bind_ip, port
-                ),
-            )
-            .await;
+        let webhook_metadata = format!(
+            r#"{{"domain":"{}","bind":"{}","port":{}}}"#,
+            domain, bind_ip, port
+        );
+
+        let mut webhook_start_event =
+            BotEventRecord::new(BotEventType::WebhookStart, EventSeverity::Info);
+        webhook_start_event.status = Some("listening");
+        webhook_start_event.metadata_json = &webhook_metadata;
+
+        let _ = db_repo.record_bot_event_record(webhook_start_event).await;
 
         tracing::info!(
             "[WEBHOOK] Listening on {}:{} for domain {}",
