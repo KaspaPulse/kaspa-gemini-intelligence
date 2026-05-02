@@ -40,6 +40,22 @@ pub async fn handle_restart(bot: Bot, msg: Message) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn format_uptime(total_seconds: u64) -> String {
+    let days = total_seconds / 86_400;
+    let hours = (total_seconds % 86_400) / 3_600;
+    let minutes = (total_seconds % 3_600) / 60;
+    let seconds = total_seconds % 60;
+
+    if days > 0 {
+        format!("{}d {}h {}m", days, hours, minutes)
+    } else if hours > 0 {
+        format!("{}h {}m {}s", hours, minutes, seconds)
+    } else if minutes > 0 {
+        format!("{}m {}s", minutes, seconds)
+    } else {
+        format!("{}s", seconds)
+    }
+}
 pub async fn handle_health(
     bot: Bot,
     msg: Message,
@@ -418,6 +434,70 @@ pub async fn handle_events(
     msg: Message,
     app_context: Arc<AppContext>,
 ) -> anyhow::Result<()> {
+    fn html_escape(value: &str) -> String {
+        let mut escaped = String::with_capacity(value.len());
+
+        for ch in value.chars() {
+            match ch {
+                '&' => escaped.push_str("&amp;"),
+                '<' => escaped.push_str("&lt;"),
+                '>' => escaped.push_str("&gt;"),
+                '"' => escaped.push_str("&quot;"),
+                '\'' => escaped.push_str("&#39;"),
+                _ => escaped.push(ch),
+            }
+        }
+
+        escaped
+    }
+
+    fn compact_text(value: &str, max_chars: usize) -> String {
+        let cleaned = value
+            .replace(['\r', '\n', '\t'], " ")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        if cleaned.chars().count() <= max_chars {
+            return cleaned;
+        }
+
+        let mut short = cleaned.chars().take(max_chars).collect::<String>();
+        short.push('…');
+        short
+    }
+
+    fn event_icon(event_type: &str) -> &'static str {
+        match event_type {
+            "SYSTEM_START" => "🚀",
+            "SYSTEM_SHUTDOWN" => "🛑",
+            "WEBHOOK_START" => "🌐",
+            "PANIC_EVENT" => "💥",
+            "ALERT_DETECTED" => "🔎",
+            "ALERT_DELIVERED" => "✅",
+            "ALERT_DELIVERY_FAILED" => "❌",
+            "ALERT_DUPLICATE_SKIPPED" => "♻️",
+            "DB_ERROR" => "🗄️",
+            "RPC_ERROR" => "🌐",
+            "RPC_RECOVERED" => "✅",
+            "TELEGRAM_ERROR" => "📨",
+            "EVENT_LOG_PURGED" => "🧹",
+            "ADMIN_ACTION" => "🛡️",
+            "RATE_LIMITED" => "⏳",
+            _ => "•",
+        }
+    }
+
+    fn severity_icon(severity: &str) -> &'static str {
+        if severity.eq_ignore_ascii_case("error") {
+            "🔴"
+        } else if severity.eq_ignore_ascii_case("warn") {
+            "🟡"
+        } else {
+            "🟢"
+        }
+    }
+
     let rows = sqlx::query(
         r#"
         SELECT
@@ -427,8 +507,7 @@ pub async fn handle_events(
             chat_id,
             wallet_masked,
             status,
-            error_message,
-            metadata::text AS metadata_text
+            error_message
         FROM bot_event_log
         ORDER BY created_at DESC
         LIMIT 10
@@ -443,7 +522,10 @@ pub async fn handle_events(
             crate::send_logged!(
                 bot,
                 msg,
-                format!("❌ <b>Events unavailable.</b>\n<code>{}</code>", e)
+                format!(
+                    "❌ <b>Events unavailable.</b>\n<code>{}</code>",
+                    html_escape(&e.to_string())
+                )
             );
             return Ok(());
         }
@@ -459,10 +541,10 @@ pub async fn handle_events(
     }
 
     let mut text = String::from(
-        "📜 <b>Recent Bot Events</b>\n━━━━━━━━━━━━━━━━━━\nShowing latest <code>10</code> events\n",
+        "📜 <b>Recent Bot Events</b>\n━━━━━━━━━━━━━━━━━━\n<code>Latest 10 compact events</code>\n",
     );
 
-    for row in rows {
+    for (index, row) in rows.iter().enumerate() {
         let created_at: chrono::DateTime<chrono::Utc> = row.try_get("created_at")?;
         let event_type: String = row.try_get("event_type")?;
         let severity: String = row.try_get("severity")?;
@@ -470,98 +552,59 @@ pub async fn handle_events(
         let wallet_masked: Option<String> = row.try_get("wallet_masked")?;
         let status: Option<String> = row.try_get("status")?;
         let error_message: Option<String> = row.try_get("error_message")?;
-        let metadata_text: Option<String> = row.try_get("metadata_text")?;
 
-        let icon = match event_type.as_str() {
-            "SYSTEM_START" => "🚀",
-            "SYSTEM_SHUTDOWN" => "🛑",
-            "ALERT_DETECTED" => "🔎",
-            "ALERT_DELIVERED" => "✅",
-            "ALERT_DELIVERY_FAILED" => "❌",
-            "DB_ERROR" => "🗄️",
-            "RPC_ERROR" => "🌐",
-            "TELEGRAM_ERROR" => "📨",
-            _ => "•",
-        };
-
-        let severity_icon = if severity.eq_ignore_ascii_case("error") {
-            "🔴"
-        } else if severity.eq_ignore_ascii_case("warn") {
-            "🟡"
-        } else {
-            "🟢"
-        };
+        let status_text = status
+            .as_deref()
+            .map(|value| compact_text(value, 28))
+            .unwrap_or_else(|| "-".to_string());
 
         text.push_str(&format!(
-            "\n{} {} <b>{}</b>\n",
-            icon, severity_icon, event_type
+            "\n<code>{:02}</code> {} {} <b>{}</b>\n",
+            index + 1,
+            severity_icon(&severity),
+            event_icon(&event_type),
+            html_escape(&event_type)
         ));
 
         text.push_str(&format!(
-            "⏱️ <code>{}</code>\n",
-            created_at.format("%Y-%m-%d %H:%M:%S UTC")
+            "⏱ <code>{}</code> | <code>{}</code>\n",
+            created_at.format("%Y-%m-%d %H:%M:%S UTC"),
+            html_escape(&status_text)
         ));
 
-        if let Some(status) = status {
-            text.push_str(&format!("Status: <code>{}</code>\n", status));
-        }
+        let mut details = Vec::new();
 
         if let Some(chat_id) = chat_id {
-            text.push_str(&format!("Chat: <code>{}</code>\n", chat_id));
+            details.push(format!("Chat: <code>{}</code>", chat_id));
         }
 
         if let Some(wallet) = wallet_masked {
-            if !wallet.trim().is_empty() {
-                text.push_str(&format!("Wallet: <code>{}</code>\n", wallet));
-            }
+            details.push(format!(
+                "Wallet: <code>{}</code>",
+                html_escape(&compact_text(&wallet, 32))
+            ));
+        }
+
+        if !details.is_empty() {
+            text.push_str(&details.join(" | "));
+            text.push('\n');
         }
 
         if let Some(error) = error_message {
-            if !error.trim().is_empty() {
-                let short_error = if error.chars().count() > 120 {
-                    format!("{}...", error.chars().take(120).collect::<String>())
-                } else {
-                    error
-                };
-                text.push_str(&format!("Error: <code>{}</code>\n", short_error));
-            }
-        }
-
-        if event_type == "ALERT_DETECTED" {
-            if let Some(metadata) = metadata_text {
-                if let Ok(value) = serde_json::from_str::<serde_json::Value>(&metadata) {
-                    if let Some(recipients) = value.get("recipients").and_then(|v| v.as_i64()) {
-                        text.push_str(&format!("Recipients: <code>{}</code>\n", recipients));
-                    }
-                    if let Some(amount) = value.get("amount_kas").and_then(|v| v.as_f64()) {
-                        text.push_str(&format!("Amount: <code>{:.4} KAS</code>\n", amount));
-                    }
-                }
+            let error = compact_text(&error, 90);
+            if !error.is_empty() {
+                text.push_str(&format!("⚠️ <code>{}</code>\n", html_escape(&error)));
             }
         }
     }
 
-    if text.chars().count() > 3400 {
-        text = text.chars().take(3400).collect::<String>();
-        text.push_str("\n\n… truncated");
+    if text.chars().count() > 3900 {
+        text = text.chars().take(3900).collect::<String>();
+        text.push_str("\n… truncated");
     }
 
     crate::send_logged!(bot, msg, text);
     Ok(())
-}
-
-fn format_uptime(seconds: u64) -> String {
-    let days = seconds / 86_400;
-    let hours = (seconds % 86_400) / 3_600;
-    let minutes = (seconds % 3_600) / 60;
-
-    if days > 0 {
-        format!("{}d {}h {}m", days, hours, minutes)
-    } else if hours > 0 {
-        format!("{}h {}m", hours, minutes)
-    } else {
-        format!("{}m", minutes)
-    }
 }
 
 pub async fn handle_errors(
