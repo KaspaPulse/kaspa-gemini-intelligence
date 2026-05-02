@@ -100,6 +100,7 @@ pub enum Command {
 
 pub fn public_bot_commands() -> Vec<teloxide::types::BotCommand> {
     vec![
+        // Public commands
         teloxide::types::BotCommand::new("start", "Open the main menu"),
         teloxide::types::BotCommand::new("help", "Show the guide and features"),
         teloxide::types::BotCommand::new("add", "Add a wallet: /add kaspa:..."),
@@ -111,8 +112,27 @@ pub fn public_bot_commands() -> Vec<teloxide::types::BotCommand> {
         teloxide::types::BotCommand::new("network", "Show node and network health"),
         teloxide::types::BotCommand::new("dag", "Show BlockDAG overview"),
         teloxide::types::BotCommand::new("price", "Check KAS price and market data"),
+        teloxide::types::BotCommand::new("market", "Check market cap details"),
         teloxide::types::BotCommand::new("supply", "Check circulating and max supply"),
         teloxide::types::BotCommand::new("fees", "Check real-time network fees"),
         teloxide::types::BotCommand::new("donate", "Support development"),
+        teloxide::types::BotCommand::new("forget_wallets", "Delete all tracked wallets"),
+        teloxide::types::BotCommand::new("forget_all", "Erase all my data"),
+        teloxide::types::BotCommand::new("hidemenu", "Hide mobile keyboard"),
+        // Admin commands are visible but protected by ADMIN_ID in handlers.
+        teloxide::types::BotCommand::new("health", "Admin: bot health report"),
+        teloxide::types::BotCommand::new("stats", "Admin: system stats"),
+        teloxide::types::BotCommand::new("sys", "Admin: hardware diagnostics"),
+        teloxide::types::BotCommand::new("settings", "Admin: settings panel"),
+        teloxide::types::BotCommand::new("pause", "Admin: pause monitoring"),
+        teloxide::types::BotCommand::new("resume", "Admin: resume monitoring"),
+        teloxide::types::BotCommand::new("restart", "Admin: restart notice"),
+        teloxide::types::BotCommand::new("db_diag", "Admin: database diagnostics"),
+        teloxide::types::BotCommand::new("events", "Admin: last bot events"),
+        teloxide::types::BotCommand::new("errors", "Admin: last error events"),
+        teloxide::types::BotCommand::new("delivery", "Admin: delivery summary"),
+        teloxide::types::BotCommand::new("subscribers", "Admin: wallet subscribers"),
+        teloxide::types::BotCommand::new("wallet_events", "Admin: wallet event history"),
+        teloxide::types::BotCommand::new("cleanup_events", "Admin: cleanup old events"),
     ]
 }

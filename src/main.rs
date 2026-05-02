@@ -19,6 +19,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use teloxide::dptree;
 use teloxide::prelude::*;
+use teloxide::types::BotCommandScope;
 use tracing::info;
 use tracing_subscriber::{fmt, layer::SubscriberExt, registry, util::SubscriberInitExt, EnvFilter};
 
@@ -138,6 +139,21 @@ async fn main() -> anyhow::Result<()> {
     let bot = Bot::new(bot_token);
 
     let _ = bot.delete_my_commands().await;
+
+    // Telegram keeps command menus per scope. Clear common scopes first to remove stale legacy commands.
+    let _ = bot.delete_my_commands().await;
+    let _ = bot
+        .delete_my_commands()
+        .scope(BotCommandScope::AllPrivateChats)
+        .await;
+    let _ = bot
+        .delete_my_commands()
+        .scope(BotCommandScope::AllGroupChats)
+        .await;
+    let _ = bot
+        .delete_my_commands()
+        .scope(BotCommandScope::AllChatAdministrators)
+        .await;
 
     let _ = bot
         .set_my_commands(crate::presentation::telegram::commands::public_bot_commands())
