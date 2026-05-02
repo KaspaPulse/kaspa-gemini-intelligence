@@ -110,8 +110,8 @@ pub fn spawn_memory_cleaner(ctx: AppContext, token: CancellationToken) {
                 _ = tokio::time::sleep(Duration::from_secs(3600)) => {
                     ctx.utxo_state.retain(|wallet, _| ctx.state.contains_key(wallet));
                     ctx.rate_limiter.retain_recent();
-                    let db_res = sqlx::query("DELETE FROM chat_history WHERE timestamp < CURRENT_TIMESTAMP - INTERVAL '30 days'").execute(&ctx.pool).await;
-                    if let Err(e) = db_res { tracing::error!("[DATABASE ERROR] Failed to purge old chats: {}", e); }
+                    // chat_history was removed with AI/RSS cleanup.
+                    // No database chat cleanup is required in the community build.
                     tracing::info!("[MEMORY CLEANER] Purged UTXO cache, inactive rate limits, and 30-day chat history.");
                 }
             }
