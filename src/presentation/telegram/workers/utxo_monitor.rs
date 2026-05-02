@@ -1,8 +1,9 @@
+use crate::domain::entities::TrackedWallet;
 use crate::domain::models::{BotEventType, EventSeverity};
 use crate::infrastructure::database::postgres_adapter::PostgresRepository;
 use crate::infrastructure::node::kaspa_adapter::KaspaRpcAdapter;
 use chrono::{TimeZone, Utc};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use teloxide::prelude::*;
@@ -13,6 +14,24 @@ use tracing::{error, info};
 
 use crate::network::analyze_dag::AnalyzeDagUseCase;
 use crate::wallet::wallet_use_cases::UtxoMonitorService;
+
+pub(crate) fn group_wallet_subscribers(wallets: Vec<TrackedWallet>) -> HashMap<String, Vec<i64>> {
+    let mut recipients_by_wallet: HashMap<String, Vec<i64>> = HashMap::new();
+
+    for wallet in wallets {
+        recipients_by_wallet
+            .entry(wallet.address)
+            .or_default()
+            .push(wallet.chat_id);
+    }
+
+    for chat_ids in recipients_by_wallet.values_mut() {
+        chat_ids.sort_unstable();
+        chat_ids.dedup();
+    }
+
+    recipients_by_wallet
+}
 
 pub fn start_utxo_monitor(
     bot: Bot,
@@ -53,21 +72,7 @@ pub fn start_utxo_monitor(
             if wallets.is_empty() {
                 continue;
             }
-
-            let mut recipients_by_wallet: HashMap<String, Vec<i64>> = HashMap::new();
-
-            for wallet in wallets {
-                recipients_by_wallet
-                    .entry(wallet.address)
-                    .or_default()
-                    .push(wallet.chat_id);
-            }
-
-            for chat_ids in recipients_by_wallet.values_mut() {
-                let mut seen = HashSet::new();
-                chat_ids.retain(|chat_id| seen.insert(*chat_id));
-                chat_ids.sort_unstable();
-            }
+            let recipients_by_wallet = group_wallet_subscribers(wallets);
 
             let mut join_set = tokio::task::JoinSet::new();
 
@@ -226,4 +231,54 @@ for chat_id in &chat_ids {
             while join_set.join_next().await.is_some() {}
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn wallet(address: &str, chat_id: i64) -> TrackedWallet {
+        TrackedWallet {
+            address: address.to_string(),
+            chat_id,
+        }
+    }
+
+    #[test]
+    fn groups_same_wallet_for_multiple_chats() {
+        let grouped = group_wallet_subscribers(vec![
+            wallet("kaspa:wallet_a", 484901117),
+            wallet("kaspa:wallet_a", 1307244272),
+            wallet("kaspa:wallet_a", 1792588801),
+        ]);
+
+        let subscribers = grouped.get("kaspa:wallet_a").expect("wallet_a exists");
+
+        assert_eq!(subscribers, &vec![484901117, 1307244272, 1792588801]);
+    }
+
+    #[test]
+    fn deduplicates_duplicate_chat_ids_for_same_wallet() {
+        let grouped = group_wallet_subscribers(vec![
+            wallet("kaspa:wallet_a", 484901117),
+            wallet("kaspa:wallet_a", 484901117),
+            wallet("kaspa:wallet_a", 1307244272),
+        ]);
+
+        let subscribers = grouped.get("kaspa:wallet_a").expect("wallet_a exists");
+
+        assert_eq!(subscribers, &vec![484901117, 1307244272]);
+    }
+
+    #[test]
+    fn keeps_different_wallets_separate() {
+        let grouped = group_wallet_subscribers(vec![
+            wallet("kaspa:wallet_a", 1),
+            wallet("kaspa:wallet_b", 2),
+            wallet("kaspa:wallet_a", 3),
+        ]);
+
+        assert_eq!(grouped.get("kaspa:wallet_a"), Some(&vec![1, 3]));
+        assert_eq!(grouped.get("kaspa:wallet_b"), Some(&vec![2]));
+    }
 }
