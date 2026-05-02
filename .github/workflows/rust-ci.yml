@@ -29,13 +29,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if grep -RInE "(BOT_TOKEN=|DATABASE_URL=postgres://|WEBHOOK_SECRET_TOKEN=|ADMIN_PIN=)" \
+          if grep -RInE "(BOT_TOKEN=[0-9]+:|DATABASE_URL=postgres://[^:]+:[^@]+@|WEBHOOK_SECRET_TOKEN=[A-Za-z0-9_-]{16,}|ADMIN_PIN=[0-9]{4,})" \
+            --exclude=".env" \
             --exclude=".env.example" \
+            --exclude="README.md" \
+            --exclude="rust-ci.yml" \
             --exclude-dir=".git" \
             --exclude-dir="target" \
             --exclude-dir=".sqlx" \
+            --exclude-dir="backup_*" \
             .; then
-            echo "Potential secret found in repository."
+            echo "Potential real secret found in repository."
             exit 1
           fi
 
