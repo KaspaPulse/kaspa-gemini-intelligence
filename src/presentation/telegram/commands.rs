@@ -61,6 +61,8 @@ pub enum Command {
     Broadcast(String),
     #[command(description = "Admin: Tail last 25 lines of bot.log.")]
     Logs,
+    #[command(description = "Admin: Show recent bot event log.")]
+    Events,
     #[command(
         rename = "db_diag",
         description = "Admin: Database health diagnostics."

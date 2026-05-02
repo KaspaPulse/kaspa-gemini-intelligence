@@ -2,6 +2,7 @@ use crate::domain::models::AppContext;
 use crate::infrastructure::database::postgres_adapter::PostgresRepository;
 use chrono::Utc;
 use kaspa_rpc_core::api::rpc::RpcApi;
+use sqlx::Row;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use sysinfo::System;
@@ -418,6 +419,141 @@ fn current_process_uptime_seconds() -> Option<u64> {
 
     now.checked_sub(process_start)
 }
+
+pub async fn handle_events(
+    bot: Bot,
+    msg: Message,
+    app_context: Arc<AppContext>,
+) -> anyhow::Result<()> {
+    let rows = sqlx::query(
+        r#"
+        SELECT
+            created_at,
+            event_type,
+            severity,
+            chat_id,
+            wallet_masked,
+            status,
+            error_message,
+            metadata::text AS metadata_text
+        FROM bot_event_log
+        ORDER BY created_at DESC
+        LIMIT 20
+        "#,
+    )
+    .fetch_all(&app_context.pool)
+    .await;
+
+    let rows = match rows {
+        Ok(rows) => rows,
+        Err(e) => {
+            crate::send_logged!(
+                bot,
+                msg,
+                format!("❌ <b>Events unavailable.</b>\n<code>{}</code>", e)
+            );
+            return Ok(());
+        }
+    };
+
+    if rows.is_empty() {
+        crate::send_logged!(
+            bot,
+            msg,
+            "📜 <b>Recent Bot Events</b>\n━━━━━━━━━━━━━━━━━━\nNo events found."
+        );
+        return Ok(());
+    }
+
+    let mut text = String::from("📜 <b>Recent Bot Events</b>\n━━━━━━━━━━━━━━━━━━\n");
+
+    for row in rows {
+        let created_at: chrono::DateTime<chrono::Utc> = row.try_get("created_at")?;
+        let event_type: String = row.try_get("event_type")?;
+        let severity: String = row.try_get("severity")?;
+        let chat_id: Option<i64> = row.try_get("chat_id")?;
+        let wallet_masked: Option<String> = row.try_get("wallet_masked")?;
+        let status: Option<String> = row.try_get("status")?;
+        let error_message: Option<String> = row.try_get("error_message")?;
+        let metadata_text: Option<String> = row.try_get("metadata_text")?;
+
+        let icon = match event_type.as_str() {
+            "SYSTEM_START" => "🚀",
+            "ALERT_DETECTED" => "🔎",
+            "ALERT_DELIVERED" => "✅",
+            "ALERT_DELIVERY_FAILED" => "❌",
+            "DB_ERROR" => "🗄️",
+            "RPC_ERROR" => "🌐",
+            "TELEGRAM_ERROR" => "📨",
+            _ => "•",
+        };
+
+        let severity_icon = if severity.eq_ignore_ascii_case("error") {
+            "🔴"
+        } else if severity.eq_ignore_ascii_case("warn") {
+            "🟡"
+        } else {
+            "🟢"
+        };
+
+        text.push_str(&format!(
+            "\n{} {} <b>{}</b>\n",
+            icon, severity_icon, event_type
+        ));
+
+        text.push_str(&format!(
+            "⏱️ <code>{}</code>\n",
+            created_at.format("%Y-%m-%d %H:%M:%S UTC")
+        ));
+
+        if let Some(status) = status {
+            text.push_str(&format!("Status: <code>{}</code>\n", status));
+        }
+
+        if let Some(chat_id) = chat_id {
+            text.push_str(&format!("Chat: <code>{}</code>\n", chat_id));
+        }
+
+        if let Some(wallet) = wallet_masked {
+            if !wallet.trim().is_empty() {
+                text.push_str(&format!("Wallet: <code>{}</code>\n", wallet));
+            }
+        }
+
+        if let Some(error) = error_message {
+            if !error.trim().is_empty() {
+                let short_error = if error.chars().count() > 120 {
+                    format!("{}...", error.chars().take(120).collect::<String>())
+                } else {
+                    error
+                };
+                text.push_str(&format!("Error: <code>{}</code>\n", short_error));
+            }
+        }
+
+        if event_type == "ALERT_DETECTED" {
+            if let Some(metadata) = metadata_text {
+                if let Ok(value) = serde_json::from_str::<serde_json::Value>(&metadata) {
+                    if let Some(recipients) = value.get("recipients").and_then(|v| v.as_i64()) {
+                        text.push_str(&format!("Recipients: <code>{}</code>\n", recipients));
+                    }
+                    if let Some(amount) = value.get("amount_kas").and_then(|v| v.as_f64()) {
+                        text.push_str(&format!("Amount: <code>{:.4} KAS</code>\n", amount));
+                    }
+                }
+            }
+        }
+    }
+
+    if text.chars().count() > 3900 {
+        text = text.chars().take(3900).collect::<String>();
+        text.push_str("\n\n… truncated");
+    }
+
+    crate::send_logged!(bot, msg, text);
+    Ok(())
+}
+
 fn format_uptime(seconds: u64) -> String {
     let days = seconds / 86_400;
     let hours = (seconds % 86_400) / 3_600;
