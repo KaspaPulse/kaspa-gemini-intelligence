@@ -230,3 +230,43 @@ fn unconfirmed_rewards_must_not_be_marked_seen_before_processing() {
         "confirmed or already-seen UTXOs must still be persisted"
     );
 }
+
+#[test]
+fn help_guide_must_include_current_commands_buttons_and_safety_policy() {
+    let source = read_source("src/presentation/telegram/handlers/mod.rs");
+
+    assert!(
+        source.contains("Reward Confirmation Policy"),
+        "/help must explain reward confirmation policy"
+    );
+
+    assert!(
+        source.contains("10 DAA confirmations"),
+        "/help must mention the default confirmation threshold"
+    );
+
+    assert!(
+        source.contains("Wallet Buttons"),
+        "/help must include wallet button guide"
+    );
+
+    assert!(
+        source.contains("Owner Buttons"),
+        "/help must include owner/admin button guide"
+    );
+
+    assert!(
+        source.contains("/events") && source.contains("/errors") && source.contains("/delivery"),
+        "/help must include observability commands"
+    );
+
+    assert!(
+        source.contains("DAG analysis does not stop when a candidate block is unavailable"),
+        "/help must explain the DAG safety behavior"
+    );
+
+    assert!(
+        source.contains("help_text_2"),
+        "/help should be split into multiple Telegram-safe messages"
+    );
+}

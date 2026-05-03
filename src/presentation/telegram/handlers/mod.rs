@@ -84,39 +84,132 @@ pub fn handle_command(
             }
 
             Command::Help => {
-                let help_text = "📚 <b>Kaspa Pulse Help</b>\n\
-━━━━━━━━━━━━━━━━━━\n\
-<b>Community Mining Alerts</b>\n\n\
-🚀 <b>Quick Start</b>\n\
-• Press <b>Wallets</b> from /start to manage your wallets.\n\
-• Press <b>Add Wallet</b> or paste any <code>kaspa:...</code> address in chat.\n\
-• Use <b>Remove Wallet</b> to choose a wallet from buttons.\n\
-• <b>Clear Wallets</b> and <b>Delete My Data</b> require confirmation before deletion.\n\n\
-👛 <b>Wallet Commands</b>\n\
-• /add <code>kaspa:...</code> - Track a wallet.\n\
-• /remove <code>kaspa:...</code> - Stop tracking a wallet.\n\
-• /list - Show Wallet 1, Wallet 2, and all tracked addresses.\n\
-• /balance - Show total balance plus per-wallet balance, value, UTXOs, and status.\n\n\
-⛏️ <b>Mining Commands</b>\n\
-• /blocks - Show total mined blocks plus per-wallet block stats.\n\
-• /miner - Estimate solo-mining hashrate for your tracked wallets.\n\n\
-🌐 <b>Network & Market</b>\n\
-• /network - Show node status, peers, sync status, Live BPS, and Expected BPS.\n\
-• /dag - Show BlockDAG overview, pruning point, readable pruning time, and BPS.\n\
-• /price - Show KAS price, market cap, hashrate, peers, pruning point, and BPS.\n\
-• /supply - Show circulating supply, max supply, and minted percentage.\n\
-• /fees - Show current network fee estimate.\n\n\
-❤️ <b>Support</b>\n\
-• /donate - Show the donation address.\n\n\
-🛡️ <b>Owner Commands</b>\n\
-• /health - Production health report.\n\
-• /settings - Settings panel.\n\
-• /stats, /sys, /logs, /db_diag - Diagnostics.\n\
-• /pause, /resume, /restart - Service control.\n\n\
-ℹ️ <i>Tip: Most actions are easier from the /start buttons.</i>";
-                crate::send_logged!(bot, msg, help_text);
-            }
+                let help_text = r#"📚 <b>Kaspa Pulse Help</b>
+━━━━━━━━━━━━━━━━━━
+<b>Community Mining Alerts</b>
 
+Kaspa Pulse monitors Kaspa wallets, detects native node mining rewards, identifies the real mined block, and sends Telegram alerts after reward confirmation.
+
+🚀 <b>Quick Start</b>
+• Press <b>Wallets</b> from /start to manage your wallets.
+• Press <b>Add Wallet</b> or paste any <code>kaspa:...</code> address in chat.
+• Use <b>Remove Wallet</b> to choose a wallet from buttons.
+• <b>Clear Wallets</b> and <b>Delete My Data</b> require confirmation before deletion.
+• Mining rewards are not sent immediately; the bot waits for reward confirmations before DAG analysis and alert delivery.
+
+✅ <b>Reward Confirmation Policy</b>
+• Rewards are first detected from wallet UTXOs.
+• The bot waits until the reward reaches the configured confirmation threshold.
+• Default confirmation threshold: <b>10 DAA confirmations</b>.
+• After confirmation, the bot analyzes the DAG to find:
+  - Accepting Block
+  - Real Mined Block
+  - Worker name
+  - Nonce / block details
+• If some candidate DAG blocks are unavailable, the bot skips them safely and continues searching.
+
+👛 <b>Wallet Commands</b>
+• /add <code>kaspa:...</code> - Track a wallet.
+• /remove <code>kaspa:...</code> - Stop tracking a wallet.
+• /list - Show Wallet 1, Wallet 2, and all tracked addresses.
+• /balance - Show total balance plus per-wallet balance, value, UTXOs, and status.
+
+👛 <b>Wallet Buttons</b>
+• <b>Wallets</b> - Open wallet management panel.
+• <b>Add Wallet</b> - Add a new wallet.
+• <b>Remove Wallet</b> - Remove one wallet by button.
+• <b>Clear Wallets</b> - Remove all tracked wallets after confirmation.
+• <b>Delete My Data</b> - Delete all user data after confirmation.
+• <b>Back</b> - Return to main menu.
+
+⛏️ <b>Mining Commands</b>
+• /blocks - Show total mined blocks plus per-wallet block stats.
+• /miner - Estimate solo-mining hashrate for your tracked wallets.
+
+⛏️ <b>Mining Alert Details</b>
+Each confirmed mining alert may include:
+• Reward time
+• Wallet
+• Reward amount
+• Live balance
+• TXID
+• Real mined block
+• Accepting block
+• Worker name
+• DAA score"#;
+
+                let help_text_2 = r#"🌐 <b>Network &amp; Market</b>
+• /network - Show node status, peers, sync status, Live BPS, and Expected BPS.
+• /dag - Show BlockDAG overview, pruning point, readable pruning time, and BPS.
+• /price - Show KAS price, market cap, hashrate, peers, pruning point, and BPS.
+• /supply - Show circulating supply, max supply, and minted percentage.
+• /fees - Show current network fee estimate.
+
+🌐 <b>Network Buttons</b>
+• <b>Network</b> - Node and sync status.
+• <b>DAG</b> - BlockDAG overview.
+• <b>Price</b> - KAS price and market info.
+• <b>Supply</b> - Supply and minted percentage.
+• <b>Fees</b> - Current network fee estimate.
+
+❤️ <b>Support</b>
+• /donate - Show the donation address.
+
+🛡️ <b>Owner Commands</b>
+• /health - Production health report.
+• /settings - Settings panel.
+• /stats - System counters and bot statistics.
+• /sys - System diagnostics such as RAM, swap, and server time.
+• /logs - Recent service logs.
+• /db_diag - Database diagnostics.
+• /events - Latest 10 compact bot events.
+• /errors - Recent error events.
+• /delivery - Alert delivery summary.
+• /subscribers - Subscriber summary.
+• /wallet_events - Wallet event activity.
+• /cleanup_events - Clean old bot events.
+• /pause - Pause live monitoring.
+• /resume - Resume live monitoring.
+• /restart - Restart the service.
+
+🛡️ <b>Owner Buttons</b>
+• <b>Health</b> - Production health report.
+• <b>Settings</b> - Open settings panel.
+• <b>Stats</b> - System statistics.
+• <b>System</b> - Server diagnostics.
+• <b>Logs</b> - Recent logs.
+• <b>DB Diagnostics</b> - Database checks.
+• <b>Events</b> - Latest compact event log.
+• <b>Errors</b> - Recent errors.
+• <b>Delivery</b> - Alert delivery summary.
+• <b>Subscribers</b> - Subscriber information.
+• <b>Wallet Events</b> - Wallet-related activity.
+• <b>Cleanup Events</b> - Purge old event logs.
+• <b>Pause</b> - Pause monitoring.
+• <b>Resume</b> - Resume monitoring.
+• <b>Restart</b> - Restart service.
+
+⚙️ <b>System Behavior</b>
+• Telegram commands are synced automatically at startup.
+• Old deleted Telegram commands are cleared before syncing new commands.
+• Important events are recorded in <code>bot_event_log</code>.
+• Startup, webhook start, shutdown, delivery, duplicate alerts, DB errors, RPC errors, and panic recovery are logged.
+• Panic markers are recovered after restart and shown in /errors.
+• Memory cleaner removes old runtime state, old dedup records, and old seen UTXOs.
+
+🧪 <b>Production Safety</b>
+• DAG analysis does not stop when a candidate block is unavailable.
+• Missing candidate DAG blocks are skipped safely.
+• Critical RPC/DB failures are logged.
+• Duplicate alerts are prevented using alert deduplication.
+• Regression tests protect the alert flow from breaking changes.
+
+ℹ️ <i>Tip: Most actions are easier from the /start buttons.</i>
+For mining alerts, wait for the configured confirmations before expecting Telegram delivery."#;
+
+                crate::send_logged!(bot, msg, help_text);
+                crate::send_logged!(bot, msg, help_text_2);
+            }
             Command::Start => {
                 let markup = if is_admin {
                     crate::presentation::telegram::menus::TelegramMenus::admin_menu_markup()
