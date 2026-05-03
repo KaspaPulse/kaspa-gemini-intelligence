@@ -508,9 +508,12 @@ impl UtxoMonitorService {
                     };
 
                 let mined_block_hash = actual_mined_blocks.first().cloned();
-                let alert_key = mined_block_hash
-                    .clone()
-                    .unwrap_or_else(|| utxo.transaction_id.clone());
+                let alert_identity = crate::wallet::alert_dedup::build_alert_identity(
+                    &wallet,
+                    mined_block_hash.as_deref(),
+                    &utxo.transaction_id,
+                );
+                let alert_key = alert_identity.alert_key.clone();
 
                 let txid_masked = crate::utils::format_short_wallet(&utxo.transaction_id);
                 let block_masked = mined_block_hash

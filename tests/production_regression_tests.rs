@@ -391,3 +391,31 @@ fn reward_confirmation_behavior_tests_must_exist() {
         "behavior tests must verify saturating DAA confirmation behavior"
     );
 }
+
+#[test]
+fn alert_dedup_behavior_tests_must_exist() {
+    let source = read_source("tests/alert_dedup_behavior_tests.rs");
+    let wallet_source = read_source("src/wallet/wallet_use_cases.rs");
+
+    assert!(
+        source.contains("alert_key_prefers_mined_block_hash_when_available"),
+        "behavior tests must verify mined block hash is preferred"
+    );
+
+    assert!(
+        source.contains(
+            "different_wallet_and_same_alert_key_is_not_duplicate_for_wallet_scoped_dedup"
+        ),
+        "behavior tests must verify dedup is wallet scoped"
+    );
+
+    assert!(
+        wallet_source.contains("build_alert_identity"),
+        "wallet flow must use alert identity dedup helper"
+    );
+
+    assert!(
+        wallet_source.contains("try_claim_alert_key"),
+        "wallet flow must claim alert key before delivery"
+    );
+}
