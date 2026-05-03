@@ -183,13 +183,25 @@ fn reward_confirmation_gate_must_run_before_dag_analysis() {
     );
 
     assert!(
-        source.contains("virtual_daa_score.saturating_sub(utxo.block_daa_score)"),
-        "confirmations must be calculated from virtual DAA minus reward DAA"
+        source.contains("reward_confirmation_status"),
+        "wallet flow must use the reward confirmation behavior helper"
+    );
+
+    let behavior_source = read_source("tests/reward_confirmation_behavior_tests.rs");
+
+    assert!(
+        behavior_source.contains("virtual_daa_behind_reward_daa_saturates_to_zero"),
+        "behavior tests must verify saturating DAA confirmation behavior"
     );
 
     assert!(
-        source.contains("reward_confirmations >= min_reward_confirmations"),
-        "DAG analysis must wait until the reward reaches the configured confirmations"
+        source.contains("reward_is_confirmed = reward_status.is_confirmed"),
+        "wallet flow must use reward_status.is_confirmed before DAG analysis"
+    );
+
+    assert!(
+        behavior_source.contains("coinbase_reward_at_required_confirmations_is_confirmed"),
+        "behavior tests must verify rewards become confirmed at the configured threshold"
     );
 
     let before_join_set = extract_between(
