@@ -195,8 +195,9 @@ fn reward_confirmation_gate_must_run_before_dag_analysis() {
     );
 
     assert!(
-        source.contains("reward_is_confirmed = reward_status.is_confirmed"),
-        "wallet flow must use reward_status.is_confirmed before DAG analysis"
+        source.contains("reward_processing_decision")
+            && source.contains("RewardProcessingDecision::ProcessNow"),
+        "wallet flow must use reward_processing_decision before DAG analysis"
     );
 
     assert!(

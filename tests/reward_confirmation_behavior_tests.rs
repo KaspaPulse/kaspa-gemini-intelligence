@@ -50,3 +50,42 @@ fn required_confirmations_are_clamped_to_safe_range() {
     assert_eq!(huge_required.confirmations, 10_001);
     assert!(huge_required.is_confirmed);
 }
+
+use kaspa_pulse::wallet::reward_confirmation::{
+    reward_processing_decision, RewardProcessingDecision,
+};
+
+#[test]
+fn unseen_unconfirmed_coinbase_reward_is_persisted_pending() {
+    let decision = reward_processing_decision(false, false, true, 100, 109, 10);
+
+    assert_eq!(decision, RewardProcessingDecision::PersistPending);
+}
+
+#[test]
+fn unseen_confirmed_coinbase_reward_is_processed_now() {
+    let decision = reward_processing_decision(false, false, true, 100, 110, 10);
+
+    assert_eq!(decision, RewardProcessingDecision::ProcessNow);
+}
+
+#[test]
+fn seen_reward_is_not_reprocessed() {
+    let decision = reward_processing_decision(false, true, true, 100, 500, 10);
+
+    assert_eq!(decision, RewardProcessingDecision::AlreadySeen);
+}
+
+#[test]
+fn first_run_snapshots_utxos_without_processing_alerts() {
+    let decision = reward_processing_decision(true, false, true, 100, 500, 10);
+
+    assert_eq!(decision, RewardProcessingDecision::FirstRunSnapshot);
+}
+
+#[test]
+fn normal_non_coinbase_new_utxo_can_process_now() {
+    let decision = reward_processing_decision(false, false, false, 100, 100, 10);
+
+    assert_eq!(decision, RewardProcessingDecision::ProcessNow);
+}

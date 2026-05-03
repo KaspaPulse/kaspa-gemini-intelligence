@@ -18,3 +18,41 @@ pub fn reward_confirmation_status(
         is_confirmed: !is_coinbase || confirmations >= required_confirmations,
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RewardProcessingDecision {
+    PersistPending,
+    ProcessNow,
+    AlreadySeen,
+    FirstRunSnapshot,
+}
+
+pub fn reward_processing_decision(
+    is_first_run: bool,
+    seen_before: bool,
+    is_coinbase: bool,
+    reward_daa_score: u64,
+    virtual_daa_score: u64,
+    required_confirmations: u64,
+) -> RewardProcessingDecision {
+    if is_first_run {
+        return RewardProcessingDecision::FirstRunSnapshot;
+    }
+
+    if seen_before {
+        return RewardProcessingDecision::AlreadySeen;
+    }
+
+    let status = reward_confirmation_status(
+        is_coinbase,
+        reward_daa_score,
+        virtual_daa_score,
+        required_confirmations,
+    );
+
+    if status.is_confirmed {
+        RewardProcessingDecision::ProcessNow
+    } else {
+        RewardProcessingDecision::PersistPending
+    }
+}

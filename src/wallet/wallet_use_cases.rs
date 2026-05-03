@@ -305,7 +305,22 @@ impl UtxoMonitorService {
                 min_reward_confirmations,
             );
             let reward_confirmations = reward_status.confirmations;
-            let reward_is_confirmed = reward_status.is_confirmed;
+
+            let reward_decision = crate::wallet::reward_confirmation::reward_processing_decision(
+                is_first_run,
+                seen_before,
+                utxo.is_coinbase,
+                utxo.block_daa_score,
+                virtual_daa_score,
+                min_reward_confirmations,
+            );
+
+            let reward_is_confirmed = matches!(
+                reward_decision,
+                crate::wallet::reward_confirmation::RewardProcessingDecision::ProcessNow
+                    | crate::wallet::reward_confirmation::RewardProcessingDecision::AlreadySeen
+                    | crate::wallet::reward_confirmation::RewardProcessingDecision::FirstRunSnapshot
+            );
 
             if !is_first_run && !seen_before {
                 if !reward_is_confirmed {
