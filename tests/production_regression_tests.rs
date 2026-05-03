@@ -358,3 +358,23 @@ fn pending_rewards_table_must_be_created_at_startup() {
         "pending_rewards repository module must be registered"
     );
 }
+
+#[test]
+fn reward_confirmation_behavior_tests_must_exist() {
+    let source = read_source("tests/reward_confirmation_behavior_tests.rs");
+
+    assert!(
+        source.contains("coinbase_reward_below_required_confirmations_waits"),
+        "behavior tests must verify unconfirmed coinbase rewards wait"
+    );
+
+    assert!(
+        source.contains("coinbase_reward_at_required_confirmations_is_confirmed"),
+        "behavior tests must verify rewards become confirmed at threshold"
+    );
+
+    assert!(
+        source.contains("virtual_daa_behind_reward_daa_saturates_to_zero"),
+        "behavior tests must verify saturating DAA confirmation behavior"
+    );
+}

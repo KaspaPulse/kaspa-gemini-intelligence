@@ -298,9 +298,14 @@ impl UtxoMonitorService {
             let seen_before =
                 known_mem.contains(&utxo.outpoint) || known_db.contains(&utxo.outpoint);
 
-            let reward_confirmations = virtual_daa_score.saturating_sub(utxo.block_daa_score);
-            let reward_is_confirmed =
-                !utxo.is_coinbase || reward_confirmations >= min_reward_confirmations;
+            let reward_status = crate::wallet::reward_confirmation::reward_confirmation_status(
+                utxo.is_coinbase,
+                utxo.block_daa_score,
+                virtual_daa_score,
+                min_reward_confirmations,
+            );
+            let reward_confirmations = reward_status.confirmations;
+            let reward_is_confirmed = reward_status.is_confirmed;
 
             if !is_first_run && !seen_before {
                 if !reward_is_confirmed {
