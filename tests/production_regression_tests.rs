@@ -419,3 +419,36 @@ fn alert_dedup_behavior_tests_must_exist() {
         "wallet flow must claim alert key before delivery"
     );
 }
+
+#[test]
+fn alert_delivery_behavior_tests_must_exist() {
+    let behavior_source = read_source("tests/alert_delivery_behavior_tests.rs");
+    let monitor_source = read_source("src/presentation/telegram/workers/utxo_monitor.rs");
+
+    assert!(
+        behavior_source.contains("successful_send_records_delivered"),
+        "behavior tests must verify successful sends become delivered"
+    );
+
+    assert!(
+        behavior_source.contains("failed_send_records_failed"),
+        "behavior tests must verify failed sends become delivery failures"
+    );
+
+    assert!(
+        monitor_source.contains("BotEventType::AlertDelivered")
+            && monitor_source.contains("AlertDeliveryAttempt::SendSucceeded"),
+        "UTXO monitor must record delivered alerts"
+    );
+
+    assert!(
+        monitor_source.contains("BotEventType::AlertDeliveryFailed")
+            && monitor_source.contains("AlertDeliveryAttempt::SendFailed"),
+        "UTXO monitor must record failed deliveries"
+    );
+
+    assert!(
+        monitor_source.contains(".send_message("),
+        "UTXO monitor must attempt Telegram delivery"
+    );
+}

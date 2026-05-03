@@ -164,7 +164,19 @@ for chat_id in &chat_ids {
                                                 "✅ [ALERT DELIVERED] Wallet: {} | Chat: {}",
                                                 crate::utils::format_short_wallet(&event.wallet_address),
                                                 chat_id
-                                            );
+                                            );                                            let delivery_outcome =
+                                                crate::wallet::alert_delivery::delivery_outcome(
+                                                    crate::wallet::alert_delivery::AlertDeliveryAttempt::SendSucceeded,
+                                                );
+
+                                            if !crate::wallet::alert_delivery::should_record_delivered(delivery_outcome) {
+                                                tracing::warn!(
+                                                    "[ALERT DELIVERY] Unexpected non-delivered outcome after successful Telegram send. chat_id={}",
+                                                    chat_id
+                                                );
+                                            }
+
+
 
                                             let _ = db_clone
                                                 .record_bot_event_typed(
@@ -192,7 +204,19 @@ for chat_id in &chat_ids {
                                             error!(
                                                 "[TELEGRAM ERROR] Failed to send wallet alert to chat {}: {}",
                                                 chat_id, e
-                                            );
+                                            );                                            let delivery_outcome =
+                                                crate::wallet::alert_delivery::delivery_outcome(
+                                                    crate::wallet::alert_delivery::AlertDeliveryAttempt::SendFailed,
+                                                );
+
+                                            if !crate::wallet::alert_delivery::should_record_failed(delivery_outcome) {
+                                                tracing::warn!(
+                                                    "[ALERT DELIVERY] Unexpected non-failed outcome after Telegram send error. chat_id={}",
+                                                    chat_id
+                                                );
+                                            }
+
+
 
                                             let err_text = e.to_string();
                                             let _ = db_clone
