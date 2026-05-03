@@ -35,6 +35,8 @@ impl AnalyzeDagUseCase {
         let mut extracted_worker = String::new();
         let mut block_time_ms: u64 = 0;
         let mut blue_block_fetch_errors: usize = 0;
+        let mut skipped_candidate_blocks: usize = 0;
+        let mut skipped_candidate_samples: Vec<String> = Vec::new();
 
         // Bypassing abstract traits to guarantee raw access to verbose_data for details
         let rpc_cl = self.node.client.clone();
@@ -63,7 +65,13 @@ impl AnalyzeDagUseCase {
                 let block = match rpc_cl.get_block(*hash, true).await {
                     Ok(block) => block,
                     Err(e) => {
-                        tracing::warn!(
+                        skipped_candidate_blocks += 1;
+
+                        if skipped_candidate_samples.len() < 3 {
+                            skipped_candidate_samples.push(hash.to_string());
+                        }
+
+                        tracing::debug!(
                             "[DAG ANALYSIS] Skipping unavailable DAG candidate block while searching acceptance block. hash={} tx={}: {}",
                             hash,
                             f_tx,
@@ -103,7 +111,29 @@ impl AnalyzeDagUseCase {
             current_hashes = next_hashes;
             sleep(Duration::from_millis(5)).await;
         }
+        if skipped_candidate_blocks > 0 {
+            let samples = if skipped_candidate_samples.is_empty() {
+                "none".to_string()
+            } else {
+                skipped_candidate_samples.join(",")
+            };
 
+            if acc_block_hash.is_empty() {
+                tracing::warn!(
+                    "[DAG ANALYSIS] Skipped unavailable DAG candidate blocks summary. tx={} skipped={} samples={} result=acceptance_not_found",
+                    f_tx,
+                    skipped_candidate_blocks,
+                    samples
+                );
+            } else {
+                tracing::debug!(
+                    "[DAG ANALYSIS] Skipped unavailable DAG candidate blocks summary. tx={} skipped={} samples={} result=acceptance_found",
+                    f_tx,
+                    skipped_candidate_blocks,
+                    samples
+                );
+            }
+        }
         if is_coinbase && !acc_block_hash.is_empty() {
             let acc_hash_obj = acc_block_hash.parse::<Hash>().map_err(|e| {
                 AppError::NodeError(format!(

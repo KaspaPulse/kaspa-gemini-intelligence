@@ -270,3 +270,39 @@ fn help_guide_must_include_current_commands_buttons_and_safety_policy() {
         "/help should be split into multiple Telegram-safe messages"
     );
 }
+
+#[test]
+fn dag_candidate_skips_must_not_log_warn_per_block() {
+    let source = read_source("src/network/analyze_dag.rs");
+
+    let candidate_search = extract_between(
+        &source,
+        "for hash in &current_hashes",
+        "if skipped_candidate_blocks > 0",
+    );
+
+    assert!(
+        candidate_search.contains("skipped_candidate_blocks += 1"),
+        "candidate block skips must be counted"
+    );
+
+    assert!(
+        candidate_search.contains("tracing::debug!"),
+        "per-candidate skips should be debug-level only"
+    );
+
+    assert!(
+        !candidate_search.contains("tracing::warn!"),
+        "per-candidate skips must not spam production logs as warnings"
+    );
+
+    assert!(
+        source.contains("Skipped unavailable DAG candidate blocks summary"),
+        "DAG candidate skips should have a single summary log"
+    );
+
+    assert!(
+        source.contains("result=acceptance_not_found"),
+        "summary should warn only when acceptance block is not found"
+    );
+}
