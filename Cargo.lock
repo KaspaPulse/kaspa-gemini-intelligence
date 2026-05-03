@@ -2182,6 +2182,7 @@ version = "1.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "axum",
  "chrono",
  "dashmap 6.1.0",
  "dotenvy",
@@ -3775,7 +3776,7 @@ dependencies = [
 [[package]]
 name = "serde_nested_with"
 version = "0.2.5"
-source = "git+https://github.com/murar8/serde_nested_with#ee200a4978ae4cc7da5469af0212431b0f8919a1"
+source = "git+https://github.com/murar8/serde_nested_with?rev=ee200a4978ae4cc7da5469af0212431b0f8919a1#ee200a4978ae4cc7da5469af0212431b0f8919a1"
 dependencies = [
  "darling 0.21.3",
  "proc-macro-error2",

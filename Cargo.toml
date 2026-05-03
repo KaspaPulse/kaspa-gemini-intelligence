@@ -9,6 +9,7 @@ description = "Kaspa Pulse Mining Bot - Lightweight community build"
 tokio = { version = "1", features = ["full", "time", "tracing"] }
 tokio-util = "0.7"
 teloxide = { version = "0.13", features = ["macros", "webhooks-axum"] }
+axum = "=0.7.9"
 
 async-trait = "0.1.80"
 anyhow = "1.0"
@@ -41,10 +42,12 @@ strip = true
 panic = "abort"
 
 [patch.crates-io]
-serde_nested_with = { git = "https://github.com/murar8/serde_nested_with" }
+serde_nested_with = { git = "https://github.com/murar8/serde_nested_with", rev = "ee200a4978ae4cc7da5469af0212431b0f8919a1" }
 
 [features]
 default = []
 
 [profile.dev]
 opt-level = 1
+
+

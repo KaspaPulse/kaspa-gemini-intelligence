@@ -7,3 +7,4 @@ pub mod security;
 pub mod external_services;
 
 pub mod resilience;
+pub mod webhook_security;

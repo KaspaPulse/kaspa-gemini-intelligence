@@ -43,7 +43,7 @@ pub fn start_utxo_monitor(
     let utxo_service = Arc::new(UtxoMonitorService::new(node.clone(), db.clone(), analyzer));
     let semaphore = Arc::new(Semaphore::new(10));
 
-    tokio::spawn(async move {
+    crate::infrastructure::resilience::runtime::spawn_resilient("utxo_monitor_task", async move {
         info!("🚀 [WORKER] UTXO monitor started.");
 
         loop {

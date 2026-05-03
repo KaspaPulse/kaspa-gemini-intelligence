@@ -43,8 +43,24 @@ impl MarketProvider for CoinGeckoAdapter {
         }
 
         // 2. Fetch API URL from environment or use production default [cite: 1150]
-        let url = std::env::var("COINGECKO_API_URL")
-            .expect("CRITICAL SECURITY: COINGECKO_API_URL must be explicitly defined in .env!");
+        let url = match std::env::var("COINGECKO_API_URL") {
+            Ok(value) if !value.trim().is_empty() => value,
+            _ => {
+                tracing::warn!(
+                    "[COINGECKO] COINGECKO_API_URL is missing. Serving stale cache if available."
+                );
+
+                if let Some((data, _)) = *self.cache.read().await {
+                    return Ok(data);
+                }
+
+                self.circuit_breaker.record_failure();
+                return Err(crate::domain::errors::AppError::Internal(
+                    "COINGECKO_API_URL is missing and no stale market cache is available"
+                        .to_string(),
+                ));
+            }
+        };
 
         // 3. Execute request with proper User-Agent [cite: 1151]
         if !self.circuit_breaker.is_allowed() {

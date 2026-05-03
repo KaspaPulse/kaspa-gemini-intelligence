@@ -8,6 +8,27 @@ impl PostgresRepository {
         &self,
         record: BotEventRecord<'_>,
     ) -> Result<(), AppError> {
+        let safe_user_name = record
+            .user_name
+            .map(crate::utils::sanitize_event_text_for_storage);
+        let safe_command = record
+            .command
+            .map(crate::utils::sanitize_event_text_for_storage);
+        let safe_callback_data = record
+            .callback_data
+            .map(crate::utils::sanitize_event_text_for_storage);
+        let safe_wallet_masked = record
+            .wallet_masked
+            .map(crate::utils::sanitize_event_text_for_storage);
+        let safe_txid_masked = record
+            .txid_masked
+            .map(crate::utils::sanitize_event_text_for_storage);
+        let safe_block_hash_masked = record
+            .block_hash_masked
+            .map(crate::utils::sanitize_event_text_for_storage);
+        let safe_error_message = record
+            .error_message
+            .map(crate::utils::sanitize_event_text_for_storage);
         sqlx::query(
             r#"
             INSERT INTO bot_event_log (
@@ -33,14 +54,14 @@ impl PostgresRepository {
         .bind(record.event_type.as_str())
         .bind(record.severity.as_str())
         .bind(record.chat_id)
-        .bind(record.user_name)
-        .bind(record.command)
-        .bind(record.callback_data)
-        .bind(record.wallet_masked)
-        .bind(record.txid_masked)
-        .bind(record.block_hash_masked)
+        .bind(safe_user_name.as_deref())
+        .bind(safe_command.as_deref())
+        .bind(safe_callback_data.as_deref())
+        .bind(safe_wallet_masked.as_deref())
+        .bind(safe_txid_masked.as_deref())
+        .bind(safe_block_hash_masked.as_deref())
         .bind(record.status)
-        .bind(record.error_message)
+        .bind(safe_error_message.as_deref())
         .bind(record.duration_ms)
         .bind(record.metadata_json)
         .execute(&self.pool)

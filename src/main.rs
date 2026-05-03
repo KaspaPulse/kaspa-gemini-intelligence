@@ -208,10 +208,24 @@ async fn main() -> anyhow::Result<()> {
 
     let db_repo = Arc::new(PostgresRepository::new(pool.clone()));
 
-    db_repo
-        .ensure_pending_rewards_table()
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to ensure pending_rewards table: {}", e))?;
+    let allow_runtime_schema_ensure = env::var("ALLOW_RUNTIME_SCHEMA_ENSURE")
+        .unwrap_or_else(|_| "false".to_string())
+        .eq_ignore_ascii_case("true");
+
+    if allow_runtime_schema_ensure {
+        tracing::warn!(
+            "[DATABASE] Runtime schema ensure is enabled. Prefer applying migrations before startup."
+        );
+
+        db_repo
+            .ensure_pending_rewards_table()
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to ensure pending_rewards table: {}", e))?;
+    } else {
+        tracing::info!(
+            "[DATABASE] Runtime schema ensure disabled. Database schema is expected to be managed by migrations."
+        );
+    }
     if let Err(e) = record_pending_panic_marker(&db_repo).await {
         tracing::error!("[PANIC_EVENT] Failed to record pending panic marker: {}", e);
     }
@@ -238,13 +252,25 @@ async fn main() -> anyhow::Result<()> {
     let rpc_client_arc = Arc::new(rpc_client);
     let node_provider = Arc::new(KaspaRpcAdapter::new(rpc_client_arc.clone()));
 
-    tracing::info!("[SYSTEM] Running node pre-flight diagnostic.");
-    let _ = node_provider.get_server_info().await;
-    let _ = node_provider.get_sync_status().await;
-    let _ = node_provider.get_block_dag_info().await;
-    let _ = node_provider.get_coin_supply().await;
-    let _ = node_provider.get_utxos_by_addresses(vec![]).await;
-    let _ = node_provider.connect(false).await;
+    tracing::info!("[SYSTEM] Running node pre-flight diagnostic with safe timeouts.");
+    let preflight = tokio::time::timeout(
+        crate::infrastructure::resilience::runtime::rpc_timeout_duration(),
+        async {
+            let _ = node_provider.get_server_info().await;
+            let _ = node_provider.get_sync_status().await;
+            let _ = node_provider.get_block_dag_info().await;
+            let _ = node_provider.get_coin_supply().await;
+            let _ = node_provider.get_utxos_by_addresses(vec![]).await;
+            let _ = node_provider.connect(false).await;
+        },
+    )
+    .await;
+
+    if preflight.is_err() {
+        tracing::warn!(
+            "[SYSTEM] Node pre-flight timed out. Bot will start in degraded mode and node monitor will keep retrying."
+        );
+    }
 
     let market_provider: Arc<dyn crate::infrastructure::market::coingecko_adapter::MarketProvider> =
         Arc::new(CoinGeckoAdapter::new());
@@ -503,20 +529,12 @@ async fn main() -> anyhow::Result<()> {
                 anyhow::anyhow!("WEBHOOK_SECRET_TOKEN must be set when USE_WEBHOOK=true")
             })?;
 
-        if secret_token.len() < 16 || secret_token.len() > 256 {
-            return Err(anyhow::anyhow!(
-                "WEBHOOK_SECRET_TOKEN must be between 16 and 256 characters"
-            ));
-        }
-
-        if !secret_token
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-        {
-            return Err(anyhow::anyhow!(
-                "WEBHOOK_SECRET_TOKEN may contain only A-Z, a-z, 0-9, '_' and '-'"
-            ));
-        }
+        crate::infrastructure::webhook_security::validate_webhook_runtime_settings(
+            &app_env,
+            bind_ip,
+            &domain,
+            &secret_token,
+        )?;
 
         let addr = SocketAddr::new(bind_ip, port);
         let url = format!("https://{}/webhook", domain).parse()?;
@@ -539,9 +557,11 @@ async fn main() -> anyhow::Result<()> {
             domain
         );
 
+        crate::infrastructure::webhook_security::spawn_health_endpoint(cancel_token.clone());
+
         let options = teloxide::update_listeners::webhooks::Options::new(addr, url)
             .secret_token(secret_token)
-            .max_connections(20);
+            .max_connections(crate::infrastructure::webhook_security::webhook_max_connections());
 
         let listener = teloxide::update_listeners::webhooks::axum(bot, options).await?;
 

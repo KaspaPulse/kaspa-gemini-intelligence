@@ -1,32 +1,44 @@
 [licenses]
 allow = [
-    "MIT", "Apache-2.0", "Apache-2.0 WITH LLVM-exception", "Unlicense",
-    "BSD-3-Clause", "BSD-2-Clause", "0BSD", "ISC", "CC0-1.0",
-    "Unicode-3.0", "Zlib", "MPL-2.0",
-    "LGPL-3.0-only", "CDLA-Permissive-2.0"
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "Unlicense",
+    "BSD-3-Clause",
+    "BSD-2-Clause",
+    "0BSD",
+    "ISC",
+    "CC0-1.0",
+    "Unicode-3.0",
+    "Zlib",
+    "MPL-2.0",
+    "LGPL-3.0-only",
+    "CDLA-Permissive-2.0"
 ]
 
 [bans]
 multiple-versions = "allow"
+wildcards = "warn"
 
 [advisories]
-# Ignore verified upstream vulnerabilities from Kaspa SDK that have no fixed version yet
 ignore = [
-    "RUSTSEC-2025-0052", # async-std unmaintained (Upstream Kaspa dependency)
-    "RUSTSEC-2024-0375", # atty unmaintained (Upstream Kaspa dependency)
-    "RUSTSEC-2024-0384", # instant unmaintained (Upstream Kaspa dependency)
-    "RUSTSEC-2024-0436", # paste unmaintained (Upstream Kaspa dependency)
-    "RUSTSEC-2024-0370", # proc-macro-error unmaintained (Upstream Kaspa dependency)
-    "RUSTSEC-2025-0134", # rustls-pemfile unmaintained (Upstream Kaspa dependency)
+    "RUSTSEC-2023-0071", # RSA: PostgreSQL-only bot; MySQL feature path removed. See SECURITY_ADVISORIES.md.
+    "RUSTSEC-2025-0052", # async-std: Upstream Kaspa SDK transitive dependency. See SECURITY_ADVISORIES.md.
+    "RUSTSEC-2024-0375", # atty: Upstream transitive dependency. See SECURITY_ADVISORIES.md.
+    "RUSTSEC-2024-0384", # instant: Upstream transitive dependency. See SECURITY_ADVISORIES.md.
+    "RUSTSEC-2024-0436", # paste: Upstream transitive/build dependency. See SECURITY_ADVISORIES.md.
+    "RUSTSEC-2024-0370", # proc-macro-error: Upstream transitive/build dependency. See SECURITY_ADVISORIES.md.
+    "RUSTSEC-2025-0134", # rustls-pemfile: Upstream TLS-related transitive dependency. See SECURITY_ADVISORIES.md.
+    "RUSTSEC-2024-0407", # linkme: Upstream transitive dependency. See SECURITY_ADVISORIES.md.
+    "RUSTSEC-2021-0145"  # atty soundness: Upstream transitive dependency. See SECURITY_ADVISORIES.md.
 ]
 unmaintained = "all"
-
+yanked = "deny"
 [sources]
 unknown-registry = "warn"
+unknown-git = "deny"
 allow-git = [
     "https://github.com/kaspanet/rusty-kaspa",
     "https://github.com/murar8/serde_nested_with"
 ]
-
-
 

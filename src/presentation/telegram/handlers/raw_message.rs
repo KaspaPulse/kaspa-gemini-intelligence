@@ -75,16 +75,20 @@ pub async fn handle_raw_message(
         return Ok(());
     }
 
-    let clean_text = crate::utils::sanitize_user_text(raw_text);
-
-    if clean_text.starts_with('/') {
-        return Ok(());
-    }
-
-    let wallet_address = clean_text
-        .split_whitespace()
-        .find(|part| part.starts_with("kaspa:") || part.starts_with("kaspatest:"))
-        .map(|s| s.to_string());
+    let wallet_address = match crate::utils::extract_single_wallet_from_message(raw_text) {
+        Ok(wallet) => wallet,
+        Err(reason) => {
+            crate::send_logged!(
+                bot,
+                msg,
+                format!(
+                    "🚫 <b>Message rejected.</b>\n{}",
+                    crate::utils::html_escape(&reason)
+                )
+            );
+            return Ok(());
+        }
+    };
 
     if let Some(addr) = wallet_address {
         let db = Arc::new(PostgresRepository::new(app_context.pool.clone()));

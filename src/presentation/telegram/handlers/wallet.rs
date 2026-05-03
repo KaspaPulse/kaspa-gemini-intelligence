@@ -10,14 +10,14 @@ pub async fn handle_add(
     wallet: String,
     wallet_mgt: Arc<WalletManagementUseCase>,
 ) -> anyhow::Result<()> {
-    let clean_wallet = wallet.trim();
+    let clean_wallet = crate::utils::normalize_wallet_input(&wallet);
 
     if crate::utils::is_add_wallet_rate_limited(cid) {
         crate::send_logged!(bot, msg, crate::utils::rate_limit_message());
         return Ok(());
     }
 
-    if let Err(reason) = crate::utils::validate_wallet_address_size(clean_wallet) {
+    if let Err(reason) = crate::utils::validate_wallet_address_size(&clean_wallet) {
         crate::send_logged!(bot, msg, format!("🚫 <b>Wallet rejected.</b>\n{}", reason));
         return Ok(());
     }
@@ -30,28 +30,38 @@ pub async fn handle_add(
         return Ok(());
     }
 
-    if !is_valid_kaspa_address(clean_wallet) {
+    if let Err(reason) = crate::utils::validate_wallet_security(&clean_wallet) {
         crate::send_logged!(
             bot,
             msg,
-            "🚫 <b>Invalid wallet address.</b>\nPlease send a valid <code>kaspa:...</code> address."
+            format!(
+                "🚫 <b>Invalid wallet address.</b>\n{}",
+                crate::utils::html_escape(&reason)
+            )
         );
         return Ok(());
     }
 
-    match wallet_mgt.add_wallet(clean_wallet, cid).await {
+    match wallet_mgt.add_wallet(&clean_wallet, cid).await {
         Ok(_) => {
             crate::send_logged!(
                 bot,
                 msg,
                 format!(
                     "✅ <b>Wallet Added</b>\nNow tracking:\n<code>{}</code>",
-                    clean_wallet
+                    crate::utils::html_escape(&clean_wallet)
                 )
             );
         }
         Err(e) => {
-            crate::send_logged!(bot, msg, format!("❌ <b>Error:</b> {}", e));
+            crate::send_logged!(
+                bot,
+                msg,
+                format!(
+                    "❌ <b>Error:</b> {}",
+                    crate::utils::html_escape(&e.to_string())
+                )
+            );
         }
     }
 
@@ -65,27 +75,37 @@ pub async fn handle_remove(
     wallet: String,
     wallet_mgt: Arc<WalletManagementUseCase>,
 ) -> anyhow::Result<()> {
-    let clean_wallet = wallet.trim();
+    let clean_wallet = crate::utils::normalize_wallet_input(&wallet);
 
-    if let Err(reason) = crate::utils::validate_wallet_address_size(clean_wallet) {
+    if let Err(reason) = crate::utils::validate_wallet_address_size(&clean_wallet) {
         crate::send_logged!(bot, msg, format!("🚫 <b>Wallet rejected.</b>\n{}", reason));
         return Ok(());
     }
-    if !is_valid_kaspa_address(clean_wallet) {
+    if let Err(reason) = crate::utils::validate_wallet_security(&clean_wallet) {
         crate::send_logged!(
             bot,
             msg,
-            "🚫 <b>Invalid wallet address.</b>\nPlease send a valid <code>kaspa:...</code> address."
+            format!(
+                "🚫 <b>Invalid wallet address.</b>\n{}",
+                crate::utils::html_escape(&reason)
+            )
         );
         return Ok(());
     }
 
-    match wallet_mgt.remove_wallet(clean_wallet, cid).await {
+    match wallet_mgt.remove_wallet(&clean_wallet, cid).await {
         Ok(_) => {
             crate::send_logged!(bot, msg, "🗑️ <b>Wallet Removed.</b>");
         }
         Err(e) => {
-            crate::send_logged!(bot, msg, format!("❌ <b>Error:</b> {}", e));
+            crate::send_logged!(
+                bot,
+                msg,
+                format!(
+                    "❌ <b>Error:</b> {}",
+                    crate::utils::html_escape(&e.to_string())
+                )
+            );
         }
     }
 
@@ -502,10 +522,4 @@ async fn edit_text(
     markup: InlineKeyboardMarkup,
 ) {
     let _ = crate::utils::edit_logged_message(bot, chat_id, message_id, text, Some(markup)).await;
-}
-
-fn is_valid_kaspa_address(address: &str) -> bool {
-    address.starts_with("kaspa:")
-        && address.len() > 20
-        && address.chars().skip(6).all(|c| c.is_ascii_alphanumeric())
 }

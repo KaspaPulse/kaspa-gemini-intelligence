@@ -146,33 +146,45 @@ impl KaspaRpcAdapter {
     }
 
     pub async fn get_server_info(&self) -> Result<kaspa_rpc_core::GetServerInfoResponse, AppError> {
-        self.client
-            .get_server_info()
-            .await
-            .map_err(|e| AppError::NodeError(e.to_string()))
+        crate::infrastructure::resilience::runtime::with_rpc_timeout("get_server_info", async {
+            self.client
+                .get_server_info()
+                .await
+                .map_err(|e| AppError::NodeError(e.to_string()))
+        })
+        .await
     }
 
     pub async fn get_sync_status(&self) -> Result<bool, AppError> {
-        self.client
-            .get_sync_status()
-            .await
-            .map_err(|e| AppError::NodeError(e.to_string()))
+        crate::infrastructure::resilience::runtime::with_rpc_timeout("get_sync_status", async {
+            self.client
+                .get_sync_status()
+                .await
+                .map_err(|e| AppError::NodeError(e.to_string()))
+        })
+        .await
     }
 
     pub async fn get_block_dag_info(
         &self,
     ) -> Result<kaspa_rpc_core::GetBlockDagInfoResponse, AppError> {
-        self.client
-            .get_block_dag_info()
-            .await
-            .map_err(|e| AppError::NodeError(e.to_string()))
+        crate::infrastructure::resilience::runtime::with_rpc_timeout("get_block_dag_info", async {
+            self.client
+                .get_block_dag_info()
+                .await
+                .map_err(|e| AppError::NodeError(e.to_string()))
+        })
+        .await
     }
 
     pub async fn get_coin_supply(&self) -> Result<kaspa_rpc_core::GetCoinSupplyResponse, AppError> {
-        self.client
-            .get_coin_supply()
-            .await
-            .map_err(|e| AppError::NodeError(e.to_string()))
+        crate::infrastructure::resilience::runtime::with_rpc_timeout("get_coin_supply", async {
+            self.client
+                .get_coin_supply()
+                .await
+                .map_err(|e| AppError::NodeError(e.to_string()))
+        })
+        .await
     }
 
     pub async fn get_utxos_by_addresses(
@@ -191,10 +203,16 @@ impl KaspaRpcAdapter {
             })
             .collect::<Result<Vec<_>, AppError>>()?;
 
-        self.client
-            .get_utxos_by_addresses(addresses)
-            .await
-            .map_err(|e| AppError::NodeError(e.to_string()))
+        crate::infrastructure::resilience::runtime::with_rpc_timeout(
+            "get_utxos_by_addresses",
+            async {
+                self.client
+                    .get_utxos_by_addresses(addresses)
+                    .await
+                    .map_err(|e| AppError::NodeError(e.to_string()))
+            },
+        )
+        .await
     }
 
     pub async fn connect(&self, block: bool) -> Result<(), AppError> {
@@ -204,7 +222,14 @@ impl KaspaRpcAdapter {
             None
         };
 
-        let _ = self.client.connect(options).await;
-        Ok(())
+        crate::infrastructure::resilience::runtime::with_rpc_timeout("connect", async {
+            self.client
+                .connect(options)
+                .await
+                .map_err(|e| AppError::NodeConnection(e.to_string()))?;
+
+            Ok(())
+        })
+        .await
     }
 }

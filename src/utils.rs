@@ -358,6 +358,8 @@ pub fn sanitize_for_log(input: &str) -> String {
     if !verbose_logs_enabled() {
         text = mask_kaspa_addresses(&text);
         text = mask_common_secret_values(&text);
+        text = mask_hex_hash_like_tokens(&text);
+        text = mask_telegram_usernames(&text);
     }
 
     truncate_for_log(&text)
@@ -365,8 +367,10 @@ pub fn sanitize_for_log(input: &str) -> String {
 
 pub fn sanitize_user_text(input: &str) -> String {
     input
-        .replace('\u{0000}', "")
         .replace('\r', "\n")
+        .chars()
+        .filter(|c| !is_dangerous_invisible_char(*c))
+        .collect::<String>()
         .trim()
         .to_string()
 }
@@ -473,6 +477,190 @@ fn mask_common_secret_values(input: &str) -> String {
     }
 
     lines.join("\n")
+}
+
+pub fn html_escape(input: &str) -> String {
+    let mut escaped = String::with_capacity(input.len());
+
+    for c in input.chars() {
+        match c {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '"' => escaped.push_str("&quot;"),
+            '\'' => escaped.push_str("&#39;"),
+            _ => escaped.push(c),
+        }
+    }
+
+    escaped
+}
+
+pub fn is_dangerous_invisible_char(c: char) -> bool {
+    matches!(
+        c,
+        '\u{0000}'
+            | '\u{00AD}'
+            | '\u{034F}'
+            | '\u{061C}'
+            | '\u{115F}'
+            | '\u{1160}'
+            | '\u{17B4}'
+            | '\u{17B5}'
+            | '\u{180E}'
+            | '\u{200B}'..='\u{200F}'
+            | '\u{202A}'..='\u{202E}'
+            | '\u{2060}'..='\u{206F}'
+            | '\u{3164}'
+            | '\u{FEFF}'
+            | '\u{FFA0}'
+    )
+}
+
+pub fn contains_dangerous_invisible_chars(input: &str) -> bool {
+    input.chars().any(is_dangerous_invisible_char)
+}
+
+pub fn contains_html_sensitive_chars(input: &str) -> bool {
+    input
+        .chars()
+        .any(|c| matches!(c, '<' | '>' | '&' | '"' | '\'' | '`'))
+}
+
+pub fn normalize_user_text(input: &str) -> String {
+    sanitize_user_text(input)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+pub fn normalize_wallet_input(input: &str) -> String {
+    sanitize_user_text(input).trim().to_ascii_lowercase()
+}
+
+pub fn extract_single_wallet_from_message(input: &str) -> Result<Option<String>, String> {
+    let clean = normalize_user_text(input);
+
+    if contains_dangerous_invisible_chars(&clean) {
+        return Err("Message contains hidden or unsafe characters.".to_string());
+    }
+
+    if clean.starts_with('/') {
+        return Ok(None);
+    }
+
+    let mut wallets = Vec::new();
+
+    for part in clean.split_whitespace() {
+        let candidate = part.trim_matches(|c: char| {
+            matches!(c, ',' | '.' | ';' | ':' | ')' | '(' | '[' | ']' | '{' | '}')
+        });
+
+        if candidate.starts_with("kaspa:") || candidate.starts_with("kaspatest:") {
+            wallets.push(candidate.to_string());
+        }
+    }
+
+    wallets.sort();
+    wallets.dedup();
+
+    if wallets.len() > 1 {
+        return Err("Please send only one wallet address per message.".to_string());
+    }
+
+    Ok(wallets.into_iter().next())
+}
+
+pub fn validate_wallet_security(address: &str) -> Result<(), String> {
+    if address.is_empty() {
+        return Err("Wallet address is empty.".to_string());
+    }
+
+    if address.trim() != address {
+        return Err("Wallet address has leading or trailing whitespace.".to_string());
+    }
+
+    if address.chars().any(|c| c.is_whitespace()) {
+        return Err("Wallet address must not contain spaces or new lines.".to_string());
+    }
+
+    if contains_dangerous_invisible_chars(address) {
+        return Err("Wallet address contains hidden or unsafe characters.".to_string());
+    }
+
+    if contains_html_sensitive_chars(address) {
+        return Err("Wallet address contains unsafe HTML-sensitive characters.".to_string());
+    }
+
+    if !(address.starts_with("kaspa:") || address.starts_with("kaspatest:")) {
+        return Err("Wallet address must start with kaspa: or kaspatest:.".to_string());
+    }
+
+    kaspa_addresses::Address::try_from(address)
+        .map_err(|_| "Invalid Kaspa wallet address.".to_string())?;
+
+    Ok(())
+}
+
+pub fn sanitize_event_text_for_storage(input: &str) -> String {
+    let mut text = sanitize_for_log(input);
+
+    if !verbose_logs_enabled() {
+        text = mask_telegram_usernames(&text);
+        text = mask_hex_hash_like_tokens(&text);
+    }
+
+    truncate_for_log(&text)
+}
+
+fn mask_telegram_usernames(input: &str) -> String {
+    let mut output = String::new();
+
+    for token in input.split_whitespace() {
+        let cleaned = token.trim_matches(|c: char| {
+            matches!(
+                c,
+                ',' | '.' | ':' | ';' | ')' | '(' | '[' | ']' | '{' | '}' | '"' | '\''
+            )
+        });
+
+        if cleaned.starts_with('@') && cleaned.len() > 2 {
+            output.push_str(&token.replace(cleaned, "@***"));
+        } else {
+            output.push_str(token);
+        }
+
+        output.push(' ');
+    }
+
+    output.trim_end().to_string()
+}
+
+fn mask_hex_hash_like_tokens(input: &str) -> String {
+    let mut output = String::new();
+
+    for token in input.split_whitespace() {
+        let cleaned = token.trim_matches(|c: char| {
+            matches!(
+                c,
+                ',' | '.' | ':' | ';' | ')' | '(' | '[' | ']' | '{' | '}' | '"' | '\''
+            )
+        });
+
+        let is_hash_like = cleaned.len() >= 48
+            && cleaned.len() <= 128
+            && cleaned.chars().all(|c| c.is_ascii_hexdigit());
+
+        if is_hash_like {
+            output.push_str(&token.replace(cleaned, &mask_identifier(cleaned)));
+        } else {
+            output.push_str(token);
+        }
+
+        output.push(' ');
+    }
+
+    output.trim_end().to_string()
 }
 
 pub fn validate_raw_message_size(text: &str) -> Result<(), String> {

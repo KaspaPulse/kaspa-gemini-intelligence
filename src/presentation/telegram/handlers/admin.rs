@@ -818,6 +818,7 @@ pub async fn handle_wallet_events(
     Ok(())
 }
 
+#[allow(dead_code)]
 pub async fn handle_cleanup_events(
     bot: Bot,
     msg: Message,

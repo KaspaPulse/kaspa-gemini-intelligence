@@ -9,155 +9,231 @@ use tokio_util::sync::CancellationToken;
 use crate::domain::models::AppContext;
 
 pub fn spawn_price_monitor(ctx: AppContext, token: CancellationToken) {
-    tokio::spawn(async move {
+    crate::infrastructure::resilience::runtime::spawn_resilient("price_monitor", async move {
         let client = build_http_client();
+        let mut consecutive_failures: u32 = 0;
+        let mut circuit_open_until: Option<chrono::DateTime<chrono::Utc>> = None;
 
-        // Fetch instantly on boot
-        let mut p = 0.0;
-        let mut m = 0.0;
-        if let Ok(r) = client.get("https://api.kaspa.org/info/price").send().await {
-            if let Ok(j) = r.json::<serde_json::Value>().await {
-                p = j["price"].as_f64().unwrap_or(0.0);
+        async fn fetch_number(
+            client: &reqwest::Client,
+            url: &'static str,
+            field: &'static str,
+        ) -> Result<f64, String> {
+            let response = crate::infrastructure::resilience::runtime::with_timeout_result(
+                "kaspa.org price API request",
+                crate::infrastructure::resilience::runtime::http_timeout_duration(),
+                client.get(url).send(),
+            )
+            .await?;
+
+            let json = crate::infrastructure::resilience::runtime::with_timeout_result(
+                "kaspa.org price API json parse",
+                crate::infrastructure::resilience::runtime::http_timeout_duration(),
+                response.json::<serde_json::Value>(),
+            )
+            .await?;
+
+            Ok(json[field].as_f64().unwrap_or(0.0))
+        }
+
+        async fn update_price_cache(
+            client: &reqwest::Client,
+            ctx: &AppContext,
+        ) -> Result<(), String> {
+            let mut last_error = String::new();
+
+            for attempt in 1..=3 {
+                let price = fetch_number(client, "https://api.kaspa.org/info/price", "price").await;
+                let marketcap =
+                    fetch_number(client, "https://api.kaspa.org/info/marketcap", "marketcap").await;
+
+                match (price, marketcap) {
+                    (Ok(p), Ok(m)) if p > 0.0 => {
+                        let mut write_guard = ctx.price_cache.write().await;
+                        *write_guard = (p, m);
+                        return Ok(());
+                    }
+                    (p_result, m_result) => {
+                        last_error = format!(
+                            "attempt {} failed, price={:?}, marketcap={:?}",
+                            attempt,
+                            p_result.err(),
+                            m_result.err()
+                        );
+                        tracing::warn!("[PRICE MONITOR] {}", last_error);
+                        tokio::time::sleep(Duration::from_secs(attempt * 2)).await;
+                    }
+                }
             }
+
+            Err(last_error)
         }
-        if let Ok(r) = client
-            .get("https://api.kaspa.org/info/marketcap")
-            .send()
-            .await
-        {
-            if let Ok(j) = r.json::<serde_json::Value>().await {
-                m = j["marketcap"].as_f64().unwrap_or(0.0);
-            }
-        }
-        if p > 0.0 {
-            let mut write_guard = ctx.price_cache.write().await;
-            *write_guard = (p, m);
-        }
+
+        let _ = update_price_cache(&client, &ctx).await;
 
         loop {
             tokio::select! {
-                _ = token.cancelled() => { break; }
-                _ = tokio::time::sleep(tokio::time::Duration::from_secs(60)) => {
-                    let mut p = 0.0;
-                    let mut m = 0.0;
-                    if let Ok(r) = client.get("https://api.kaspa.org/info/price").send().await {
-                        if let Ok(j) = r.json::<serde_json::Value>().await { p = j["price"].as_f64().unwrap_or(0.0); }
+                _ = token.cancelled() => {
+                    tracing::info!("[PRICE MONITOR] Cancellation requested.");
+                    break;
+                }
+                _ = tokio::time::sleep(Duration::from_secs(60)) => {
+                    if let Some(open_until) = circuit_open_until {
+                        if chrono::Utc::now() < open_until {
+                            tracing::warn!("[PRICE MONITOR] Circuit open. Serving last cached price and skipping this cycle.");
+                            continue;
+                        }
+
+                        tracing::info!("[PRICE MONITOR] Circuit moved to half-open. Trying API again.");
+                        circuit_open_until = None;
                     }
-                    if let Ok(r) = client.get("https://api.kaspa.org/info/marketcap").send().await {
-                        if let Ok(j) = r.json::<serde_json::Value>().await { m = j["marketcap"].as_f64().unwrap_or(0.0); }
-                    }
-                    if p > 0.0 {
-                        let mut write_guard = ctx.price_cache.write().await;
-                        *write_guard = (p, m);
+
+                    match update_price_cache(&client, &ctx).await {
+                        Ok(_) => {
+                            if consecutive_failures > 0 {
+                                tracing::info!("[PRICE MONITOR] External price API recovered after {} failures.", consecutive_failures);
+                            }
+                            consecutive_failures = 0;
+                        }
+                        Err(error) => {
+                            consecutive_failures += 1;
+                            tracing::error!(
+                                "[PRICE MONITOR] Failed to refresh price cache. failures={} error={}",
+                                consecutive_failures,
+                                error
+                            );
+
+                            if consecutive_failures >= 3 {
+                                let cooldown_secs =
+                                    crate::infrastructure::resilience::runtime::env_u64("PRICE_API_CIRCUIT_COOLDOWN_SECS", 300);
+                                circuit_open_until = Some(
+                                    chrono::Utc::now() + chrono::Duration::seconds(cooldown_secs as i64)
+                                );
+                                tracing::error!(
+                                    "[PRICE MONITOR] Circuit opened for {} seconds. Bot will keep using cached price.",
+                                    cooldown_secs
+                                );
+                            }
+                        }
                     }
                 }
             }
         }
     });
 }
-
 pub fn spawn_node_monitor(ctx: AppContext, bot: Bot, token: CancellationToken) {
-    tokio::spawn(async move {
-        let mut failed_attempts = 0;
-        let mut is_disconnected = false;
-        let _ = ctx.rpc.connect(None).await;
+    crate::infrastructure::resilience::runtime::spawn_resilient(
+        "system_background_task",
+        async move {
+            let mut failed_attempts = 0;
+            let mut is_disconnected = false;
+            let _ = ctx.rpc.connect(None).await;
 
-        tokio::time::sleep(Duration::from_secs(10)).await;
+            tokio::time::sleep(Duration::from_secs(10)).await;
 
-        loop {
-            tokio::select! {
-                _ = token.cancelled() => { break; }
-                _ = tokio::time::sleep(Duration::from_secs(60)) => {
-                    if ctx.rpc.get_server_info().await.is_err() {
-                        failed_attempts += 1;
-                        tracing::error!("[NODE ALERT] RPC Connection Lost! Attempt {}...", failed_attempts);
-                        let _ = sqlx::query(
-                            "INSERT INTO bot_event_log (event_type, severity, status, error_message, metadata)
-                             VALUES ('RPC_ERROR', 'error', 'node_unreachable', 'RPC connection lost', $1::jsonb)"
-                        )
-                        .bind(BotEventType::RpcError.as_str())
-                        .bind(EventSeverity::Error.as_str())
-                        .bind(format!(r#"{{"attempt":{}}}"#, failed_attempts))
-                        .execute(&ctx.pool)
-                        .await;
+            loop {
+                tokio::select! {
+                    _ = token.cancelled() => { break; }
+                    _ = tokio::time::sleep(Duration::from_secs(60)) => {
+                        let health_check = tokio::time::timeout(
+                            crate::infrastructure::resilience::runtime::rpc_timeout_duration(),
+                            ctx.rpc.get_server_info()
+                        ).await;
 
-                        if failed_attempts == 1 {
-                            is_disconnected = true;
-                            // Safe sleep mode
-                            ctx.live_sync_enabled.store(false, Ordering::Relaxed);
-                            if let Err(e) = bot.send_message(ChatId(ctx.admin_id), "⚠️ <b>WARNING:</b> Primary Node connection dropped!\n⏸️ UTXO Monitoring paused safely.\n🔄 Attempting background recovery...")
-                                .parse_mode(teloxide::types::ParseMode::Html).await { tracing::error!("[TELEGRAM ERROR] Bot API request failed: {}", e); }
-                        }
-
-                        if failed_attempts % 10 == 0 {
-                            if let Err(e) = bot.send_message(ChatId(ctx.admin_id), format!("🚨 <b>CRITICAL:</b> Node still unreachable after {} attempts. Continuing to retry quietly...", failed_attempts))
-                                .parse_mode(teloxide::types::ParseMode::Html).await { tracing::error!("[TELEGRAM ERROR] Bot API request failed: {}", e); }
-                        }
-
-                        let _ = ctx.rpc.connect(None).await;
-                    } else {
-                        if is_disconnected {
-                            tracing::info!("[NODE RECOVERED] RPC Tunnel stabilized.");
+                        if health_check.is_err() || health_check.as_ref().is_ok_and(|inner| inner.is_err()) {
+                            failed_attempts += 1;
+                            tracing::error!("[NODE ALERT] RPC Connection Lost! Attempt {}...", failed_attempts);
                             let _ = sqlx::query(
-                                "INSERT INTO bot_event_log (event_type, severity, status, metadata)
-                                 VALUES ('RPC_RECOVERED', 'info', 'recovered', $1::jsonb)"
+                                "INSERT INTO bot_event_log (event_type, severity, status, error_message, metadata)
+                                 VALUES ('RPC_ERROR', 'error', 'node_unreachable', 'RPC connection lost', $1::jsonb)"
                             )
-                            .bind(BotEventType::RpcRecovered.as_str())
-                                .bind(EventSeverity::Info.as_str())
-                                .bind(format!(r#"{{"failed_attempts":{}}}"#, failed_attempts))
-                                .execute(&ctx.pool)
+                            .bind(BotEventType::RpcError.as_str())
+                            .bind(EventSeverity::Error.as_str())
+                            .bind(format!(r#"{{"attempt":{}}}"#, failed_attempts))
+                            .execute(&ctx.pool)
                             .await;
-                            ctx.live_sync_enabled.store(true, Ordering::Relaxed);
-                            if let Err(e) = bot.send_message(ChatId(ctx.admin_id), "✅ <b>RECOVERED:</b> Node connection stabilized.\n▶️ UTXO Monitoring resumed smoothly.")
-                                .parse_mode(teloxide::types::ParseMode::Html).await { tracing::error!("[TELEGRAM ERROR] Bot API request failed: {}", e); }
 
-                            failed_attempts = 0;
-                            is_disconnected = false;
+                            if failed_attempts == 1 {
+                                is_disconnected = true;
+                                // Safe sleep mode
+                                ctx.live_sync_enabled.store(false, Ordering::Relaxed);
+                                if let Err(e) = bot.send_message(ChatId(ctx.admin_id), "⚠️ <b>WARNING:</b> Primary Node connection dropped!\n⏸️ UTXO Monitoring paused safely.\n🔄 Attempting background recovery...")
+                                    .parse_mode(teloxide::types::ParseMode::Html).await { tracing::error!("[TELEGRAM ERROR] Bot API request failed: {}", e); }
+                            }
+
+                            if failed_attempts % 10 == 0 {
+                                if let Err(e) = bot.send_message(ChatId(ctx.admin_id), format!("🚨 <b>CRITICAL:</b> Node still unreachable after {} attempts. Continuing to retry quietly...", failed_attempts))
+                                    .parse_mode(teloxide::types::ParseMode::Html).await { tracing::error!("[TELEGRAM ERROR] Bot API request failed: {}", e); }
+                            }
+
+                            let _ = ctx.rpc.connect(None).await;
+                        } else {
+                            if is_disconnected {
+                                tracing::info!("[NODE RECOVERED] RPC Tunnel stabilized.");
+                                let _ = sqlx::query(
+                                    "INSERT INTO bot_event_log (event_type, severity, status, metadata)
+                                     VALUES ('RPC_RECOVERED', 'info', 'recovered', $1::jsonb)"
+                                )
+                                .bind(BotEventType::RpcRecovered.as_str())
+                                    .bind(EventSeverity::Info.as_str())
+                                    .bind(format!(r#"{{"failed_attempts":{}}}"#, failed_attempts))
+                                    .execute(&ctx.pool)
+                                .await;
+                                ctx.live_sync_enabled.store(true, Ordering::Relaxed);
+                                if let Err(e) = bot.send_message(ChatId(ctx.admin_id), "✅ <b>RECOVERED:</b> Node connection stabilized.\n▶️ UTXO Monitoring resumed smoothly.")
+                                    .parse_mode(teloxide::types::ParseMode::Html).await { tracing::error!("[TELEGRAM ERROR] Bot API request failed: {}", e); }
+
+                                failed_attempts = 0;
+                                is_disconnected = false;
+                            }
                         }
                     }
                 }
             }
-        }
-    });
+        },
+    );
 }
 
 pub fn spawn_memory_cleaner(ctx: AppContext, token: CancellationToken) {
-    tokio::spawn(async move {
-        loop {
-            tokio::select! {
-                _ = token.cancelled() => { break; }
-                _ = tokio::time::sleep(Duration::from_secs(3600)) => {
-                    ctx.utxo_state.retain(|wallet, _| ctx.state.contains_key(wallet));
-                    ctx.rate_limiter.retain_recent();
-                    let retention_days: i64 = std::env::var("BOT_EVENT_LOG_RETENTION_DAYS")
-                        .ok()
-                        .and_then(|v| v.parse::<i64>().ok())
-                        .unwrap_or(60)
-                        .clamp(1, 365);
+    crate::infrastructure::resilience::runtime::spawn_resilient(
+        "system_background_task",
+        async move {
+            loop {
+                tokio::select! {
+                    _ = token.cancelled() => { break; }
+                    _ = tokio::time::sleep(Duration::from_secs(3600)) => {
+                        ctx.utxo_state.retain(|wallet, _| ctx.state.contains_key(wallet));
+                        ctx.rate_limiter.retain_recent();
+                        let retention_days: i64 = std::env::var("BOT_EVENT_LOG_RETENTION_DAYS")
+                            .ok()
+                            .and_then(|v| v.parse::<i64>().ok())
+                            .unwrap_or(60)
+                            .clamp(1, 365);
 
-                    let purge_result = sqlx::query(
-                        "DELETE FROM bot_event_log
-                         WHERE created_at < NOW() - ($1::text || ' days')::interval"
-                    )
-                    .bind(retention_days.to_string())
-                    .execute(&ctx.pool)
-                    .await;
+                        let purge_result = sqlx::query(
+                            "DELETE FROM bot_event_log
+                             WHERE created_at < NOW() - ($1::text || ' days')::interval"
+                        )
+                        .bind(retention_days.to_string())
+                        .execute(&ctx.pool)
+                        .await;
 
-                    match purge_result {
-                        Ok(result) => {
-                            tracing::info!(
-                                "[MEMORY CLEANER] Purged in-memory runtime state and {} old bot events.",
-                                result.rows_affected()
-                            );
-                        }
-                        Err(e) => {
-                            tracing::error!("[DATABASE ERROR] Failed to purge old bot events: {}", e);
+                        match purge_result {
+                            Ok(result) => {
+                                tracing::info!(
+                                    "[MEMORY CLEANER] Purged in-memory runtime state and {} old bot events.",
+                                    result.rows_affected()
+                                );
+                            }
+                            Err(e) => {
+                                tracing::error!("[DATABASE ERROR] Failed to purge old bot events: {}", e);
+                            }
                         }
                     }
                 }
             }
-        }
-    });
+        },
+    );
 }
 fn build_http_client() -> reqwest::Client {
     reqwest::Client::builder()
