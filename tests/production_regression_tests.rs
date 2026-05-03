@@ -167,3 +167,66 @@ fn kaspa_adapter_must_not_unwrap_user_supplied_addresses() {
         "invalid address parsing must return an explicit AppError"
     );
 }
+
+#[test]
+fn reward_confirmation_gate_must_run_before_dag_analysis() {
+    let source = read_source("src/wallet/wallet_use_cases.rs");
+
+    assert!(
+        source.contains("MIN_REWARD_CONFIRMATIONS"),
+        "reward confirmation threshold must be configurable"
+    );
+
+    assert!(
+        source.contains("get_virtual_daa_score"),
+        "reward confirmation gate must use virtual DAA score"
+    );
+
+    assert!(
+        source.contains("virtual_daa_score.saturating_sub(utxo.block_daa_score)"),
+        "confirmations must be calculated from virtual DAA minus reward DAA"
+    );
+
+    assert!(
+        source.contains("reward_confirmations >= min_reward_confirmations"),
+        "DAG analysis must wait until the reward reaches the configured confirmations"
+    );
+
+    let before_join_set = extract_between(
+        &source,
+        "let utxos = self.node.get_utxos(wallet_address).await?",
+        "let mut join_set = tokio::task::JoinSet::new();",
+    );
+
+    assert!(
+        before_join_set.contains("continue;"),
+        "unconfirmed rewards must stay unprocessed until they reach the confirmation threshold"
+    );
+
+    assert!(
+        before_join_set.contains("new_rewards.push(utxo.clone())"),
+        "confirmed rewards must still enter the DAG analysis path"
+    );
+}
+
+#[test]
+fn unconfirmed_rewards_must_not_be_marked_seen_before_processing() {
+    let source = read_source("src/wallet/wallet_use_cases.rs");
+
+    let loop_body = extract_between(&source, "for utxo in utxos", "known_mem.retain");
+
+    assert!(
+        loop_body.contains("if !reward_is_confirmed"),
+        "the monitor must explicitly handle unconfirmed rewards"
+    );
+
+    assert!(
+        loop_body.contains("continue;"),
+        "unconfirmed rewards must not fall through into seen UTXO persistence"
+    );
+
+    assert!(
+        loop_body.contains("current_outpoints_vec.push(utxo.outpoint.clone())"),
+        "confirmed or already-seen UTXOs must still be persisted"
+    );
+}

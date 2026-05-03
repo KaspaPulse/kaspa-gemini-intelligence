@@ -242,6 +242,14 @@ impl UtxoMonitorService {
     ) -> Result<Vec<LiveBlockEvent>, AppError> {
         let utxos = self.node.get_utxos(wallet_address).await?;
 
+        let min_reward_confirmations = std::env::var("MIN_REWARD_CONFIRMATIONS")
+            .unwrap_or_else(|_| "10".to_string())
+            .parse::<u64>()
+            .unwrap_or(10)
+            .clamp(1, 10_000);
+
+        let virtual_daa_score = self.node.get_virtual_daa_score().await?;
+
         let mut current_outpoints = HashSet::new();
         let mut current_outpoints_vec = Vec::new();
         let mut new_rewards = Vec::new();
@@ -286,17 +294,37 @@ impl UtxoMonitorService {
 
         for utxo in utxos {
             current_outpoints.insert(utxo.outpoint.clone());
-            current_outpoints_vec.push(utxo.outpoint.clone());
 
             let seen_before =
                 known_mem.contains(&utxo.outpoint) || known_db.contains(&utxo.outpoint);
 
+            let reward_confirmations = virtual_daa_score.saturating_sub(utxo.block_daa_score);
+            let reward_is_confirmed =
+                !utxo.is_coinbase || reward_confirmations >= min_reward_confirmations;
+
             if !is_first_run && !seen_before {
+                if !reward_is_confirmed {
+                    tracing::debug!(
+                        "[REWARD CONFIRMATION] Waiting before DAG analysis. wallet={} tx={} confirmations={}/{} reward_daa={} virtual_daa={}",
+                        crate::utils::format_short_wallet(wallet_address),
+                        crate::utils::format_short_wallet(&utxo.transaction_id),
+                        reward_confirmations,
+                        min_reward_confirmations,
+                        utxo.block_daa_score,
+                        virtual_daa_score
+                    );
+
+                    continue;
+                }
+
                 new_rewards.push(utxo.clone());
             }
 
-            known_mem.insert(utxo.outpoint.clone());
-            known_db.insert(utxo.outpoint.clone());
+            if reward_is_confirmed || seen_before || is_first_run {
+                current_outpoints_vec.push(utxo.outpoint.clone());
+                known_mem.insert(utxo.outpoint.clone());
+                known_db.insert(utxo.outpoint.clone());
+            }
         }
 
         known_mem.retain(|outpoint| current_outpoints.contains(outpoint));
