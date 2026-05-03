@@ -39,3 +39,32 @@ Thumbs.db
 # Local database audit reports
 db_audit_*.txt
 db_audit_remote_*.txt
+
+# ==============================================================================
+# Kaspa Pulse local/private files
+# ==============================================================================
+.env
+.env.*
+!.env.example
+
+# Local generated backups
+.backup/
+.local-cleanup-backup-*/
+backups/
+*.dump
+*.sql.dump
+*.backup
+*.bak
+
+# Runtime/log output
+logs/
+*.log
+
+# Build output
+target/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
