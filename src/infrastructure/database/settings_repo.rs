@@ -51,17 +51,19 @@ impl PostgresRepository {
         let deleted_events = self.purge_old_bot_events(60).await?;
         let deleted_alert_dedup = self.purge_old_wallet_alert_dedup(14).await?;
         let deleted_seen_utxos = self.purge_old_seen_utxos(30).await?;
+        let deleted_pending_rewards = self.purge_old_pending_rewards(14).await?;
 
         tracing::info!(
-            "[MEMORY CLEANER] Cleanup complete. Events: {}, Alert dedup: {}, Seen UTXOs: {}",
+            "[MEMORY CLEANER] Cleanup complete. Events: {}, Alert dedup: {}, Seen UTXOs: {}, Pending rewards: {}",
             deleted_events,
             deleted_alert_dedup,
-            deleted_seen_utxos
+            deleted_seen_utxos,
+            deleted_pending_rewards
         );
 
         let metadata = format!(
-            r#"{{"bot_event_log":{},"wallet_alert_dedup":{},"wallet_seen_utxos":{},"retention_days":{{"bot_event_log":60,"wallet_alert_dedup":14,"wallet_seen_utxos":30}}}}"#,
-            deleted_events, deleted_alert_dedup, deleted_seen_utxos
+            r#"{{"bot_event_log":{},"wallet_alert_dedup":{},"wallet_seen_utxos":{},"pending_rewards":{},"retention_days":{{"bot_event_log":60,"wallet_alert_dedup":14,"wallet_seen_utxos":30,"pending_rewards":14}}}}"#,
+            deleted_events, deleted_alert_dedup, deleted_seen_utxos, deleted_pending_rewards
         );
 
         self.record_bot_event_typed(

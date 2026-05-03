@@ -304,6 +304,39 @@ impl UtxoMonitorService {
 
             if !is_first_run && !seen_before {
                 if !reward_is_confirmed {
+                    if let Err(e) = self
+                        .db
+                        .upsert_pending_reward(
+                            wallet_address,
+                            &utxo,
+                            virtual_daa_score,
+                            reward_confirmations,
+                            min_reward_confirmations,
+                        )
+                        .await
+                    {
+                        let wallet_masked = crate::utils::format_short_wallet(wallet_address);
+                        let txid_masked = crate::utils::format_short_wallet(&utxo.transaction_id);
+                        let error_text = e.to_string();
+
+                        let mut db_error_event =
+                            BotEventRecord::new(BotEventType::DbError, EventSeverity::Error);
+                        db_error_event.wallet_masked = Some(&wallet_masked);
+                        db_error_event.txid_masked = Some(&txid_masked);
+                        db_error_event.status = Some("pending_reward_upsert_failed");
+                        db_error_event.error_message = Some(&error_text);
+                        db_error_event.metadata_json = r#"{"operation":"upsert_pending_reward"}"#;
+
+                        let _ = self.db.record_bot_event_record(db_error_event).await;
+
+                        tracing::error!(
+                            "[DATABASE ERROR] Failed to upsert pending reward for wallet {} tx {}: {}",
+                            wallet_masked,
+                            txid_masked,
+                            error_text
+                        );
+                    }
+
                     tracing::debug!(
                         "[REWARD CONFIRMATION] Waiting before DAG analysis. wallet={} tx={} confirmations={}/{} reward_daa={} virtual_daa={}",
                         crate::utils::format_short_wallet(wallet_address),
@@ -315,6 +348,27 @@ impl UtxoMonitorService {
                     );
 
                     continue;
+                }
+
+                if let Err(e) = self
+                    .db
+                    .delete_pending_reward(wallet_address, &utxo.outpoint)
+                    .await
+                {
+                    tracing::warn!(
+                        "[DATABASE WARNING] Failed to delete pending reward before processing. wallet={} tx={}: {}",
+                        crate::utils::format_short_wallet(wallet_address),
+                        crate::utils::format_short_wallet(&utxo.transaction_id),
+                        e
+                    );
+                } else {
+                    tracing::debug!(
+                        "[REWARD CONFIRMATION] pending_reward_ready_for_processing wallet={} tx={} confirmations={}/{}",
+                        crate::utils::format_short_wallet(wallet_address),
+                        crate::utils::format_short_wallet(&utxo.transaction_id),
+                        reward_confirmations,
+                        min_reward_confirmations
+                    );
                 }
 
                 new_rewards.push(utxo.clone());

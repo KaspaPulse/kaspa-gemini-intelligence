@@ -208,6 +208,10 @@ async fn main() -> anyhow::Result<()> {
 
     let db_repo = Arc::new(PostgresRepository::new(pool.clone()));
 
+    db_repo
+        .ensure_pending_rewards_table()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to ensure pending_rewards table: {}", e))?;
     if let Err(e) = record_pending_panic_marker(&db_repo).await {
         tracing::error!("[PANIC_EVENT] Failed to record pending panic marker: {}", e);
     }

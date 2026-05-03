@@ -306,3 +306,55 @@ fn dag_candidate_skips_must_not_log_warn_per_block() {
         "summary should warn only when acceptance block is not found"
     );
 }
+
+#[test]
+fn pending_rewards_must_be_persisted_for_unconfirmed_rewards() {
+    let source = read_source("src/wallet/wallet_use_cases.rs");
+
+    assert!(
+        source.contains("upsert_pending_reward"),
+        "unconfirmed rewards must be persisted in pending_rewards"
+    );
+
+    assert!(
+        source.contains("pending_reward_upsert_failed"),
+        "pending reward persistence failures must be logged"
+    );
+
+    assert!(
+        source.contains("delete_pending_reward"),
+        "pending rewards must be removed when they become ready for processing"
+    );
+
+    assert!(
+        source.contains("pending_reward_ready_for_processing"),
+        "confirmed pending rewards should be logged before DAG processing"
+    );
+}
+
+#[test]
+fn pending_rewards_table_must_be_created_at_startup() {
+    let main_source = read_source("src/main.rs");
+    let repo_source = read_source("src/infrastructure/database/pending_rewards_repo.rs");
+    let mod_source = read_source("src/infrastructure/database/mod.rs");
+
+    assert!(
+        main_source.contains("ensure_pending_rewards_table"),
+        "pending_rewards table must be ensured at startup"
+    );
+
+    assert!(
+        repo_source.contains("CREATE TABLE IF NOT EXISTS pending_rewards"),
+        "pending_rewards repository must create the table"
+    );
+
+    assert!(
+        repo_source.contains("PRIMARY KEY (wallet, outpoint)"),
+        "pending_rewards must be idempotent per wallet/outpoint"
+    );
+
+    assert!(
+        mod_source.contains("pending_rewards_repo"),
+        "pending_rewards repository module must be registered"
+    );
+}
