@@ -63,10 +63,14 @@ impl AnalyzeDagUseCase {
                 let block = match rpc_cl.get_block(*hash, true).await {
                     Ok(block) => block,
                     Err(e) => {
-                        return Err(AppError::NodeError(format!(
-                            "DAG block fetch failed while searching acceptance block. hash={} tx={}: {}",
-                            hash, f_tx, e
-                        )));
+                        tracing::warn!(
+                            "[DAG ANALYSIS] Skipping unavailable DAG candidate block while searching acceptance block. hash={} tx={}: {}",
+                            hash,
+                            f_tx,
+                            e
+                        );
+
+                        continue;
                     }
                 };
                 {
