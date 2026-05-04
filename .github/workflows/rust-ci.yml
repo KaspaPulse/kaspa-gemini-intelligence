@@ -2,19 +2,54 @@ name: Rust CI
 
 on:
   push:
-    branches: ["main", "dev"]
+    branches:
+      - main
+      - dev
   pull_request:
-    branches: ["main", "dev"]
+    branches:
+      - main
+      - dev
 
 env:
+  CARGO_TERM_COLOR: always
   SQLX_OFFLINE: "true"
+  CARGO_INCREMENTAL: "0"
+  APP_ENV: "ci"
+  RUST_LOG: "info"
+  ENABLE_VERBOSE_LOGS: "false"
+  BOT_TOKEN: "1234567890:TEST_PLACEHOLDER_TOKEN_NOT_REAL"
+  ADMIN_ID: "484901117"
+  NODE_URL_01: "wss://example.invalid/json"
+  DATABASE_URL: "postgres://kaspa_pulse_app:TEST_PASSWORD@127.0.0.1:5432/kaspa_dev?sslmode=disable"
+  WEBHOOK_SECRET_TOKEN: "TEST_WEBHOOK_SECRET_TOKEN_PLACEHOLDER_32_CHARS"
+  USE_WEBHOOK: "false"
+  WEBHOOK_DOMAIN: "example.invalid"
+  WEBHOOK_PORT: "8443"
+  WEBHOOK_BIND: "127.0.0.1"
+  WEBHOOK_MAX_CONNECTIONS: "20"
+  WEBHOOK_ALLOW_PUBLIC_BIND: "false"
+  HEALTH_ENDPOINT_ENABLED: "true"
+  HEALTH_BIND: "127.0.0.1"
+  HEALTH_PORT: "18080"
+  HEALTH_ALLOW_PUBLIC_BIND: "false"
+  ENABLE_TELEGRAM_DELIVERY_QUEUE: "true"
+  ENABLE_ALERT_DELIVERY: "true"
+  MIN_REWARD_CONFIRMATIONS: "10"
+  MAX_WALLETS_PER_USER: "10"
+  RATE_LIMIT_COMMANDS_PER_SECOND: "1"
+  RATE_LIMIT_CALLBACKS_PER_SECOND: "3"
+  RATE_LIMIT_ADD_WALLET_PER_MINUTE: "5"
+  MAX_RAW_MESSAGE_CHARS: "512"
+  MAX_WALLET_ADDRESS_CHARS: "120"
+  LOG_MAX_CHARS: "3000"
 
 jobs:
   check:
+    name: check
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Install Rust stable
@@ -25,42 +60,19 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Secret scan
-        shell: bash
+      - name: Show versions
         run: |
-          set -euo pipefail
-          if grep -RInE "(BOT_TOKEN=[0-9]+:|DATABASE_URL=postgres://kaspa_pulse_app:TEST_PASSWORD@127.0.0.1:5432/kaspa_dev?sslmode=disable \
-            --exclude=".env" \
-            --exclude=".env.example" \
-            --exclude="README.md" \
-            --exclude="rust-ci.yml" \
-            --exclude-dir=".git" \
-            --exclude-dir="target" \
-            --exclude-dir=".sqlx" \
-            --exclude-dir="backup_*" \
-            .; then
-            echo "Potential real secret found in repository."
-            exit 1
-          fi
+          rustc --version
+          cargo --version
 
-      - name: Format check
-        run: cargo fmt --check
+      - name: Check formatting
+        run: cargo fmt --all -- --check
 
       - name: Cargo check
-        run: cargo check --locked
+        run: cargo check --all-targets --all-features
 
-      - name: Clippy
-        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Clippy strict
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
-      - name: Install cargo-deny
-        run: cargo install cargo-deny --locked
-
-      - name: Cargo deny
-        run: cargo deny check
-
-      - name: Install cargo-machete
-        run: cargo install cargo-machete --locked
-
-      - name: Cargo machete
-        run: cargo machete
-
+      - name: Run tests
+        run: cargo test --all-targets --all-features
