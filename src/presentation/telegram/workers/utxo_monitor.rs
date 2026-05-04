@@ -175,8 +175,39 @@ for chat_id in &chat_ids {
                                         continue;
                                     }
 
+                                    if crate::infrastructure::telegram_delivery_queue::delivery_queue_enabled() {
+                                        match crate::infrastructure::telegram_delivery_queue::enqueue_alert_message(
+                                            &db_clone.pool,
+                                            *chat_id,
+                                            &final_msg,
+                                            Some(&wallet_masked),
+                                            Some(&txid_masked),
+                                            block_masked.as_deref(),
+                                            Some(event.amount_kas),
+                                            Some(event.daa_score as i64),
+                                        )
+                                        .await
+                                        {
+                                            Ok(_) => {
+                                                info!(
+                                                    "📥 [ALERT QUEUED] Wallet: {} | Chat: {}",
+                                                    crate::utils::format_short_wallet(&event.wallet_address),
+                                                    chat_id
+                                                );
+                                                continue;
+                                            }
+                                            Err(e) => {
+                                                crate::infrastructure::metrics::inc_db_errors();
+                                                error!(
+                                                    "[DELIVERY QUEUE] Failed to enqueue alert for chat {}: {}. Falling back to direct send.",
+                                                    chat_id, e
+                                                );
+                                            }
+                                        }
+                                    }
+
                                     crate::utils::log_multiline(
-                                        &format!("📤 [BOT OUT] Chat: {}", chat_id),
+                                        &format!("📤 [BOT OUT FALLBACK] Chat: {}", chat_id),
                                         &final_msg,
                                         true,
                                     );

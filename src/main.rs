@@ -482,6 +482,11 @@ async fn main() -> anyhow::Result<()> {
         cancel_token.clone(),
     );
 
+    crate::presentation::telegram::workers::telegram_delivery::start_telegram_delivery_worker(
+        bot.clone(),
+        app_context.pool.clone(),
+        cancel_token.clone(),
+    );
     crate::infrastructure::external_services::system::spawn_node_monitor(
         (*app_context).clone(),
         bot.clone(),
