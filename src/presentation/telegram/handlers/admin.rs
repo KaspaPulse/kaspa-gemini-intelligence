@@ -847,3 +847,44 @@ pub async fn handle_cleanup_events(
     crate::send_logged!(bot, msg, text);
     Ok(())
 }
+
+#[allow(dead_code)]
+pub async fn handle_mute_alerts(
+    bot: Bot,
+    msg: Message,
+    app_context: Arc<AppContext>,
+) -> anyhow::Result<()> {
+    crate::wallet::alert_delivery_gate::set_alert_delivery_enabled(&app_context.pool, false)
+        .await?;
+
+    let text = "🔕 <b>Alert Delivery Muted</b>\n━━━━━━━━━━━━━━━━━━\nTelegram mining alerts are now <code>DISABLED</code>.\n\nThe bot will continue detecting blocks, analyzing DAG data, updating dedup state, and recording events in the database.";
+
+    crate::send_logged!(bot, msg, text);
+    Ok(())
+}
+
+#[allow(dead_code)]
+pub async fn handle_unmute_alerts(
+    bot: Bot,
+    msg: Message,
+    app_context: Arc<AppContext>,
+) -> anyhow::Result<()> {
+    crate::wallet::alert_delivery_gate::set_alert_delivery_enabled(&app_context.pool, true).await?;
+
+    let text = "🔔 <b>Alert Delivery Resumed</b>\n━━━━━━━━━━━━━━━━━━\nTelegram mining alerts are now <code>ENABLED</code>.\n\nOnly new alerts after this point will be sent.";
+
+    crate::send_logged!(bot, msg, text);
+    Ok(())
+}
+
+pub async fn handle_alerts_status(
+    bot: Bot,
+    msg: Message,
+    app_context: Arc<AppContext>,
+) -> anyhow::Result<()> {
+    let text =
+        crate::wallet::alert_delivery_gate::alert_delivery_status_text(&app_context.pool).await;
+
+    crate::send_logged!(bot, msg, text);
+    Ok(())
+}

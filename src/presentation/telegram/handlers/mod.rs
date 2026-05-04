@@ -307,6 +307,42 @@ For mining alerts, wait for the configured confirmations before expecting Telegr
                 )
                 .await?;
             }
+            Command::MuteAlerts => {
+                if !is_admin {
+                    crate::send_logged!(bot, msg, "⛔ Unauthorized.");
+                    return Ok(());
+                }
+
+                crate::presentation::telegram::handlers::admin_confirm::send_command_confirmation(
+                    &bot,
+                    msg.chat.id,
+                    &app_context,
+                    crate::presentation::telegram::handlers::admin_confirm::SensitiveAdminAction::MuteAlerts,
+                )
+                .await?;
+            }
+            Command::UnmuteAlerts => {
+                if !is_admin {
+                    crate::send_logged!(bot, msg, "⛔ Unauthorized.");
+                    return Ok(());
+                }
+
+                crate::presentation::telegram::handlers::admin_confirm::send_command_confirmation(
+                    &bot,
+                    msg.chat.id,
+                    &app_context,
+                    crate::presentation::telegram::handlers::admin_confirm::SensitiveAdminAction::UnmuteAlerts,
+                )
+                .await?;
+            }
+            Command::AlertsStatus => {
+                if !is_admin {
+                    crate::send_logged!(bot, msg, "⛔ Unauthorized.");
+                    return Ok(());
+                }
+
+                admin::handle_alerts_status(bot, msg, app_context).await?;
+            }
             Command::Restart => {
                 if !is_admin {
                     crate::send_logged!(bot, msg, "⛔ Unauthorized.");
@@ -662,6 +698,51 @@ pub async fn handle_callback(
         return Ok(());
     }
 
+    if data == "do_mute_alerts" || data == "do_unmute_alerts" {
+        if !confirmed_sensitive_action {
+            let _ = bot
+                .answer_callback_query(q.id.clone())
+                .text("Confirmation expired. Please try again.")
+                .await;
+            return Ok(());
+        }
+
+        if !callback_is_admin {
+            let _ = bot
+                .answer_callback_query(q.id.clone())
+                .text("Unauthorized.")
+                .await;
+            return Ok(());
+        }
+
+        let enabled = data == "do_unmute_alerts";
+        crate::wallet::alert_delivery_gate::set_alert_delivery_enabled(&app_context.pool, enabled)
+            .await?;
+
+        let status_text =
+            crate::wallet::alert_delivery_gate::alert_delivery_status_text(&app_context.pool).await;
+
+        let _ = bot
+            .answer_callback_query(q.id.clone())
+            .text(if enabled {
+                "Alerts resumed."
+            } else {
+                "Alerts muted."
+            })
+            .await;
+
+        if let Some(msg) = q.message {
+            let _ = bot
+                .edit_message_text(msg.chat().id, msg.id(), status_text)
+                .parse_mode(ParseMode::Html)
+                .reply_markup(
+                    crate::presentation::telegram::menus::TelegramMenus::admin_menu_markup(),
+                )
+                .await;
+        }
+
+        return Ok(());
+    }
     if data == "do_forget_wallets" {
         let _ = bot
             .answer_callback_query(q.id.clone())
@@ -1010,6 +1091,9 @@ pub async fn handle_callback(
         "cmd_errors" => Some(Command::Errors),
         "cmd_cleanup_events" => Some(Command::CleanupEvents),
         "cmd_delivery" => Some(Command::Delivery),
+        "cmd_mute_alerts" => Some(Command::MuteAlerts),
+        "cmd_unmute_alerts" => Some(Command::UnmuteAlerts),
+        "cmd_alerts_status" => Some(Command::AlertsStatus),
         "cmd_pause" => Some(Command::Pause),
         "cmd_resume" => Some(Command::Resume),
         "cmd_restart" => Some(Command::Restart),

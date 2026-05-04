@@ -55,6 +55,21 @@ pub enum Command {
     Pause,
     #[command(description = "Admin: Resume UTXO monitoring.")]
     Resume,
+    #[command(
+        rename = "mute_alerts",
+        description = "Admin: Stop sending mining alerts only."
+    )]
+    MuteAlerts,
+    #[command(
+        rename = "unmute_alerts",
+        description = "Admin: Resume sending mining alerts."
+    )]
+    UnmuteAlerts,
+    #[command(
+        rename = "alerts_status",
+        description = "Admin: Show alert delivery status."
+    )]
+    AlertsStatus,
     #[command(description = "Admin: Safe restart of the bot binary.")]
     Restart,
     #[command(description = "Admin: Broadcast message to all users.")]
@@ -136,6 +151,9 @@ pub fn admin_bot_commands() -> Vec<teloxide::types::BotCommand> {
         teloxide::types::BotCommand::new("events", "Admin: show recent bot events"),
         teloxide::types::BotCommand::new("errors", "Admin: show recent error events"),
         teloxide::types::BotCommand::new("delivery", "Admin: alert delivery summary"),
+        teloxide::types::BotCommand::new("mute_alerts", "Admin: stop sending mining alerts"),
+        teloxide::types::BotCommand::new("unmute_alerts", "Admin: resume sending mining alerts"),
+        teloxide::types::BotCommand::new("alerts_status", "Admin: alert delivery status"),
         teloxide::types::BotCommand::new("subscribers", "Admin: show wallet subscribers"),
         teloxide::types::BotCommand::new("wallet_events", "Admin: show wallet event history"),
         teloxide::types::BotCommand::new("cleanup_events", "Admin: cleanup old bot events"),

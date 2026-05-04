@@ -141,6 +141,38 @@ pub fn start_utxo_monitor(
                                     )
                                     .await;
 for chat_id in &chat_ids {
+                                    if !crate::wallet::alert_delivery_gate::is_alert_delivery_enabled(&db_clone.pool).await {
+                                        info!(
+                                            "🔕 [ALERT SUPPRESSED] Wallet: {} | Chat: {} | Reason: alert delivery disabled",
+                                            crate::utils::format_short_wallet(&event.wallet_address),
+                                            chat_id
+                                        );
+
+                                        let _ = db_clone
+                                            .record_bot_event_typed(
+                                                BotEventType::AlertDeliverySuppressed,
+                                                EventSeverity::Info,
+                                                Some(*chat_id),
+                                                None,
+                                                None,
+                                                None,
+                                                Some(&wallet_masked),
+                                                Some(&txid_masked),
+                                                block_masked.as_deref(),
+                                                Some("suppressed"),
+                                                None,
+                                                None,
+                                                &format!(
+                                                    r#"{{"amount_kas":{},"daa_score":{},"reason":"alert_delivery_disabled"}}"#,
+                                                    event.amount_kas,
+                                                    event.daa_score
+                                                ),
+                                            )
+                                            .await;
+
+                                        continue;
+                                    }
+
                                     crate::utils::log_multiline(
                                         &format!("📤 [BOT OUT] Chat: {}", chat_id),
                                         &final_msg,

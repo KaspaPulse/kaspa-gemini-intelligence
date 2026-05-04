@@ -63,6 +63,12 @@ impl TelegramMenus {
             InlineKeyboardButton::callback("🧹 Cleanup", "cmd_cleanup_events"),
         ];
 
+        let admin_alerts_row = vec![
+            InlineKeyboardButton::callback("🔕 Stop Alerts", "cmd_mute_alerts"),
+            InlineKeyboardButton::callback("🔔 Resume Alerts", "cmd_unmute_alerts"),
+            InlineKeyboardButton::callback("📣 Alert Status", "cmd_alerts_status"),
+        ];
+
         let admin_row5 = vec![InlineKeyboardButton::callback(
             "🚨 Delete My Data",
             "confirm_forget_all",
@@ -73,6 +79,7 @@ impl TelegramMenus {
         rows.push(admin_row2);
         rows.push(admin_row3);
         rows.push(admin_row4);
+        rows.push(admin_alerts_row);
         rows.push(admin_row5);
 
         InlineKeyboardMarkup::new(rows)
