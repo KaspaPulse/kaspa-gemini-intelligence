@@ -24,6 +24,23 @@ pub fn start_telegram_delivery_worker(bot: Bot, pool: PgPool, token: Cancellatio
                     continue;
                 }
 
+                match crate::infrastructure::telegram_delivery_queue::queue_stats(&pool).await {
+                    Ok(stats) => {
+                        tracing::debug!(
+                            "[DELIVERY QUEUE] pending={} processing={} sent={} failed={} suppressed={}",
+                            stats.pending,
+                            stats.processing,
+                            stats.sent,
+                            stats.failed,
+                            stats.suppressed
+                        );
+                    }
+                    Err(e) => {
+                        crate::infrastructure::metrics::inc_db_errors();
+                        tracing::warn!("[DELIVERY QUEUE] Failed to read queue stats: {}", e);
+                    }
+                }
+
                 let batch =
                     match crate::infrastructure::telegram_delivery_queue::fetch_pending_batch(
                         &pool, 25,
@@ -97,6 +114,18 @@ pub fn start_telegram_delivery_worker(bot: Bot, pool: PgPool, token: Cancellatio
                             crate::infrastructure::metrics::inc_telegram_send_failures();
 
                             let err_text = e.to_string();
+
+                            if let Some(retry_after) =
+                                crate::infrastructure::telegram_delivery_queue::retry_after_seconds(
+                                    &err_text,
+                                )
+                            {
+                                tracing::warn!(
+                                    "[TELEGRAM RATE LIMIT] retry_after={}s for queued alert id={}",
+                                    retry_after,
+                                    item.id
+                                );
+                            }
 
                             if let Err(db_error) =
                                 crate::infrastructure::telegram_delivery_queue::mark_failed(

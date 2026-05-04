@@ -180,8 +180,10 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Kaspa Pulse starting.");
 
-    let db_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set in .env");
-    let rpc_url = env::var("NODE_URL_01").expect("NODE_URL_01 must be set in .env");
+    let db_url = env::var("DATABASE_URL")
+        .map_err(|_| anyhow::anyhow!("DATABASE_URL must be set in .env"))?;
+    let rpc_url =
+        env::var("NODE_URL_01").map_err(|_| anyhow::anyhow!("NODE_URL_01 must be set in .env"))?;
 
     let app_env = env::var("APP_ENV").unwrap_or_else(|_| "production".to_string());
     let db_max_connections: u32 = env::var("DB_MAX_CONNECTIONS")
@@ -235,10 +237,19 @@ async fn main() -> anyhow::Result<()> {
 
     let _ = db_repo.record_bot_event_record(system_start_event).await;
 
-    let network_id =
-        kaspa_consensus_core::network::NetworkId::from_str("mainnet").unwrap_or_else(|_| {
-            kaspa_consensus_core::network::NetworkId::from_str("testnet-12").unwrap()
-        });
+    let network_id = match kaspa_consensus_core::network::NetworkId::from_str("mainnet") {
+        Ok(network_id) => network_id,
+        Err(mainnet_error) => {
+            match kaspa_consensus_core::network::NetworkId::from_str("testnet-12") {
+                Ok(network_id) => network_id,
+                Err(testnet_error) => {
+                    return Err(anyhow::anyhow!(
+                        "failed to parse fallback network ids: mainnet={mainnet_error}; testnet-12={testnet_error}"
+                    ));
+                }
+            }
+        }
+    };
 
     let rpc_client = kaspa_wrpc_client::KaspaRpcClient::new(
         kaspa_wrpc_client::WrpcEncoding::SerdeJson,
@@ -295,7 +306,8 @@ async fn main() -> anyhow::Result<()> {
         market_provider.clone(),
     ));
 
-    let bot_token = env::var("BOT_TOKEN").expect("BOT_TOKEN must be set in .env");
+    let bot_token =
+        env::var("BOT_TOKEN").map_err(|_| anyhow::anyhow!("BOT_TOKEN must be set in .env"))?;
     let bot = Bot::new(bot_token);
     // Telegram command scopes are synchronized after ADMIN_ID validation.
 

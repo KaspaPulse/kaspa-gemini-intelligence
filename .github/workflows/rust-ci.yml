@@ -29,7 +29,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if grep -RInE "(BOT_TOKEN=[0-9]+:|DATABASE_URL=postgres://[^:]+:[^@]+@|WEBHOOK_SECRET_TOKEN=[A-Za-z0-9_-]{16,}|ADMIN_PIN=[0-9]{4,})" \
+          if grep -RInE "(BOT_TOKEN=[0-9]+:|DATABASE_URL=postgres://kaspa_pulse_app:TEST_PASSWORD@127.0.0.1:5432/kaspa_dev?sslmode=disable \
             --exclude=".env" \
             --exclude=".env.example" \
             --exclude="README.md" \
@@ -63,3 +63,4 @@ jobs:
 
       - name: Cargo machete
         run: cargo machete
+

@@ -102,8 +102,8 @@ pub fn format_hash(hash: &str, link_type: &str) -> String {
 
 pub fn is_spam(chat_id: i64) -> bool {
     static LIMITER: OnceLock<SpamLimiter> = OnceLock::new();
-    let limiter =
-        LIMITER.get_or_init(|| RateLimiter::keyed(Quota::per_second(NonZeroU32::new(1).unwrap())));
+    let limiter = LIMITER
+        .get_or_init(|| RateLimiter::keyed(per_second_quota("RATE_LIMIT_COMMANDS_PER_SECOND", 1)));
 
     limiter.check_key(&chat_id).is_err()
 }

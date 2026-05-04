@@ -6,10 +6,21 @@ pub static ADMIN_ACTIONS_CONFIRMED: AtomicU64 = AtomicU64::new(0);
 pub static TELEGRAM_SEND_FAILURES: AtomicU64 = AtomicU64::new(0);
 pub static RPC_TIMEOUTS: AtomicU64 = AtomicU64::new(0);
 pub static DB_ERRORS: AtomicU64 = AtomicU64::new(0);
+pub static LAST_ALERT_DELIVERED_TS: AtomicU64 = AtomicU64::new(0);
+pub static LAST_ALERT_DETECTED_TS: AtomicU64 = AtomicU64::new(0);
+pub static LAST_UTXO_SCAN_TS: AtomicU64 = AtomicU64::new(0);
 
 #[allow(dead_code)]
+pub fn now_unix_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|value| value.as_secs())
+        .unwrap_or(0)
+}
+
 pub fn inc_alerts_delivered() {
     ALERTS_DELIVERED.fetch_add(1, Ordering::Relaxed);
+    LAST_ALERT_DELIVERED_TS.store(now_unix_secs(), Ordering::Relaxed);
 }
 
 pub fn inc_alerts_suppressed() {
@@ -63,5 +74,18 @@ pub fn render_metrics() -> String {
         TELEGRAM_SEND_FAILURES.load(Ordering::Relaxed),
         RPC_TIMEOUTS.load(Ordering::Relaxed),
         DB_ERRORS.load(Ordering::Relaxed)
+    ) + &format!(
+        "# HELP kaspa_pulse_last_alert_delivered_timestamp Last delivered alert unix timestamp.\n# TYPE kaspa_pulse_last_alert_delivered_timestamp gauge\nkaspa_pulse_last_alert_delivered_timestamp {}\n# HELP kaspa_pulse_last_alert_detected_timestamp Last detected alert unix timestamp.\n# TYPE kaspa_pulse_last_alert_detected_timestamp gauge\nkaspa_pulse_last_alert_detected_timestamp {}\n# HELP kaspa_pulse_last_utxo_scan_timestamp Last UTXO scan unix timestamp.\n# TYPE kaspa_pulse_last_utxo_scan_timestamp gauge\nkaspa_pulse_last_utxo_scan_timestamp {}\n",
+        LAST_ALERT_DELIVERED_TS.load(Ordering::Relaxed),
+        LAST_ALERT_DETECTED_TS.load(Ordering::Relaxed),
+        LAST_UTXO_SCAN_TS.load(Ordering::Relaxed)
     )
+}
+
+pub fn mark_alert_detected() {
+    LAST_ALERT_DETECTED_TS.store(now_unix_secs(), Ordering::Relaxed);
+}
+
+pub fn mark_utxo_scan() {
+    LAST_UTXO_SCAN_TS.store(now_unix_secs(), Ordering::Relaxed);
 }

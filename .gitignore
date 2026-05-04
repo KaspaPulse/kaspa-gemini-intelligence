@@ -68,3 +68,11 @@ target/
 Thumbs.db
 .vscode/
 .idea/
+repo-before-history-clean-*.bundle
+project_code_export_*.txt
+local-cleanup-backup-*/
+repo-before-history-clean-*.bundle
+project_code_export_*.txt
+local-cleanup-backup-*/
+repo-before-history-clean-*.bundle
+project_code_export_*.txt

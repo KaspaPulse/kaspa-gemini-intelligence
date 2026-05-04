@@ -47,6 +47,7 @@ pub fn start_utxo_monitor(
         info!("🚀 [WORKER] UTXO monitor started.");
 
         loop {
+            crate::infrastructure::metrics::mark_utxo_scan();
             tokio::select! {
                 _ = token.cancelled() => {
                     info!("[WORKER] UTXO monitor shutdown requested.");
@@ -117,6 +118,8 @@ pub fn start_utxo_monitor(
                                     .mined_block_hash
                                     .as_ref()
                                     .map(|h| crate::utils::format_short_wallet(h));
+
+                                crate::infrastructure::metrics::mark_alert_detected();
 
                                 let _ = db_clone
                                     .record_bot_event_typed(
