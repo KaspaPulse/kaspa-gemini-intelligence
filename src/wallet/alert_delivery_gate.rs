@@ -41,13 +41,34 @@ pub async fn set_alert_delivery_enabled(pool: &PgPool, enabled: bool) -> Result<
     Ok(())
 }
 
+async fn suppressed_count_since_last_change(pool: &PgPool) -> i64 {
+    sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*)
+         FROM bot_event_log
+         WHERE event_type = 'ALERT_DELIVERY_SUPPRESSED'
+         AND created_at >= COALESCE(
+             (SELECT updated_at FROM system_settings WHERE key_name = $1),
+             NOW() - INTERVAL '30 days'
+         )",
+    )
+    .bind(ALERT_DELIVERY_SETTING_KEY)
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0)
+}
+
 pub async fn alert_delivery_status_text(pool: &PgPool) -> String {
     let enabled = is_alert_delivery_enabled(pool).await;
+
+    let suppressed_count = suppressed_count_since_last_change(pool).await;
 
     if enabled {
         "🔔 <b>Alert Delivery Status</b>\n━━━━━━━━━━━━━━━━━━\nStatus: <code>ENABLED</code>\n\nMining alerts are being sent normally.\n\nNote: This does not affect block detection, DAG analysis, or database logging.".to_string()
     } else {
-        "🔕 <b>Alert Delivery Status</b>\n━━━━━━━━━━━━━━━━━━\nStatus: <code>DISABLED</code>\n\nThe bot is still detecting blocks and recording events, but Telegram mining alerts are muted.\n\nNew alerts will not be sent until alert delivery is resumed.".to_string()
+        format!(
+            "🔕 <b>Alert Delivery Status</b>\n━━━━━━━━━━━━━━━━━━\nStatus: <code>DISABLED</code>\n\nThe bot is still detecting blocks and recording events, but Telegram mining alerts are muted.\n\nSuppressed alerts since last setting change: <code>{}</code>\n\nNew alerts will not be sent until alert delivery is resumed.",
+            suppressed_count
+        )
     }
 }
 

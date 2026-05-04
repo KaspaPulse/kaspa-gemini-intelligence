@@ -545,6 +545,17 @@ pub async fn handle_callback(
             Ok(action) => {
                 data = action.execute_callback().to_string();
                 confirmed_sensitive_action = true;
+                crate::infrastructure::metrics::inc_admin_actions_confirmed();
+
+                let _ = crate::infrastructure::admin_audit::record_admin_action(
+                    &app_context.pool,
+                    callback_chat_id,
+                    action.as_str(),
+                    None,
+                    Some("confirmed"),
+                    "confirmed",
+                )
+                .await;
 
                 let _ = bot
                     .answer_callback_query(q.id.clone())

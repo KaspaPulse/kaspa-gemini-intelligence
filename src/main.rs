@@ -409,6 +409,22 @@ async fn main() -> anyhow::Result<()> {
 
                     let _ = db_shutdown.record_bot_event_record(shutdown_event).await;
 
+                    {
+                        let shutdown_drain_secs = std::env::var("SHUTDOWN_DRAIN_SECS")
+                            .ok()
+                            .and_then(|v| v.parse::<u64>().ok())
+                            .filter(|v| *v <= 30)
+                            .unwrap_or(3);
+
+                        tracing::info!(
+            "[SYSTEM] Waiting {} seconds for background workers to drain before closing database pool.",
+            shutdown_drain_secs
+        );
+
+                        tokio::time::sleep(std::time::Duration::from_secs(shutdown_drain_secs))
+                            .await;
+                    }
+
                     pool_shutdown.close().await;
                     tracing::info!("[SYSTEM] Database connections closed safely.");
                     return;
@@ -439,6 +455,21 @@ async fn main() -> anyhow::Result<()> {
         shutdown_event.metadata_json = r#"{"reason":"signal"}"#;
 
         let _ = db_shutdown.record_bot_event_record(shutdown_event).await;
+
+        {
+            let shutdown_drain_secs = std::env::var("SHUTDOWN_DRAIN_SECS")
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+                .filter(|v| *v <= 30)
+                .unwrap_or(3);
+
+            tracing::info!(
+            "[SYSTEM] Waiting {} seconds for background workers to drain before closing database pool.",
+            shutdown_drain_secs
+        );
+
+            tokio::time::sleep(std::time::Duration::from_secs(shutdown_drain_secs)).await;
+        }
 
         pool_shutdown.close().await;
         tracing::info!("[SYSTEM] Database connections closed safely.");

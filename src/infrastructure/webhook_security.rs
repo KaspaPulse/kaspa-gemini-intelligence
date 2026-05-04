@@ -136,9 +136,14 @@ pub fn spawn_health_endpoint(cancel_token: CancellationToken) {
             "ready\n"
         }
 
+        async fn metricsz() -> String {
+            crate::infrastructure::metrics::render_metrics()
+        }
+
         let app = Router::new()
             .route("/healthz", get(healthz))
-            .route("/readyz", get(readyz));
+            .route("/readyz", get(readyz))
+            .route("/metrics", get(metricsz));
 
         let listener = match tokio::net::TcpListener::bind(addr).await {
             Ok(listener) => listener,

@@ -142,6 +142,8 @@ pub fn start_utxo_monitor(
                                     .await;
 for chat_id in &chat_ids {
                                     if !crate::wallet::alert_delivery_gate::is_alert_delivery_enabled(&db_clone.pool).await {
+                                        crate::infrastructure::metrics::inc_alerts_suppressed();
+
                                         info!(
                                             "🔕 [ALERT SUPPRESSED] Wallet: {} | Chat: {} | Reason: alert delivery disabled",
                                             crate::utils::format_short_wallet(&event.wallet_address),
