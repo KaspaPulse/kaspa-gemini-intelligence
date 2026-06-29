@@ -42,11 +42,12 @@ impl PostgresRepository {
     pub async fn get_all_daily_blocks(
         &self,
         address: &str,
-    ) -> Result<Vec<(String, i64)>, AppError> {
-        let rows: Vec<(String, i64)> = sqlx::query_as(
+    ) -> Result<Vec<(String, i64, i64)>, AppError> {
+        let rows: Vec<(String, i64, i64)> = sqlx::query_as(
             "SELECT
                 TO_CHAR(timestamp, 'YYYY-MM-DD') as day,
-                COUNT(*) as count
+                COUNT(*)::BIGINT as count,
+                COALESCE(SUM(amount), 0)::BIGINT as total_sompi
              FROM mined_blocks
              WHERE wallet = $1
              GROUP BY day
@@ -59,6 +60,51 @@ impl PostgresRepository {
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
         Ok(rows)
+    }
+
+    pub async fn get_blocks_sum_sompi_1h(&self, address: &str) -> Result<i64, AppError> {
+        let total_sompi: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(SUM(amount), 0)::BIGINT
+             FROM mined_blocks
+             WHERE wallet = $1
+               AND timestamp >= CURRENT_TIMESTAMP - INTERVAL '1 hour'",
+        )
+        .bind(address)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+        Ok(total_sompi)
+    }
+
+    pub async fn get_blocks_sum_sompi_24h(&self, address: &str) -> Result<i64, AppError> {
+        let total_sompi: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(SUM(amount), 0)::BIGINT
+             FROM mined_blocks
+             WHERE wallet = $1
+               AND timestamp >= CURRENT_TIMESTAMP - INTERVAL '24 hours'",
+        )
+        .bind(address)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+        Ok(total_sompi)
+    }
+
+    pub async fn get_blocks_sum_sompi_7d(&self, address: &str) -> Result<i64, AppError> {
+        let total_sompi: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(SUM(amount), 0)::BIGINT
+             FROM mined_blocks
+             WHERE wallet = $1
+               AND timestamp >= CURRENT_TIMESTAMP - INTERVAL '7 days'",
+        )
+        .bind(address)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+        Ok(total_sompi)
     }
 
     pub async fn get_blocks_count_1h(&self, address: &str) -> Result<i64, AppError> {
