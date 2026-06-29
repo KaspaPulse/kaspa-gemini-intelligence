@@ -51,7 +51,8 @@ pub struct WalletBlocksDetail {
     pub blocks_7d_sompi: i64,
     pub lifetime_blocks: i64,
     pub lifetime_sompi: i64,
-    pub daily_blocks: Vec<(String, i64, i64)>,
+    pub daily_blocks: Vec<(String, i64, i64, Option<f64>)>,
+    pub kas_price_usd: Option<f64>,
 }
 
 pub struct WalletQueriesUseCase {
@@ -170,6 +171,7 @@ impl WalletQueriesUseCase {
             let blocks_1h_sompi = self.db.get_blocks_sum_sompi_1h(&wallet).await.unwrap_or(0);
             let blocks_24h_sompi = self.db.get_blocks_sum_sompi_24h(&wallet).await.unwrap_or(0);
             let blocks_7d_sompi = self.db.get_blocks_sum_sompi_7d(&wallet).await.unwrap_or(0);
+            let kas_price_usd = self.db.get_latest_kas_price_usd().await.unwrap_or(None);
 
             let (lifetime_blocks, lifetime_sompi) = match self.db.get_lifetime_stats(&wallet).await
             {
@@ -190,7 +192,7 @@ impl WalletQueriesUseCase {
                     (0, 0)
                 }
             };
-            let daily_blocks = match self.db.get_all_daily_blocks(&wallet).await {
+            let daily_blocks_raw = match self.db.get_all_daily_blocks(&wallet).await {
                 Ok(value) => value,
                 Err(e) => {
                     let error_message = e.to_string();
@@ -209,6 +211,24 @@ impl WalletQueriesUseCase {
                     Vec::new()
                 }
             };
+            let day_keys: Vec<String> = daily_blocks_raw
+                .iter()
+                .map(|(day, _, _)| day.clone())
+                .collect();
+
+            let daily_price_map = self
+                .db
+                .get_kas_price_usd_map_for_days(&day_keys)
+                .await
+                .unwrap_or_default();
+
+            let daily_blocks = daily_blocks_raw
+                .into_iter()
+                .map(|(day, count, total_sompi)| {
+                    let price_usd = daily_price_map.get(&day).copied();
+                    (day, count, total_sompi, price_usd)
+                })
+                .collect();
 
             details.push(WalletBlocksDetail {
                 address: wallet,
@@ -221,6 +241,7 @@ impl WalletQueriesUseCase {
                 lifetime_blocks,
                 lifetime_sompi,
                 daily_blocks,
+                kas_price_usd,
             });
         }
 

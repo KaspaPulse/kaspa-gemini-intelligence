@@ -515,8 +515,12 @@ async fn main() -> anyhow::Result<()> {
         cancel_token.clone(),
     );
 
-    let system_tasks_uc =
-        Arc::new(crate::application::background_jobs::SystemTasksUseCase::new(db_repo.clone()));
+    let system_tasks_uc = Arc::new(
+        crate::application::background_jobs::SystemTasksUseCase::new(
+            db_repo.clone(),
+            market_provider.clone(),
+        ),
+    );
 
     crate::presentation::telegram::workers::periodic_tasks::start_system_monitors(
         system_tasks_uc.clone(),

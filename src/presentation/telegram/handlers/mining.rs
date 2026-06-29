@@ -29,6 +29,29 @@ fn format_kas_from_sompi(total_sompi: i64) -> String {
     let value = total_sompi as f64 / SOMPI_PER_KAS as f64;
     format_with_thousands(value)
 }
+
+fn format_usd(value: f64) -> String {
+    format!("${}", format_with_thousands(value))
+}
+
+fn format_usd_from_sompi(total_sompi: i64, price_usd: f64) -> String {
+    let kas_value = total_sompi as f64 / SOMPI_PER_KAS as f64;
+    format_usd(kas_value * price_usd)
+}
+
+fn format_kas_with_optional_usd(total_sompi: i64, price_usd: Option<f64>) -> String {
+    let kas = format!("<code>{}</code> KAS", format_kas_from_sompi(total_sompi));
+
+    match price_usd {
+        Some(price) if price.is_finite() && price > 0.0 => {
+            format!(
+                "{kas} | <code>{}</code>",
+                format_usd_from_sompi(total_sompi, price)
+            )
+        }
+        _ => kas,
+    }
+}
 fn format_avg_per_hour(blocks: i64, hours: f64) -> String {
     if hours <= 0.0 {
         return "0.0".to_string();
@@ -37,13 +60,18 @@ fn format_avg_per_hour(blocks: i64, hours: f64) -> String {
     format!("{:.1}", blocks as f64 / hours)
 }
 
-fn format_daily_blocks_history_row(day: &str, blocks: i64, total_sompi: i64) -> String {
+fn format_daily_blocks_history_row(
+    day: &str,
+    blocks: i64,
+    total_sompi: i64,
+    price_usd: Option<f64>,
+) -> String {
     format!(
-        "<code>{}</code> | <code>{}</code> blk | Avg <code>{}/hr</code> | <code>{}</code> KAS\n",
+        "<code>{}</code> | <code>{}</code> blk | <code>{}/hr</code> | {}\n",
         day,
         blocks,
         format_avg_per_hour(blocks, 24.0),
-        format_kas_from_sompi(total_sompi)
+        format_kas_with_optional_usd(total_sompi, price_usd)
     )
 }
 
@@ -79,6 +107,7 @@ pub async fn handle_blocks(
     let total_7d_sompi: i64 = details.iter().map(|w| w.blocks_7d_sompi).sum();
     let total_lifetime: i64 = details.iter().map(|w| w.lifetime_blocks).sum();
     let total_lifetime_sompi: i64 = details.iter().map(|w| w.lifetime_sompi).sum();
+    let kas_price_usd = details.iter().find_map(|w| w.kas_price_usd);
 
     let status = if total_1h > 0 {
         "Active 🟢"
@@ -93,25 +122,25 @@ pub async fn handle_blocks(
          Community Mining Alerts\n\
          ━━━━━━━━━━━━━━━━━━\n\
          👛 <b>Tracked Wallets:</b> <code>{}</code>\n\
-         ⏱️ <b>Total Last 1 Hour:</b> <code>{}</code> blocks | Avg <code>{}/hr</code> | <code>{}</code> KAS\n\
-         ⏳ <b>Total Last 24 Hours:</b> <code>{}</code> blocks | Avg <code>{}/hr</code> | <code>{}</code> KAS\n\
-         📆 <b>Total Last 7 Days:</b> <code>{}</code> blocks | Avg <code>{}/hr</code> | <code>{}</code> KAS\n\
-         🏆 <b>Total Lifetime:</b> <code>{}</code> blocks | <code>{}</code> KAS\n\
+         ⏱️ <b>Total Last 1 Hour:</b> <code>{}</code> blocks | <code>{}/hr</code> | {}\n\
+         ⏳ <b>Total Last 24 Hours:</b> <code>{}</code> blocks | <code>{}/hr</code> | {}\n\
+         📆 <b>Total Last 7 Days:</b> <code>{}</code> blocks | <code>{}/hr</code> | {}\n\
+         🏆 <b>Total Lifetime:</b> <code>{}</code> blocks | {}\n\
          📈 <b>Mining Status:</b> {}\n\n\
          Select a wallet below to view detailed block stats.\n\n\
          ⏱️ <code>{}</code>",
         details.len(),
         total_1h,
         format_avg_per_hour(total_1h, 1.0),
-        format_kas_from_sompi(total_1h_sompi),
+        format_kas_with_optional_usd(total_1h_sompi, kas_price_usd),
         total_24h,
         format_avg_per_hour(total_24h, 24.0),
-        format_kas_from_sompi(total_24h_sompi),
+        format_kas_with_optional_usd(total_24h_sompi, kas_price_usd),
         total_7d,
         format_avg_per_hour(total_7d, 168.0),
-        format_kas_from_sompi(total_7d_sompi),
+        format_kas_with_optional_usd(total_7d_sompi, kas_price_usd),
         total_lifetime,
-        format_kas_from_sompi(total_lifetime_sompi),
+        format_kas_with_optional_usd(total_lifetime_sompi, kas_price_usd),
         status,
         chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC")
     );
@@ -251,17 +280,17 @@ pub async fn handle_wallet_blocks_detail(
 
     let mut daily_text = format!(
         "\u{1F4CA} <b>Rates & KAS</b>\n\
-         1H: Avg <code>{}/hr</code> | <code>{}</code> KAS\n\
-         24H: Avg <code>{}/hr</code> | <code>{}</code> KAS\n\
-         7D: Avg <code>{}/hr</code> | <code>{}</code> KAS\n\
-         Lifetime: <code>{}</code> KAS\n\n",
+         1H: <code>{}/hr</code> | {}\n\
+         24H: <code>{}/hr</code> | {}\n\
+         7D: <code>{}/hr</code> | {}\n\
+         Lifetime: {}\n\n",
         format_avg_per_hour(detail.blocks_1h, 1.0),
-        format_kas_from_sompi(detail.blocks_1h_sompi),
+        format_kas_with_optional_usd(detail.blocks_1h_sompi, detail.kas_price_usd),
         format_avg_per_hour(detail.blocks_24h, 24.0),
-        format_kas_from_sompi(detail.blocks_24h_sompi),
+        format_kas_with_optional_usd(detail.blocks_24h_sompi, detail.kas_price_usd),
         format_avg_per_hour(detail.blocks_7d, 168.0),
-        format_kas_from_sompi(detail.blocks_7d_sompi),
-        format_kas_from_sompi(detail.lifetime_sompi)
+        format_kas_with_optional_usd(detail.blocks_7d_sompi, detail.kas_price_usd),
+        format_kas_with_optional_usd(detail.lifetime_sompi, detail.kas_price_usd)
     );
 
     if !detail.daily_blocks.is_empty() {
@@ -272,8 +301,13 @@ pub async fn handle_wallet_blocks_detail(
             total_days
         ));
 
-        for (day, count, total_sompi) in detail.daily_blocks[start..end].iter() {
-            daily_text.push_str(&format_daily_blocks_history_row(day, *count, *total_sompi));
+        for (day, count, total_sompi, price_usd) in detail.daily_blocks[start..end].iter() {
+            daily_text.push_str(&format_daily_blocks_history_row(
+                day,
+                *count,
+                *total_sompi,
+                *price_usd,
+            ));
         }
     } else {
         daily_text.push_str("\u{1F4C5} <b>Full History:</b> <code>No blocks</code>\n");
