@@ -84,7 +84,7 @@ impl PostgresRepository {
              ) mined_days
              LEFT JOIN kas_price_history prices ON prices.day = mined_days.day
              WHERE prices.day IS NULL
-             ORDER BY day ASC",
+             ORDER BY mined_days.day ASC",
         )
         .bind(bounded_days)
         .fetch_all(&self.pool)
