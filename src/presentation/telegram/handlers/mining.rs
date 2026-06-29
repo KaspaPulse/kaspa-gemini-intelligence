@@ -150,6 +150,7 @@ pub async fn handle_wallet_blocks_detail(
     message_id: teloxide::types::MessageId,
     cid: i64,
     index: usize,
+    history_page: usize,
     wallet_query: Arc<WalletQueriesUseCase>,
 ) -> anyhow::Result<()> {
     let details = wallet_query
@@ -175,17 +176,41 @@ pub async fn handle_wallet_blocks_detail(
         "Idle 🟡"
     };
 
+    const DEFAULT_BLOCKS_HISTORY_PAGE_SIZE: usize = 20;
+
+    let page_size: usize = std::env::var("BLOCKS_HISTORY_PAGE_SIZE")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .map(|value| value.clamp(5, 50))
+        .unwrap_or(DEFAULT_BLOCKS_HISTORY_PAGE_SIZE);
+
+    let total_days = detail.daily_blocks.len();
+    let total_pages = if total_days == 0 {
+        1
+    } else {
+        total_days.div_ceil(page_size)
+    };
+
+    let history_page = history_page.min(total_pages.saturating_sub(1));
+    let start = history_page.saturating_mul(page_size);
+    let end = (start + page_size).min(total_days);
+
     let mut daily_text = String::new();
 
     if !detail.daily_blocks.is_empty() {
-        daily_text.push_str("📅 <b>Last 7 Days:</b>\n");
-        for (day, count) in detail.daily_blocks.iter().take(7) {
-            daily_text.push_str(&format!("├ <code>{}</code>: {} blocks\n", day, count));
+        daily_text.push_str(&format!(
+            "\u{1F4C5} <b>Full History:</b> page <code>{}/{}</code> | days <code>{}</code>\n",
+            history_page + 1,
+            total_pages,
+            total_days
+        ));
+
+        for (day, count) in detail.daily_blocks[start..end].iter() {
+            daily_text.push_str(&format!("â”œ <code>{}</code>: {} blocks\n", day, count));
         }
     } else {
-        daily_text.push_str("📅 <b>Last 7 Days:</b> <code>No blocks</code>\n");
+        daily_text.push_str("\u{1F4C5} <b>Full History:</b> <code>No blocks</code>\n");
     }
-
     let text = format!(
         "🧱 <b>Wallet {} Blocks</b>\n\
          ━━━━━━━━━━━━━━━━━━\n\
@@ -213,13 +238,52 @@ pub async fn handle_wallet_blocks_detail(
         chat_id,
         message_id,
         text,
-        crate::presentation::telegram::handlers::wallet::wallet_panel_markup(index),
+        blocks_history_markup(index, history_page, total_pages),
     )
     .await;
 
     Ok(())
 }
 
+fn blocks_history_markup(
+    index: usize,
+    history_page: usize,
+    total_pages: usize,
+) -> teloxide::types::InlineKeyboardMarkup {
+    use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
+
+    let mut rows = vec![vec![InlineKeyboardButton::callback(
+        "\u{1F504} Refresh",
+        format!("wallet_blocks_{}_{}", index, history_page),
+    )]];
+
+    let mut page_nav = Vec::new();
+
+    if history_page > 0 {
+        page_nav.push(InlineKeyboardButton::callback(
+            "\u{2B05}\u{FE0F} Previous",
+            format!("wallet_blocks_{}_{}", index, history_page - 1),
+        ));
+    }
+
+    if history_page + 1 < total_pages {
+        page_nav.push(InlineKeyboardButton::callback(
+            "Next \u{27A1}\u{FE0F}",
+            format!("wallet_blocks_{}_{}", index, history_page + 1),
+        ));
+    }
+
+    if !page_nav.is_empty() {
+        rows.push(page_nav);
+    }
+
+    rows.push(vec![
+        InlineKeyboardButton::callback("\u{1F45B} Wallet Panel", format!("wallet_panel_{}", index)),
+        InlineKeyboardButton::callback("\u{2B05}\u{FE0F} Back", "cmd_blocks"),
+    ]);
+
+    InlineKeyboardMarkup::new(rows)
+}
 pub async fn handle_wallet_miner_detail(
     bot: Bot,
     chat_id: teloxide::types::ChatId,
