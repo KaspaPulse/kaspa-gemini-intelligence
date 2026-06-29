@@ -279,18 +279,24 @@ pub async fn handle_wallet_blocks_detail(
     let end = (start + page_size).min(total_days);
 
     let mut daily_text = format!(
-        "\u{1F4CA} <b>Rates & KAS</b>\n\
-         1H: <code>{}/hr</code> | {}\n\
-         24H: <code>{}/hr</code> | {}\n\
-         7D: <code>{}/hr</code> | {}\n\
-         Lifetime: {}\n\n",
+        "\u{1F4CA} <b>Blocks, Rates & KAS</b>\n\
+         1H: <code>{}</code> blk | <code>{}/hr</code> | {}\n\
+         24H: <code>{}</code> blk | <code>{}/hr</code> | {}\n\
+         7D: <code>{}</code> blk | <code>{}/hr</code> | {}\n\
+         Lifetime: <code>{}</code> blk | {}\n\
+         \u{1F4C8} <b>Status:</b> {}\n\n",
+        detail.blocks_1h,
         format_avg_per_hour(detail.blocks_1h, 1.0),
         format_kas_with_optional_usd(detail.blocks_1h_sompi, detail.kas_price_usd),
+        detail.blocks_24h,
         format_avg_per_hour(detail.blocks_24h, 24.0),
         format_kas_with_optional_usd(detail.blocks_24h_sompi, detail.kas_price_usd),
+        detail.blocks_7d,
         format_avg_per_hour(detail.blocks_7d, 168.0),
         format_kas_with_optional_usd(detail.blocks_7d_sompi, detail.kas_price_usd),
-        format_kas_with_optional_usd(detail.lifetime_sompi, detail.kas_price_usd)
+        detail.lifetime_blocks,
+        format_kas_with_optional_usd(detail.lifetime_sompi, detail.kas_price_usd),
+        status
     );
 
     if !detail.daily_blocks.is_empty() {
@@ -316,20 +322,10 @@ pub async fn handle_wallet_blocks_detail(
         "🧱 <b>Wallet {} Blocks</b>\n\
          ━━━━━━━━━━━━━━━━━━\n\
          <code>{}</code>\n\n\
-         ⏱️ <b>Last 1 Hour:</b> <code>{}</code>\n\
-         ⏳ <b>Last 24 Hours:</b> <code>{}</code>\n\
-         📆 <b>Last 7 Days:</b> <code>{}</code>\n\
-         🏆 <b>Lifetime Blocks:</b> <code>{}</code>\n\
-         📈 <b>Status:</b> {}\n\
-         {}\n\
+         {}\
          ⏱️ <code>{}</code>",
         index + 1,
         detail.address,
-        detail.blocks_1h,
-        detail.blocks_24h,
-        detail.blocks_7d,
-        detail.lifetime_blocks,
-        status,
         daily_text,
         chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC")
     );
