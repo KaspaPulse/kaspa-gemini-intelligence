@@ -76,7 +76,7 @@ impl PostgresRepository {
         let bounded_days = limit_days.clamp(1, 3650) as i32;
 
         let days: Vec<String> = sqlx::query_scalar(
-            "SELECT TO_CHAR(day, 'YYYY-MM-DD')
+            "SELECT TO_CHAR(mined_days.day, 'YYYY-MM-DD')
              FROM (
                 SELECT DISTINCT DATE(timestamp) AS day
                 FROM mined_blocks
