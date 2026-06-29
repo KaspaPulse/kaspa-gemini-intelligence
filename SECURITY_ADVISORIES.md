@@ -264,3 +264,41 @@ curl http://127.0.0.1:18080/readyz
 curl http://127.0.0.1:18080/metrics
 ```
 
+
+## RUSTSEC-2026-0173 - proc-macro-error2 unmaintained
+
+Status: accepted temporary transitive advisory.
+
+proc-macro-error2 is pulled transitively through serde_nested_with -> kaspa-rpc-core from the Kaspa Rust dependency stack. The advisory reports the crate as unmaintained and states that no safe upgrade is currently available.
+
+Risk decision:
+- This is not a direct runtime dependency selected by Kaspa Pulse.
+- It is currently inherited from upstream Kaspa RPC dependencies.
+- We will keep it documented and allowed temporarily, and revisit when upstream Kaspa dependencies provide a migration path.
+
+Required follow-up:
+- Re-run cargo audit and cargo deny check during each release.
+- Remove this allow entry as soon as a safe upstream upgrade path exists.
+
+
+## RUSTSEC-2024-0388 - derivative unmaintained
+
+Status: accepted temporary transitive advisory.
+
+derivative is pulled transitively through:
+
+kaspa-txscript v2.0.1 -> ark-groth16 -> ark-crypto-primitives -> derivative
+
+This dependency is inherited from the upstream Kaspa Rust dependency stack after upgrading Kaspa crates to 2.0.1.
+
+Risk decision:
+- Kaspa Pulse does not depend on derivative directly.
+- The advisory is classified as unmaintained, not an actively exploitable vulnerability in our application path.
+- The advisory currently reports no safe upgrade path from our dependency tree.
+- We accept this advisory temporarily while monitoring upstream Kaspa and Arkworks dependency updates.
+
+Required follow-up:
+- Re-run cargo audit and cargo deny check on every release.
+- Remove this allow entry once upstream Kaspa dependencies no longer pull derivative.
+- Re-evaluate this exception if the advisory changes from unmaintained to vulnerability.
+

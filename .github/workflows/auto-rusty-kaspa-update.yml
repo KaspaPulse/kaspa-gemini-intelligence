@@ -1,0 +1,101 @@
+name: Auto Update rusty-kaspa
+
+on:
+  workflow_dispatch:
+    inputs:
+      allow_prerelease:
+        description: "Allow rusty-kaspa pre-release tags"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+  schedule:
+    - cron: "0 2 * * *"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-rusty-kaspa:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout dev
+        uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        shell: pwsh
+        run: |
+          git config user.name "kaspa-pulse-auto-updater"
+          git config user.email "actions@github.com"
+
+      - name: Install Rust stable
+        shell: pwsh
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+          cargo --version
+
+      - name: Install audit tools
+        shell: pwsh
+        run: |
+          if (-not (Get-Command cargo-audit -ErrorAction SilentlyContinue)) {
+            cargo install cargo-audit --locked
+          }
+          if (-not (Get-Command cargo-deny -ErrorAction SilentlyContinue)) {
+            cargo install cargo-deny --locked
+          }
+
+      - name: Auto update rusty-kaspa to latest release
+        id: update
+        shell: pwsh
+        run: |
+          $allow = "${{ inputs.allow_prerelease }}"
+          if ([string]::IsNullOrWhiteSpace($allow)) {
+            $allow = "false"
+          }
+
+          $args = @(
+            "-BaseBranch", "dev",
+            "-Push"
+          )
+
+          if ($allow -eq "true") {
+            $args += "-AllowPrerelease"
+          }
+
+          powershell -NoProfile -ExecutionPolicy Bypass -File "scripts\update-rusty-kaspa-latest.ps1" @args
+
+      - name: Create pull request if needed
+        if: success()
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $branch = (git branch --show-current).Trim()
+
+          if ($branch -eq "dev") {
+            Write-Host "No update branch was created. Already up to date."
+            exit 0
+          }
+
+          $existing = gh pr list --head $branch --base dev --json number --jq ".[0].number"
+
+          if ($existing) {
+            Write-Host "PR already exists: $existing"
+            exit 0
+          }
+
+          gh pr create `
+            --base dev `
+            --head $branch `
+            --title "Auto update rusty-kaspa dependencies" `
+            --body "Automated update to the latest rusty-kaspa release tag. Validation passed: fmt, check, clippy, test, audit/deny/security pipeline."

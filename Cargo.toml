@@ -15,11 +15,11 @@ async-trait = "0.1.80"
 anyhow = "1.0"
 thiserror = "2.0"
 
-kaspa-wrpc-client = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v1.1.0" }
-kaspa-rpc-core = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v1.1.0" }
-kaspa-addresses = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v1.1.0" }
-kaspa-consensus-core = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v1.1.0" }
-kaspa-hashes = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v1.1.0" }
+kaspa-wrpc-client = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v2.0.1" }
+kaspa-rpc-core = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v2.0.1" }
+kaspa-addresses = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v2.0.1" }
+kaspa-consensus-core = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v2.0.1" }
+kaspa-hashes = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v2.0.1" }
 
 sqlx = { version = "0.8", features = ["postgres", "runtime-tokio-rustls", "macros", "chrono", "json"] }
 
@@ -42,12 +42,13 @@ strip = true
 panic = "abort"
 
 [patch.crates-io]
-serde_nested_with = { git = "https://github.com/murar8/serde_nested_with", rev = "ee200a4978ae4cc7da5469af0212431b0f8919a1" }
 
 [features]
 default = []
 
 [profile.dev]
 opt-level = 1
+
+
 
 

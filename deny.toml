@@ -22,7 +22,9 @@ wildcards = "warn"
 
 [advisories]
 ignore = [
-    "RUSTSEC-2023-0071", # RSA: PostgreSQL-only bot; MySQL feature path removed. See SECURITY_ADVISORIES.md.
+            "RUSTSEC-2024-0388", # derivative unmaintained: transitive via kaspa-txscript v2.0.1 -> ark-groth16/ark-crypto-primitives; no safe upgrade. See SECURITY_ADVISORIES.md.
+"RUSTSEC-2026-0173", # proc-macro-error2 unmaintained: transitive via kaspa-rpc-core/serde_nested_with; no safe upgrade. See SECURITY_ADVISORIES.md.
+"RUSTSEC-2023-0071", # RSA: PostgreSQL-only bot; MySQL feature path removed. See SECURITY_ADVISORIES.md.
     "RUSTSEC-2025-0052", # async-std: Upstream Kaspa SDK transitive dependency. See SECURITY_ADVISORIES.md.
     "RUSTSEC-2024-0375", # atty: Upstream transitive dependency. See SECURITY_ADVISORIES.md.
     "RUSTSEC-2024-0384", # instant: Upstream transitive dependency. See SECURITY_ADVISORIES.md.
@@ -39,6 +41,8 @@ unknown-registry = "warn"
 unknown-git = "deny"
 allow-git = [
     "https://github.com/kaspanet/rusty-kaspa",
-    "https://github.com/murar8/serde_nested_with"
 ]
+
+
+
 
