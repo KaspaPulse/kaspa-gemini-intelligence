@@ -541,3 +541,38 @@ fn blocks_history_must_be_full_paginated_and_env_configurable() {
         ".env.example must document BLOCKS_HISTORY_PAGE_SIZE=20"
     );
 }
+
+#[test]
+fn delivery_queue_processing_status_constraint_fix_must_drop_legacy_constraint() {
+    let migration_0006 =
+        std::fs::read_to_string("migrations/0006_delivery_queue_processing_locks.sql")
+            .expect("migration 0006 must be readable");
+    let migration_0007 =
+        std::fs::read_to_string("migrations/0007_delivery_queue_status_constraint_fix.sql")
+            .expect("migration 0007 must be readable");
+
+    assert!(
+        migration_0006.contains("'processing'"),
+        "migration 0006 must introduce processing status usage"
+    );
+
+    assert!(
+        migration_0007.contains("DROP CONSTRAINT IF EXISTS ck_telegram_delivery_queue_status"),
+        "migration 0007 must drop the legacy status constraint that blocks processing"
+    );
+
+    assert!(
+        migration_0007.contains("ck_telegram_delivery_queue_status_v2"),
+        "migration 0007 must ensure the v2 delivery queue status constraint exists"
+    );
+
+    assert!(
+        migration_0007.contains("'processing'"),
+        "migration 0007 must allow the processing status"
+    );
+
+    assert!(
+        migration_0007.contains("VALIDATE CONSTRAINT ck_telegram_delivery_queue_status_v2"),
+        "migration 0007 must validate the v2 constraint"
+    );
+}
