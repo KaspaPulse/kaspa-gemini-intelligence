@@ -44,10 +44,14 @@ pub struct WalletBalanceDetail {
 pub struct WalletBlocksDetail {
     pub address: String,
     pub blocks_1h: i64,
+    pub blocks_1h_sompi: i64,
     pub blocks_24h: i64,
+    pub blocks_24h_sompi: i64,
     pub blocks_7d: i64,
+    pub blocks_7d_sompi: i64,
     pub lifetime_blocks: i64,
-    pub daily_blocks: Vec<(String, i64)>,
+    pub lifetime_sompi: i64,
+    pub daily_blocks: Vec<(String, i64, i64)>,
 }
 
 pub struct WalletQueriesUseCase {
@@ -163,8 +167,13 @@ impl WalletQueriesUseCase {
                     0
                 }
             };
-            let lifetime_blocks = match self.db.get_lifetime_stats(&wallet).await {
-                Ok((count, _)) => count,
+            let blocks_1h_sompi = self.db.get_blocks_sum_sompi_1h(&wallet).await.unwrap_or(0);
+            let blocks_24h_sompi = self.db.get_blocks_sum_sompi_24h(&wallet).await.unwrap_or(0);
+            let blocks_7d_sompi = self.db.get_blocks_sum_sompi_7d(&wallet).await.unwrap_or(0);
+
+            let (lifetime_blocks, lifetime_sompi) = match self.db.get_lifetime_stats(&wallet).await
+            {
+                Ok((count, sum_sompi)) => (count, sum_sompi),
                 Err(e) => {
                     let error_message = e.to_string();
                     let lifetime_wallet_masked = crate::utils::format_short_wallet(&wallet);
@@ -178,7 +187,7 @@ impl WalletQueriesUseCase {
 
                     let _ = self.db.record_bot_event_record(db_event).await;
 
-                    0
+                    (0, 0)
                 }
             };
             let daily_blocks = match self.db.get_all_daily_blocks(&wallet).await {
@@ -204,9 +213,13 @@ impl WalletQueriesUseCase {
             details.push(WalletBlocksDetail {
                 address: wallet,
                 blocks_1h,
+                blocks_1h_sompi,
                 blocks_24h,
+                blocks_24h_sompi,
                 blocks_7d,
+                blocks_7d_sompi,
                 lifetime_blocks,
+                lifetime_sompi,
                 daily_blocks,
             });
         }

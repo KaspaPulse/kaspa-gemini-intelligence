@@ -4,6 +4,45 @@ use crate::wallet::wallet_use_cases::WalletQueriesUseCase;
 use std::sync::Arc;
 use teloxide::prelude::*;
 
+const SOMPI_PER_KAS: i128 = 100_000_000;
+
+fn format_kas_from_sompi(total_sompi: i64) -> String {
+    let value = total_sompi as i128;
+    let sign = if value < 0 { "-" } else { "" };
+    let abs = value.abs();
+    let whole = abs / SOMPI_PER_KAS;
+    let frac = abs % SOMPI_PER_KAS;
+
+    let mut rendered = format!("{sign}{whole}.{frac:08}");
+    while rendered.contains('.') && rendered.ends_with('0') {
+        rendered.pop();
+    }
+
+    if rendered.ends_with('.') {
+        rendered.push('0');
+    }
+
+    rendered
+}
+
+fn format_avg_per_hour(blocks: i64, hours: f64) -> String {
+    if hours <= 0.0 {
+        return "0.0".to_string();
+    }
+
+    format!("{:.1}", blocks as f64 / hours)
+}
+
+fn format_daily_blocks_history_row(day: &str, blocks: i64, total_sompi: i64) -> String {
+    format!(
+        "<code>{}</code> | <code>{}</code> blk | Avg <code>{}/hr</code> | <code>{}</code> KAS\n",
+        day,
+        blocks,
+        format_avg_per_hour(blocks, 24.0),
+        format_kas_from_sompi(total_sompi)
+    )
+}
+
 pub async fn handle_blocks(
     bot: Bot,
     msg: Message,
@@ -29,9 +68,13 @@ pub async fn handle_blocks(
     }
 
     let total_1h: i64 = details.iter().map(|w| w.blocks_1h).sum();
+    let total_1h_sompi: i64 = details.iter().map(|w| w.blocks_1h_sompi).sum();
     let total_24h: i64 = details.iter().map(|w| w.blocks_24h).sum();
+    let total_24h_sompi: i64 = details.iter().map(|w| w.blocks_24h_sompi).sum();
     let total_7d: i64 = details.iter().map(|w| w.blocks_7d).sum();
+    let total_7d_sompi: i64 = details.iter().map(|w| w.blocks_7d_sompi).sum();
     let total_lifetime: i64 = details.iter().map(|w| w.lifetime_blocks).sum();
+    let total_lifetime_sompi: i64 = details.iter().map(|w| w.lifetime_sompi).sum();
 
     let status = if total_1h > 0 {
         "Active 🟢"
@@ -46,18 +89,25 @@ pub async fn handle_blocks(
          Community Mining Alerts\n\
          ━━━━━━━━━━━━━━━━━━\n\
          👛 <b>Tracked Wallets:</b> <code>{}</code>\n\
-         ⏱️ <b>Total Last 1 Hour:</b> <code>{}</code>\n\
-         ⏳ <b>Total Last 24 Hours:</b> <code>{}</code>\n\
-         📆 <b>Total Last 7 Days:</b> <code>{}</code>\n\
-         🏆 <b>Total Lifetime Blocks:</b> <code>{}</code>\n\
+         ⏱️ <b>Total Last 1 Hour:</b> <code>{}</code> blocks | Avg <code>{}/hr</code> | <code>{}</code> KAS\n\
+         ⏳ <b>Total Last 24 Hours:</b> <code>{}</code> blocks | Avg <code>{}/hr</code> | <code>{}</code> KAS\n\
+         📆 <b>Total Last 7 Days:</b> <code>{}</code> blocks | Avg <code>{}/hr</code> | <code>{}</code> KAS\n\
+         🏆 <b>Total Lifetime:</b> <code>{}</code> blocks | <code>{}</code> KAS\n\
          📈 <b>Mining Status:</b> {}\n\n\
          Select a wallet below to view detailed block stats.\n\n\
          ⏱️ <code>{}</code>",
         details.len(),
         total_1h,
+        format_avg_per_hour(total_1h, 1.0),
+        format_kas_from_sompi(total_1h_sompi),
         total_24h,
+        format_avg_per_hour(total_24h, 24.0),
+        format_kas_from_sompi(total_24h_sompi),
         total_7d,
+        format_avg_per_hour(total_7d, 168.0),
+        format_kas_from_sompi(total_7d_sompi),
         total_lifetime,
+        format_kas_from_sompi(total_lifetime_sompi),
         status,
         chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC")
     );
@@ -176,7 +226,7 @@ pub async fn handle_wallet_blocks_detail(
         "Idle 🟡"
     };
 
-    const DEFAULT_BLOCKS_HISTORY_PAGE_SIZE: usize = 20;
+    const DEFAULT_BLOCKS_HISTORY_PAGE_SIZE: usize = 15;
 
     let page_size: usize = std::env::var("BLOCKS_HISTORY_PAGE_SIZE")
         .ok()
@@ -195,7 +245,20 @@ pub async fn handle_wallet_blocks_detail(
     let start = history_page.saturating_mul(page_size);
     let end = (start + page_size).min(total_days);
 
-    let mut daily_text = String::new();
+    let mut daily_text = format!(
+        "\u{1F4CA} <b>Rates & KAS</b>\n\
+         1H: Avg <code>{}/hr</code> | <code>{}</code> KAS\n\
+         24H: Avg <code>{}/hr</code> | <code>{}</code> KAS\n\
+         7D: Avg <code>{}/hr</code> | <code>{}</code> KAS\n\
+         Lifetime: <code>{}</code> KAS\n\n",
+        format_avg_per_hour(detail.blocks_1h, 1.0),
+        format_kas_from_sompi(detail.blocks_1h_sompi),
+        format_avg_per_hour(detail.blocks_24h, 24.0),
+        format_kas_from_sompi(detail.blocks_24h_sompi),
+        format_avg_per_hour(detail.blocks_7d, 168.0),
+        format_kas_from_sompi(detail.blocks_7d_sompi),
+        format_kas_from_sompi(detail.lifetime_sompi)
+    );
 
     if !detail.daily_blocks.is_empty() {
         daily_text.push_str(&format!(
@@ -205,8 +268,8 @@ pub async fn handle_wallet_blocks_detail(
             total_days
         ));
 
-        for (day, count) in detail.daily_blocks[start..end].iter() {
-            daily_text.push_str(&format!("â”œ <code>{}</code>: {} blocks\n", day, count));
+        for (day, count, total_sompi) in detail.daily_blocks[start..end].iter() {
+            daily_text.push_str(&format_daily_blocks_history_row(day, *count, *total_sompi));
         }
     } else {
         daily_text.push_str("\u{1F4C5} <b>Full History:</b> <code>No blocks</code>\n");

@@ -487,8 +487,8 @@ fn blocks_history_must_be_full_paginated_and_env_configurable() {
     );
 
     assert!(
-        mining_handler.contains("DEFAULT_BLOCKS_HISTORY_PAGE_SIZE: usize = 20"),
-        "blocks history page size must default to 20"
+        mining_handler.contains("DEFAULT_BLOCKS_HISTORY_PAGE_SIZE: usize = 15"),
+        "blocks history page size must default to 15"
     );
 
     assert!(
@@ -537,8 +537,8 @@ fn blocks_history_must_be_full_paginated_and_env_configurable() {
     );
 
     assert!(
-        env_example.contains("BLOCKS_HISTORY_PAGE_SIZE=20"),
-        ".env.example must document BLOCKS_HISTORY_PAGE_SIZE=20"
+        env_example.contains("BLOCKS_HISTORY_PAGE_SIZE=15"),
+        ".env.example must document BLOCKS_HISTORY_PAGE_SIZE=15"
     );
 }
 
@@ -574,5 +574,42 @@ fn delivery_queue_processing_status_constraint_fix_must_drop_legacy_constraint()
     assert!(
         migration_0007.contains("VALIDATE CONSTRAINT ck_telegram_delivery_queue_status_v2"),
         "migration 0007 must validate the v2 constraint"
+    );
+}
+
+#[test]
+fn blocks_display_must_show_avg_kas_and_no_broken_daily_tree() {
+    let repo = read_source("src/infrastructure/database/mined_blocks_repo.rs");
+    let mining_handler = read_source("src/presentation/telegram/handlers/mining.rs");
+    let wallet_use_cases = read_source("src/wallet/wallet_use_cases.rs");
+
+    assert!(
+        repo.contains("COALESCE(SUM(amount), 0)::BIGINT"),
+        "mined block repository must sum mined KAS from amount"
+    );
+
+    assert!(
+        wallet_use_cases.contains("blocks_1h_sompi")
+            && wallet_use_cases.contains("blocks_24h_sompi")
+            && wallet_use_cases.contains("blocks_7d_sompi")
+            && wallet_use_cases.contains("lifetime_sompi"),
+        "wallet block details must carry mined KAS totals"
+    );
+
+    assert!(
+        mining_handler.contains("format_avg_per_hour")
+            && mining_handler.contains("format_kas_from_sompi")
+            && mining_handler.contains("Rates & KAS"),
+        "/blocks display must show hourly averages and mined KAS"
+    );
+
+    assert!(
+        !mining_handler.contains("â”œ <code>{}</code>: {} blocks"),
+        "/blocks daily history must not use the broken mojibake tree prefix"
+    );
+
+    assert!(
+        mining_handler.contains("format_daily_blocks_history_row"),
+        "/blocks daily history rows must use the safe formatter"
     );
 }
