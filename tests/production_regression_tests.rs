@@ -613,3 +613,28 @@ fn blocks_display_must_show_avg_kas_and_no_broken_daily_tree() {
         "/blocks daily history rows must use the safe formatter"
     );
 }
+
+#[test]
+fn blocks_kas_display_must_be_rounded_and_grouped_for_readability() {
+    let mining_handler = read_source("src/presentation/telegram/handlers/mining.rs");
+
+    assert!(
+        mining_handler.contains("fn format_with_thousands"),
+        "/blocks KAS display must use a thousands separator helper"
+    );
+
+    assert!(
+        mining_handler.contains("format!(\"{:.2}\""),
+        "/blocks KAS display must be rounded to two decimals"
+    );
+
+    assert!(
+        mining_handler.contains("grouped_rev.push(',')"),
+        "/blocks KAS display must include comma thousands separators"
+    );
+
+    assert!(
+        !mining_handler.contains("while rendered.contains('.') && rendered.ends_with('0')"),
+        "/blocks KAS display must not show long trimmed precision strings"
+    );
+}

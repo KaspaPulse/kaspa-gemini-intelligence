@@ -6,25 +6,29 @@ use teloxide::prelude::*;
 
 const SOMPI_PER_KAS: i128 = 100_000_000;
 
-fn format_kas_from_sompi(total_sompi: i64) -> String {
-    let value = total_sompi as i128;
-    let sign = if value < 0 { "-" } else { "" };
-    let abs = value.abs();
-    let whole = abs / SOMPI_PER_KAS;
-    let frac = abs % SOMPI_PER_KAS;
+fn format_with_thousands(value: f64) -> String {
+    let sign = if value < 0.0 { "-" } else { "" };
+    let rendered = format!("{:.2}", value.abs());
+    let mut parts = rendered.split('.');
+    let whole = parts.next().unwrap_or("0");
+    let frac = parts.next().unwrap_or("00");
 
-    let mut rendered = format!("{sign}{whole}.{frac:08}");
-    while rendered.contains('.') && rendered.ends_with('0') {
-        rendered.pop();
+    let mut grouped_rev = String::new();
+    for (idx, ch) in whole.chars().rev().enumerate() {
+        if idx > 0 && idx % 3 == 0 {
+            grouped_rev.push(',');
+        }
+        grouped_rev.push(ch);
     }
 
-    if rendered.ends_with('.') {
-        rendered.push('0');
-    }
-
-    rendered
+    let grouped: String = grouped_rev.chars().rev().collect();
+    format!("{sign}{grouped}.{frac}")
 }
 
+fn format_kas_from_sompi(total_sompi: i64) -> String {
+    let value = total_sompi as f64 / SOMPI_PER_KAS as f64;
+    format_with_thousands(value)
+}
 fn format_avg_per_hour(blocks: i64, hours: f64) -> String {
     if hours <= 0.0 {
         return "0.0".to_string();
