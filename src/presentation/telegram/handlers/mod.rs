@@ -945,13 +945,23 @@ pub async fn handle_callback(
         let _ = bot.answer_callback_query(q.id.clone()).text("Blocks").await;
 
         if let Some(msg) = q.message {
-            let index: usize = index_text.parse().unwrap_or(usize::MAX);
+            let mut parts = index_text.split('_');
+            let index = parts
+                .next()
+                .and_then(|value| value.parse::<usize>().ok())
+                .unwrap_or(usize::MAX);
+            let history_page = parts
+                .next()
+                .and_then(|value| value.parse::<usize>().ok())
+                .unwrap_or(0);
+
             mining::handle_wallet_blocks_detail(
                 bot,
                 msg.chat().id,
                 msg.id(),
                 msg.chat().id.0,
                 index,
+                history_page,
                 ucs.wallet_query.clone(),
             )
             .await?;
@@ -959,7 +969,6 @@ pub async fn handle_callback(
 
         return Ok(());
     }
-
     if let Some(index_text) = data.strip_prefix("wallet_miner_") {
         let _ = bot.answer_callback_query(q.id.clone()).text("Miner").await;
 

@@ -39,7 +39,10 @@ impl PostgresRepository {
         Ok((row.count, row.sum))
     }
 
-    pub async fn get_daily_blocks(&self, address: &str) -> Result<Vec<(String, i64)>, AppError> {
+    pub async fn get_all_daily_blocks(
+        &self,
+        address: &str,
+    ) -> Result<Vec<(String, i64)>, AppError> {
         let rows: Vec<(String, i64)> = sqlx::query_as(
             "SELECT
                 TO_CHAR(timestamp, 'YYYY-MM-DD') as day,
@@ -48,7 +51,7 @@ impl PostgresRepository {
              WHERE wallet = $1
              GROUP BY day
              ORDER BY day DESC
-             LIMIT 7",
+            ",
         )
         .bind(address)
         .fetch_all(&self.pool)

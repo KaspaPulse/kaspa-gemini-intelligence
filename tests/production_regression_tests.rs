@@ -452,3 +452,92 @@ fn alert_delivery_behavior_tests_must_exist() {
         "UTXO monitor must attempt Telegram delivery"
     );
 }
+
+#[test]
+fn blocks_history_must_be_full_paginated_and_env_configurable() {
+    let repo = read_source("src/infrastructure/database/mined_blocks_repo.rs");
+    let mining_handler = read_source("src/presentation/telegram/handlers/mining.rs");
+    let telegram_handlers = read_source("src/presentation/telegram/handlers/mod.rs");
+    let wallet_use_cases = read_source("src/wallet/wallet_use_cases.rs");
+    let env_example = read_source(".env.example");
+
+    assert!(
+        repo.contains("get_all_daily_blocks"),
+        "mined blocks repository must expose full daily block history"
+    );
+
+    let daily_fn_start = repo
+        .find("get_all_daily_blocks")
+        .expect("get_all_daily_blocks function must exist");
+    let repo_tail = &repo[daily_fn_start..];
+
+    assert!(
+        !repo_tail.contains("LIMIT 7"),
+        "full daily block history query must not limit to seven rows"
+    );
+
+    assert!(
+        wallet_use_cases.contains("get_all_daily_blocks"),
+        "wallet use case must request full daily block history"
+    );
+
+    assert!(
+        !mining_handler.contains(".take(7)"),
+        "Telegram renderer must not truncate daily history to seven days"
+    );
+
+    assert!(
+        mining_handler.contains("DEFAULT_BLOCKS_HISTORY_PAGE_SIZE: usize = 20"),
+        "blocks history page size must default to 20"
+    );
+
+    assert!(
+        mining_handler.contains("std::env::var(\"BLOCKS_HISTORY_PAGE_SIZE\")"),
+        "blocks page size must be configurable from env"
+    );
+
+    assert!(
+        mining_handler.contains(".unwrap_or(DEFAULT_BLOCKS_HISTORY_PAGE_SIZE)"),
+        "blocks page size must fall back to the explicit default"
+    );
+
+    assert!(
+        mining_handler.contains(".clamp(5, 50)") || mining_handler.contains("clamp(5, 50)"),
+        "blocks page size must be clamped to a safe range"
+    );
+
+    assert!(
+        mining_handler.contains("history_page: usize"),
+        "wallet detail handler must accept history_page"
+    );
+
+    assert!(
+        mining_handler.contains("div_ceil(page_size)"),
+        "wallet detail handler must compute total pages"
+    );
+
+    assert!(
+        mining_handler.contains("blocks_history_markup"),
+        "wallet detail handler must use a blocks-specific pagination keyboard"
+    );
+
+    assert!(
+        mining_handler.contains("Previous") && mining_handler.contains("Next"),
+        "wallet detail handler must provide previous/next buttons"
+    );
+
+    assert!(
+        telegram_handlers.contains("let mut parts = index_text.split('_');"),
+        "wallet_blocks callback must parse index and optional page"
+    );
+
+    assert!(
+        telegram_handlers.contains("history_page,"),
+        "wallet_blocks callback must pass history_page"
+    );
+
+    assert!(
+        env_example.contains("BLOCKS_HISTORY_PAGE_SIZE=20"),
+        ".env.example must document BLOCKS_HISTORY_PAGE_SIZE=20"
+    );
+}

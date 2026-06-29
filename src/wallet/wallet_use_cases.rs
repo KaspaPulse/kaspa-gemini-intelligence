@@ -181,7 +181,7 @@ impl WalletQueriesUseCase {
                     0
                 }
             };
-            let daily_blocks = match self.db.get_daily_blocks(&wallet).await {
+            let daily_blocks = match self.db.get_all_daily_blocks(&wallet).await {
                 Ok(value) => value,
                 Err(e) => {
                     let error_message = e.to_string();
@@ -193,7 +193,7 @@ impl WalletQueriesUseCase {
                     db_event.status = Some("daily_blocks_fallback");
                     db_event.error_message = Some(&error_message);
                     db_event.metadata_json =
-                        r#"{"operation":"get_daily_blocks","fallback":"empty_list"}"#;
+                        r#"{"operation":"get_all_daily_blocks","fallback":"empty_list"}"#;
 
                     let _ = self.db.record_bot_event_record(db_event).await;
 
