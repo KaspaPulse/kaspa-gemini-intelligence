@@ -638,3 +638,81 @@ fn blocks_kas_display_must_be_rounded_and_grouped_for_readability() {
         "/blocks KAS display must not show long trimmed precision strings"
     );
 }
+
+#[test]
+fn blocks_usd_value_must_use_stored_prices_only() {
+    let mining_handler = read_source("src/presentation/telegram/handlers/mining.rs");
+    let wallet_use_cases = read_source("src/wallet/wallet_use_cases.rs");
+    let price_repo = read_source("src/infrastructure/database/kas_price_repo.rs");
+    let background_jobs = read_source("src/application/background_jobs.rs");
+
+    assert!(
+        mining_handler.contains("format_kas_with_optional_usd"),
+        "/blocks must format KAS with optional stored USD values"
+    );
+
+    assert!(
+        mining_handler.contains("price_usd: Option<f64>"),
+        "daily row formatter must accept optional stored daily price"
+    );
+
+    assert!(
+        !mining_handler.contains("$n/a"),
+        "/blocks must not display $n/a"
+    );
+
+    assert!(
+        !mining_handler.contains("get_kaspa_market_data")
+            && !mining_handler.contains("get_kaspa_usd_history")
+            && !mining_handler.contains("CoinGecko"),
+        "/blocks must not call live market APIs"
+    );
+
+    assert!(
+        wallet_use_cases.contains("get_latest_kas_price_usd")
+            && wallet_use_cases.contains("get_kas_price_usd_map_for_days"),
+        "wallet block details must read stored KAS/USD prices from DB"
+    );
+
+    assert!(
+        price_repo.contains("kas_price_history")
+            && price_repo.contains("upsert_kas_price_usd")
+            && price_repo.contains("get_missing_kas_price_days_for_mined_blocks"),
+        "KAS price repository must persist and read stored daily prices"
+    );
+
+    assert!(
+        background_jobs.contains("execute_kas_price_sync")
+            && background_jobs.contains("upsert_kas_price_usd")
+            && background_jobs.contains("get_kaspa_usd_history"),
+        "background job must fetch and store prices outside /blocks"
+    );
+}
+
+#[test]
+fn kas_price_history_migration_must_exist() {
+    let migration = read_source("migrations/0008_kas_price_history.sql");
+
+    assert!(
+        migration.contains("CREATE TABLE IF NOT EXISTS kas_price_history"),
+        "kas_price_history migration must create the storage table"
+    );
+
+    assert!(
+        migration.contains("price_usd NUMERIC")
+            && migration.contains("CHECK (price_usd > 0)")
+            && migration.contains("day DATE PRIMARY KEY"),
+        "kas_price_history must enforce day primary key and positive USD price"
+    );
+}
+#[test]
+fn kas_price_history_migration_must_grant_application_roles_safely() {
+    let migration = read_source("migrations/0008_kas_price_history.sql");
+
+    assert!(
+        migration.contains("kas_price_grants")
+            && migration.contains("GRANT SELECT, INSERT, UPDATE ON TABLE kas_price_history")
+            && migration.contains("pg_roles"),
+        "kas_price_history migration must include safe grants for application DB roles"
+    );
+}
