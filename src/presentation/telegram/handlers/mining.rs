@@ -118,18 +118,14 @@ pub async fn handle_blocks(
     let wallets: Vec<String> = details.iter().map(|w| w.address.clone()).collect();
 
     let text = format!(
-        "🧱 <b>Mined Blocks</b>\n\
-         Community Mining Alerts\n\
-         ━━━━━━━━━━━━━━━━━━\n\
-         👛 <b>Tracked Wallets:</b> <code>{}</code>\n\
-         ⏱️ <b>Total Last 1 Hour:</b> <code>{}</code> blocks | <code>{}/hr</code> | {}\n\
-         ⏳ <b>Total Last 24 Hours:</b> <code>{}</code> blocks | <code>{}/hr</code> | {}\n\
-         📆 <b>Total Last 7 Days:</b> <code>{}</code> blocks | <code>{}/hr</code> | {}\n\
-         🏆 <b>Total Lifetime:</b> <code>{}</code> blocks | {}\n\
-         📈 <b>Mining Status:</b> {}\n\n\
-         Select a wallet below to view detailed block stats.\n\n\
-         ⏱️ <code>{}</code>",
+        "🧱 <b>Mined Blocks</b> | 👛 <code>{}</code> | {}\n\n\
+         ⏱ 1H: <code>{}</code> blk | <code>{}/hr</code> | {}\n\
+         ⏳ 24H: <code>{}</code> blk | <code>{}/hr</code> | {}\n\
+         📆 7D: <code>{}</code> blk | <code>{}/hr</code> | {}\n\
+         🏆 All: <code>{}</code> blk | {}\n\n\
+         🕒 <code>{}</code>",
         details.len(),
+        status,
         total_1h,
         format_avg_per_hour(total_1h, 1.0),
         format_kas_with_optional_usd(total_1h_sompi, kas_price_usd),
@@ -141,8 +137,7 @@ pub async fn handle_blocks(
         format_kas_with_optional_usd(total_7d_sompi, kas_price_usd),
         total_lifetime,
         format_kas_with_optional_usd(total_lifetime_sompi, kas_price_usd),
-        status,
-        chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC")
+        chrono::Utc::now().format("%Y-%m-%d %H:%M UTC")
     );
 
     let markup = crate::presentation::telegram::handlers::wallet::wallet_buttons_markup(
