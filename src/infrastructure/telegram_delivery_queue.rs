@@ -1,7 +1,9 @@
 use crate::domain::errors::AppError;
 use sqlx::{PgPool, Row};
 
-#[derive(Debug, Clone)]
+const DEFAULT_MAX_DELIVERY_ATTEMPTS: i32 = 5;
+
+#[derive(Debug, Clone, sqlx::FromRow)]
 pub struct QueuedTelegramMessage {
     pub id: i64,
     pub chat_id: i64,
@@ -30,6 +32,15 @@ pub fn delivery_queue_enabled() -> bool {
         }
         Err(_) => true,
     }
+}
+
+pub fn max_delivery_attempts() -> i32 {
+    std::env::var("TELEGRAM_DELIVERY_MAX_ATTEMPTS")
+        .ok()
+        .and_then(|value| value.parse::<i32>().ok())
+        .filter(|value| *value > 0)
+        .map(|value| value.clamp(1, 100))
+        .unwrap_or(DEFAULT_MAX_DELIVERY_ATTEMPTS)
 }
 
 pub fn worker_id() -> String {
@@ -86,7 +97,7 @@ pub async fn fetch_pending_batch(
     let limit = limit.clamp(1, 100);
     let locked_by = worker_id();
 
-    let rows = sqlx::query(
+    sqlx::query_as::<_, QueuedTelegramMessage>(
         "WITH picked AS (
             SELECT id
             FROM telegram_delivery_queue
@@ -98,7 +109,7 @@ pub async fn fetch_pending_batch(
                         AND locked_at < NOW() - INTERVAL '120 seconds'
                     )
                 )
-                AND attempts < 5
+                AND attempts < $3
                 AND next_attempt_at <= NOW()
             ORDER BY created_at ASC
             FOR UPDATE SKIP LOCKED
@@ -123,39 +134,14 @@ pub async fn fetch_pending_batch(
     )
     .bind(limit)
     .bind(locked_by)
+    .bind(max_delivery_attempts())
     .fetch_all(pool)
     .await
-    .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-
-    let mut messages = Vec::with_capacity(rows.len());
-
-    for row in rows {
-        messages.push(QueuedTelegramMessage {
-            id: row.try_get::<i64, _>("id").unwrap_or_default(),
-            chat_id: row.try_get::<i64, _>("chat_id").unwrap_or_default(),
-            message_html: row.try_get::<String, _>("message_html").unwrap_or_default(),
-            wallet_masked: row
-                .try_get::<Option<String>, _>("wallet_masked")
-                .ok()
-                .flatten(),
-            txid_masked: row
-                .try_get::<Option<String>, _>("txid_masked")
-                .ok()
-                .flatten(),
-            block_hash_masked: row
-                .try_get::<Option<String>, _>("block_hash_masked")
-                .ok()
-                .flatten(),
-            amount_kas: row.try_get::<Option<f64>, _>("amount_kas").ok().flatten(),
-            daa_score: row.try_get::<Option<i64>, _>("daa_score").ok().flatten(),
-        });
-    }
-
-    Ok(messages)
+    .map_err(|e| AppError::DatabaseError(e.to_string()))
 }
 
 pub async fn mark_sent(pool: &PgPool, id: i64) -> Result<(), AppError> {
-    sqlx::query(
+    let result = sqlx::query(
         "UPDATE telegram_delivery_queue
          SET status = 'sent',
              attempts = attempts + 1,
@@ -168,6 +154,12 @@ pub async fn mark_sent(pool: &PgPool, id: i64) -> Result<(), AppError> {
     .execute(pool)
     .await
     .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    if result.rows_affected() != 1 {
+        return Err(AppError::NotFound(format!(
+            "Telegram delivery queue message {id}"
+        )));
+    }
 
     Ok(())
 }
@@ -209,13 +201,14 @@ pub async fn mark_failed(pool: &PgPool, id: i64, error: &str) -> Result<(), AppE
             .fetch_optional(pool)
             .await
             .map_err(|e| AppError::DatabaseError(e.to_string()))?
-            .unwrap_or(0);
+            .ok_or_else(|| AppError::NotFound(format!("Telegram delivery queue message {id}")))?;
 
     let delay = retry_delay_seconds(attempts, error);
+    let max_attempts = max_delivery_attempts();
 
-    sqlx::query(
+    let result = sqlx::query(
         "UPDATE telegram_delivery_queue
-         SET status = CASE WHEN attempts + 1 >= 5 THEN 'failed' ELSE 'pending' END,
+         SET status = CASE WHEN attempts + 1 >= $4 THEN 'failed' ELSE 'pending' END,
              attempts = attempts + 1,
              last_error = $2,
              locked_at = NULL,
@@ -227,9 +220,16 @@ pub async fn mark_failed(pool: &PgPool, id: i64, error: &str) -> Result<(), AppE
     .bind(id)
     .bind(safe_error)
     .bind(delay)
+    .bind(max_attempts)
     .execute(pool)
     .await
     .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    if result.rows_affected() != 1 {
+        return Err(AppError::NotFound(format!(
+            "Telegram delivery queue message {id}"
+        )));
+    }
 
     Ok(())
 }
@@ -257,8 +257,12 @@ pub async fn queue_stats(pool: &PgPool) -> Result<DeliveryQueueStats, AppError> 
     let mut stats = DeliveryQueueStats::default();
 
     for row in rows {
-        let status = row.try_get::<String, _>("status").unwrap_or_default();
-        let count = row.try_get::<i64, _>("count").unwrap_or_default();
+        let status = row
+            .try_get::<String, _>("status")
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+        let count = row
+            .try_get::<i64, _>("count")
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
         match status.as_str() {
             "pending" => stats.pending = count,
@@ -266,7 +270,11 @@ pub async fn queue_stats(pool: &PgPool) -> Result<DeliveryQueueStats, AppError> 
             "sent" => stats.sent = count,
             "failed" => stats.failed = count,
             "suppressed" => stats.suppressed = count,
-            _ => {}
+            unexpected => {
+                return Err(AppError::DatabaseError(format!(
+                    "Unexpected Telegram delivery queue status: {unexpected}"
+                )));
+            }
         }
     }
 
