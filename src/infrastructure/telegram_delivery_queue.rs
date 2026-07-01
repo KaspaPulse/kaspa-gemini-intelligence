@@ -1,5 +1,6 @@
 use crate::domain::errors::AppError;
 use sqlx::{PgPool, Row};
+use std::collections::BTreeSet;
 
 const DEFAULT_MAX_DELIVERY_ATTEMPTS: i32 = 5;
 
@@ -22,6 +23,27 @@ pub struct DeliveryQueueStats {
     pub sent: i64,
     pub failed: i64,
     pub suppressed: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AlertOutboxOutcome {
+    Enqueued { recipients: usize },
+    Reconciled { recipients: usize },
+    Duplicate,
+    Suppressed { recipients: usize },
+}
+
+pub struct AlertOutboxRequest<'a> {
+    pub wallet: &'a str,
+    pub source_outpoint: &'a str,
+    pub alert_key: &'a str,
+    pub message_html: &'a str,
+    pub chat_ids: &'a [i64],
+    pub wallet_masked: Option<&'a str>,
+    pub txid_masked: Option<&'a str>,
+    pub block_hash_masked: Option<&'a str>,
+    pub amount_kas: Option<f64>,
+    pub daa_score: Option<i64>,
 }
 
 pub fn delivery_queue_enabled() -> bool {
@@ -88,6 +110,132 @@ pub async fn enqueue_alert_message(
     .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
     Ok(())
+}
+
+pub async fn commit_alert_outbox(
+    pool: &PgPool,
+    request: AlertOutboxRequest<'_>,
+) -> Result<AlertOutboxOutcome, AppError> {
+    if request.wallet.trim().is_empty()
+        || request.source_outpoint.trim().is_empty()
+        || request.alert_key.trim().is_empty()
+    {
+        return Err(AppError::Internal(
+            "Alert outbox identity fields must not be empty".to_string(),
+        ));
+    }
+
+    let recipients: BTreeSet<i64> = request.chat_ids.iter().copied().collect();
+    if recipients.is_empty() {
+        return Err(AppError::Internal(
+            "Alert outbox requires at least one recipient".to_string(),
+        ));
+    }
+
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    let delivery_setting = sqlx::query_scalar::<_, String>(
+        "SELECT value_data FROM system_settings WHERE key_name = $1",
+    )
+    .bind(crate::wallet::alert_delivery_gate::ALERT_DELIVERY_SETTING_KEY)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    let delivery_enabled = delivery_setting
+        .as_deref()
+        .map(crate::wallet::alert_delivery_gate::parse_enabled_value)
+        .unwrap_or(true);
+
+    if delivery_enabled && !delivery_queue_enabled() {
+        return Err(AppError::Internal(
+            "Telegram delivery queue is required for transactional alert delivery".to_string(),
+        ));
+    }
+
+    let dedup_inserted = sqlx::query(
+        "INSERT INTO wallet_alert_dedup (wallet, alert_key, txid_masked, block_hash_masked)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (wallet, alert_key) DO NOTHING",
+    )
+    .bind(request.wallet)
+    .bind(request.alert_key)
+    .bind(request.txid_masked)
+    .bind(request.block_hash_masked)
+    .execute(&mut *transaction)
+    .await
+    .map_err(|e| AppError::DatabaseError(e.to_string()))?
+    .rows_affected()
+        == 1;
+
+    sqlx::query(
+        "INSERT INTO wallet_seen_utxos (wallet, outpoint, first_seen_at, last_seen_at)
+         VALUES ($1, $2, NOW(), NOW())
+         ON CONFLICT (wallet, outpoint)
+         DO UPDATE SET last_seen_at = NOW()",
+    )
+    .bind(request.wallet)
+    .bind(request.source_outpoint)
+    .execute(&mut *transaction)
+    .await
+    .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    if !delivery_enabled {
+        transaction
+            .commit()
+            .await
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+        return Ok(AlertOutboxOutcome::Suppressed {
+            recipients: recipients.len(),
+        });
+    }
+
+    let mut inserted_rows = 0usize;
+
+    for chat_id in &recipients {
+        let result = sqlx::query(
+            "INSERT INTO telegram_delivery_queue
+             (chat_id, message_html, status, wallet_masked, txid_masked,
+              block_hash_masked, amount_kas, daa_score, next_attempt_at, event_key)
+             VALUES ($1, $2, 'pending', $3, $4, $5, $6, $7, NOW(), $8)
+             ON CONFLICT (chat_id, event_key) WHERE event_key IS NOT NULL
+             DO NOTHING",
+        )
+        .bind(*chat_id)
+        .bind(request.message_html)
+        .bind(request.wallet_masked)
+        .bind(request.txid_masked)
+        .bind(request.block_hash_masked)
+        .bind(request.amount_kas)
+        .bind(request.daa_score)
+        .bind(request.source_outpoint)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+        inserted_rows += result.rows_affected() as usize;
+    }
+
+    transaction
+        .commit()
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    if dedup_inserted && inserted_rows == recipients.len() {
+        Ok(AlertOutboxOutcome::Enqueued {
+            recipients: inserted_rows,
+        })
+    } else if inserted_rows > 0 {
+        Ok(AlertOutboxOutcome::Reconciled {
+            recipients: inserted_rows,
+        })
+    } else {
+        Ok(AlertOutboxOutcome::Duplicate)
+    }
 }
 
 pub async fn fetch_pending_batch(

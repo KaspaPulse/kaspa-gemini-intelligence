@@ -542,83 +542,10 @@ impl UtxoMonitorService {
                     };
 
                 let mined_block_hash = actual_mined_blocks.first().cloned();
-                let alert_identity = crate::wallet::alert_dedup::build_alert_identity(
-                    &wallet,
+                let alert_key = crate::wallet::alert_dedup::build_alert_key(
                     mined_block_hash.as_deref(),
                     &utxo.transaction_id,
                 );
-                let alert_key = alert_identity.alert_key.clone();
-
-                let txid_masked = crate::utils::format_short_wallet(&utxo.transaction_id);
-                let block_masked = mined_block_hash
-                    .as_ref()
-                    .map(|h| crate::utils::format_short_wallet(h));
-
-                let should_send = match db
-                    .try_claim_alert_key(
-                        &wallet,
-                        &alert_key,
-                        Some(&txid_masked),
-                        block_masked.as_deref(),
-                    )
-                    .await
-                {
-                    Ok(should_send) => should_send,
-                    Err(e) => {
-                        let wallet_masked = crate::utils::format_short_wallet(&wallet);
-                        let error_text = e.to_string();
-
-                        let mut db_error_event =
-                            BotEventRecord::new(BotEventType::DbError, EventSeverity::Error);
-                        db_error_event.wallet_masked = Some(&wallet_masked);
-                        db_error_event.txid_masked = Some(&txid_masked);
-                        db_error_event.block_hash_masked = block_masked.as_deref();
-                        db_error_event.status = Some("alert_dedup_claim_failed");
-                        db_error_event.error_message = Some(&error_text);
-                        db_error_event.metadata_json =
-                            r#"{"operation":"try_claim_alert_key","action":"retry_next_scan"}"#;
-
-                        let _ = db.record_bot_event_record(db_error_event).await;
-
-                        tracing::error!(
-                            "[DATABASE ERROR] Failed to claim alert dedup key. wallet={} tx={}: {}",
-                            wallet_masked,
-                            txid_masked,
-                            error_text
-                        );
-
-                        return None;
-                    }
-                };
-
-                if !should_send {
-                    let wallet_masked = crate::utils::format_short_wallet(&wallet);
-
-                    let mut duplicate_event = BotEventRecord::new(
-                        BotEventType::AlertDuplicateSkipped,
-                        EventSeverity::Info,
-                    );
-                    duplicate_event.wallet_masked = Some(&wallet_masked);
-                    duplicate_event.txid_masked = Some(&txid_masked);
-                    duplicate_event.block_hash_masked = block_masked.as_deref();
-                    duplicate_event.status = Some("duplicate_skipped");
-
-                    let _ = db.record_bot_event_record(duplicate_event).await;
-
-                    if let Err(e) = db
-                        .upsert_seen_utxos(&wallet, std::slice::from_ref(&utxo.outpoint))
-                        .await
-                    {
-                        tracing::error!(
-                            "[DATABASE ERROR] Failed to mark duplicate reward as seen. wallet={} tx={}: {}",
-                            wallet_masked,
-                            txid_masked,
-                            e
-                        );
-                    }
-
-                    return None;
-                }
 
                 let live_balance = match node.get_balance(&wallet).await {
                     Ok((balance, _)) => balance,
@@ -643,38 +570,13 @@ impl UtxoMonitorService {
                     }
                 };
 
-                if let Err(e) = db
-                    .upsert_seen_utxos(&wallet, std::slice::from_ref(&utxo.outpoint))
-                    .await
-                {
-                    let wallet_masked = crate::utils::format_short_wallet(&wallet);
-                    let error_text = e.to_string();
-
-                    let mut db_error_event =
-                        BotEventRecord::new(BotEventType::DbError, EventSeverity::Error);
-                    db_error_event.wallet_masked = Some(&wallet_masked);
-                    db_error_event.txid_masked = Some(&txid_masked);
-                    db_error_event.block_hash_masked = block_masked.as_deref();
-                    db_error_event.status = Some("processed_reward_seen_upsert_failed");
-                    db_error_event.error_message = Some(&error_text);
-                    db_error_event.metadata_json =
-                        r#"{"operation":"upsert_seen_utxos","action":"dedup_prevents_duplicate"}"#;
-
-                    let _ = db.record_bot_event_record(db_error_event).await;
-
-                    tracing::error!(
-                        "[DATABASE ERROR] Failed to persist processed reward as seen. wallet={} tx={}: {}",
-                        wallet_masked,
-                        txid_masked,
-                        error_text
-                    );
-                }
-
                 let event = LiveBlockEvent {
                     is_coinbase: utxo.is_coinbase,
                     wallet_address: wallet,
                     amount_kas: utxo.amount as f64 / 1e8,
                     live_balance_kas: live_balance as f64 / 1e8,
+                    source_outpoint: utxo.outpoint,
+                    alert_key,
                     tx_id: utxo.transaction_id,
                     block_time_ms,
                     acc_block_hash,

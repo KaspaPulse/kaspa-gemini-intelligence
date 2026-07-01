@@ -32,26 +32,28 @@ fn wallet_repository_does_not_hide_lookup_or_quota_errors() {
 }
 
 #[test]
-fn alert_dedup_failure_is_not_treated_as_permission_to_send() {
-    let source = include_str!("../src/wallet/wallet_use_cases.rs");
+fn transactional_outbox_failure_is_not_treated_as_permission_to_send() {
+    let wallet_source = include_str!("../src/wallet/wallet_use_cases.rs");
+    let monitor_source = include_str!("../src/presentation/telegram/workers/utxo_monitor.rs");
 
-    assert!(!source.contains(".await\n                    .unwrap_or(true)"));
-    assert!(source.contains("alert_dedup_claim_failed"));
-    assert!(source.contains("retry_next_scan"));
+    assert!(!wallet_source.contains("try_claim_alert_key("));
+    assert!(monitor_source.contains("commit_alert_outbox"));
+    assert!(monitor_source.contains("alert_outbox_commit_failed"));
+    assert!(monitor_source.contains("retry_next_scan"));
+    assert!(!monitor_source.contains("BOT OUT FALLBACK"));
+    assert!(!monitor_source.contains("Falling back to direct send"));
 }
 
 #[test]
-fn unseen_confirmed_rewards_are_marked_seen_only_after_processing() {
-    let source = include_str!("../src/wallet/wallet_use_cases.rs");
+fn confirmed_rewards_defer_seen_persistence_to_the_transactional_outbox() {
+    let wallet_source = include_str!("../src/wallet/wallet_use_cases.rs");
+    let queue_source = include_str!("../src/infrastructure/telegram_delivery_queue.rs");
 
-    assert!(!source.contains("if reward_is_confirmed || seen_before || is_first_run"));
-    assert!(source.contains("if seen_before || is_first_run"));
-    assert!(
-        source
-            .matches("std::slice::from_ref(&utxo.outpoint)")
-            .count()
-            >= 2
-    );
+    assert!(!wallet_source.contains("if reward_is_confirmed || seen_before || is_first_run"));
+    assert!(wallet_source.contains("if seen_before || is_first_run"));
+    assert!(wallet_source.contains("source_outpoint: utxo.outpoint"));
+    assert!(queue_source.contains("INSERT INTO wallet_seen_utxos"));
+    assert!(queue_source.contains("execute(&mut *transaction)"));
 }
 
 #[test]

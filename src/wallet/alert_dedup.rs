@@ -1,3 +1,5 @@
+// Retained as a small characterization helper for the integration test suite.
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AlertIdentity {
     pub wallet: String,
@@ -11,6 +13,7 @@ pub fn build_alert_key(mined_block_hash: Option<&str>, transaction_id: &str) -> 
         .to_string()
 }
 
+#[allow(dead_code)]
 pub fn build_alert_identity(
     wallet: &str,
     mined_block_hash: Option<&str>,

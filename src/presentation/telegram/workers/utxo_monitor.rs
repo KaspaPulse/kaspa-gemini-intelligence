@@ -2,15 +2,17 @@ use crate::domain::entities::TrackedWallet;
 use crate::domain::models::{BotEventType, EventSeverity};
 use crate::infrastructure::database::postgres_adapter::PostgresRepository;
 use crate::infrastructure::node::kaspa_adapter::KaspaRpcAdapter;
+use crate::infrastructure::telegram_delivery_queue::{
+    commit_alert_outbox, AlertOutboxOutcome, AlertOutboxRequest,
+};
 use chrono::{TimeZone, Utc};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use teloxide::prelude::*;
-use teloxide::types::ChatId;
 use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::network::analyze_dag::AnalyzeDagUseCase;
 use crate::wallet::wallet_use_cases::UtxoMonitorService;
@@ -34,7 +36,7 @@ pub(crate) fn group_wallet_subscribers(wallets: Vec<TrackedWallet>) -> HashMap<S
 }
 
 pub fn start_utxo_monitor(
-    bot: Bot,
+    _bot: Bot,
     node: Arc<KaspaRpcAdapter>,
     db: Arc<PostgresRepository>,
     token: CancellationToken,
@@ -63,9 +65,9 @@ pub fn start_utxo_monitor(
             }
 
             let wallets = match db.get_all_tracked_wallets().await {
-                Ok(w) => w,
-                Err(e) => {
-                    error!("[DATABASE ERROR] Failed to fetch wallets: {}", e);
+                Ok(wallets) => wallets,
+                Err(error) => {
+                    error!("[DATABASE ERROR] Failed to fetch wallets: {}", error);
                     continue;
                 }
             };
@@ -73,55 +75,79 @@ pub fn start_utxo_monitor(
             if wallets.is_empty() {
                 continue;
             }
-            let recipients_by_wallet = group_wallet_subscribers(wallets);
 
+            let recipients_by_wallet = group_wallet_subscribers(wallets);
             let mut join_set = tokio::task::JoinSet::new();
 
             for (wallet_address, chat_ids) in recipients_by_wallet {
-                let sem = semaphore.clone();
+                let semaphore = semaphore.clone();
                 let service = utxo_service.clone();
-                let bot_clone = bot.clone();
-                let db_clone = db.clone();
+                let db = db.clone();
 
                 join_set.spawn(async move {
-                    let _permit = match sem.acquire_owned().await {
-                        Ok(p) => p,
+                    let _permit = match semaphore.acquire_owned().await {
+                        Ok(permit) => permit,
                         Err(_) => return,
                     };
 
-                    match service.check_wallet_utxos(&wallet_address).await {
-                        Ok(events) => {
-                            for event in events {
-                                let log_time = if event.block_time_ms > 0 {
-                                    Utc.timestamp_millis_opt(event.block_time_ms as i64)
-                                        .single()
-                                        .map(|dt| dt.format("%H:%M:%S.%3f").to_string())
-                                        .unwrap_or_else(|| "Unknown".to_string())
-                                } else {
-                                    "Real-time".to_string()
-                                };
+                    let events = match service.check_wallet_utxos(&wallet_address).await {
+                        Ok(events) => events,
+                        Err(error) => {
+                            error!("Failed to check UTXOs for {}: {}", wallet_address, error);
+                            return;
+                        }
+                    };
 
-                                let final_msg =
-                                    crate::presentation::telegram::formatting::events_formatter::format_live_event(&event);
+                    for event in events {
+                        let log_time = if event.block_time_ms > 0 {
+                            Utc.timestamp_millis_opt(event.block_time_ms as i64)
+                                .single()
+                                .map(|datetime| datetime.format("%H:%M:%S.%3f").to_string())
+                                .unwrap_or_else(|| "Unknown".to_string())
+                        } else {
+                            "Real-time".to_string()
+                        };
 
-                                info!(
-                                    "💎 [LIVE BLOCK] | Amount: +{:.4} KAS | Wallet: {} | Time: {} | Recipients: {}",
-                                    event.amount_kas,
-                                    crate::utils::format_short_wallet(&event.wallet_address),
-                                    log_time,
-                                    chat_ids.len()
-                                );
+                        let message = crate::presentation::telegram::formatting::events_formatter::format_live_event(&event);
+                        let wallet_masked = crate::utils::format_short_wallet(&event.wallet_address);
+                        let txid_masked = crate::utils::format_short_wallet(&event.tx_id);
+                        let block_masked = event
+                            .mined_block_hash
+                            .as_ref()
+                            .map(|hash| crate::utils::format_short_wallet(hash));
 
-                                let wallet_masked = crate::utils::format_short_wallet(&event.wallet_address);
-                                let txid_masked = crate::utils::format_short_wallet(&event.tx_id);
-                                let block_masked = event
-                                    .mined_block_hash
-                                    .as_ref()
-                                    .map(|h| crate::utils::format_short_wallet(h));
+                        info!(
+                            "💎 [LIVE BLOCK] | Amount: +{:.4} KAS | Wallet: {} | Time: {} | Recipients: {}",
+                            event.amount_kas,
+                            wallet_masked,
+                            log_time,
+                            chat_ids.len()
+                        );
 
+                        let request = AlertOutboxRequest {
+                            wallet: &event.wallet_address,
+                            source_outpoint: &event.source_outpoint,
+                            alert_key: &event.alert_key,
+                            message_html: &message,
+                            chat_ids: &chat_ids,
+                            wallet_masked: Some(&wallet_masked),
+                            txid_masked: Some(&txid_masked),
+                            block_hash_masked: block_masked.as_deref(),
+                            amount_kas: Some(event.amount_kas),
+                            daa_score: Some(event.daa_score as i64),
+                        };
+
+                        match commit_alert_outbox(&db.pool, request).await {
+                            Ok(AlertOutboxOutcome::Enqueued { recipients }) => {
                                 crate::infrastructure::metrics::mark_alert_detected();
 
-                                let _ = db_clone
+                                info!(
+                                    "📥 [ALERT OUTBOX COMMITTED] Wallet: {} | Recipients: {}",
+                                    wallet_masked,
+                                    recipients
+                                );
+
+                                let _ = db
                                     .record_bot_event_typed(
                                         BotEventType::AlertDetected,
                                         EventSeverity::Info,
@@ -132,189 +158,114 @@ pub fn start_utxo_monitor(
                                         Some(&wallet_masked),
                                         Some(&txid_masked),
                                         block_masked.as_deref(),
-                                        Some("detected"),
+                                        Some("outbox_committed"),
                                         None,
                                         None,
                                         &format!(
-                                            r#"{{"amount_kas":{},"recipients":{},"daa_score":{}}}"#,
+                                            r#"{{"amount_kas":{},"recipients":{},"daa_score":{},"outpoint":"{}"}}"#,
                                             event.amount_kas,
-                                            chat_ids.len(),
+                                            recipients,
+                                            event.daa_score,
+                                            crate::utils::format_short_wallet(&event.source_outpoint)
+                                        ),
+                                    )
+                                    .await;
+                            }
+                            Ok(AlertOutboxOutcome::Reconciled { recipients }) => {
+                                warn!(
+                                    "[ALERT OUTBOX RECONCILED] Wallet: {} | Restored recipients: {}",
+                                    wallet_masked,
+                                    recipients
+                                );
+                            }
+                            Ok(AlertOutboxOutcome::Duplicate) => {
+                                info!(
+                                    "[ALERT DUPLICATE SKIPPED] Wallet: {} | TX: {}",
+                                    wallet_masked,
+                                    txid_masked
+                                );
+
+                                let _ = db
+                                    .record_bot_event_typed(
+                                        BotEventType::AlertDuplicateSkipped,
+                                        EventSeverity::Info,
+                                        None,
+                                        None,
+                                        None,
+                                        None,
+                                        Some(&wallet_masked),
+                                        Some(&txid_masked),
+                                        block_masked.as_deref(),
+                                        Some("duplicate_skipped"),
+                                        None,
+                                        None,
+                                        "{}",
+                                    )
+                                    .await;
+                            }
+                            Ok(AlertOutboxOutcome::Suppressed { recipients }) => {
+                                for _ in 0..recipients {
+                                    crate::infrastructure::metrics::inc_alerts_suppressed();
+                                }
+
+                                info!(
+                                    "🔕 [ALERT SUPPRESSED] Wallet: {} | Recipients: {}",
+                                    wallet_masked,
+                                    recipients
+                                );
+
+                                let _ = db
+                                    .record_bot_event_typed(
+                                        BotEventType::AlertDeliverySuppressed,
+                                        EventSeverity::Info,
+                                        None,
+                                        None,
+                                        None,
+                                        None,
+                                        Some(&wallet_masked),
+                                        Some(&txid_masked),
+                                        block_masked.as_deref(),
+                                        Some("suppressed"),
+                                        None,
+                                        None,
+                                        &format!(
+                                            r#"{{"amount_kas":{},"recipients":{},"daa_score":{},"reason":"alert_delivery_disabled"}}"#,
+                                            event.amount_kas,
+                                            recipients,
                                             event.daa_score
                                         ),
                                     )
                                     .await;
-for chat_id in &chat_ids {
-                                    if !crate::wallet::alert_delivery_gate::is_alert_delivery_enabled(&db_clone.pool).await {
-                                        crate::infrastructure::metrics::inc_alerts_suppressed();
-
-                                        info!(
-                                            "🔕 [ALERT SUPPRESSED] Wallet: {} | Chat: {} | Reason: alert delivery disabled",
-                                            crate::utils::format_short_wallet(&event.wallet_address),
-                                            chat_id
-                                        );
-
-                                        let _ = db_clone
-                                            .record_bot_event_typed(
-                                                BotEventType::AlertDeliverySuppressed,
-                                                EventSeverity::Info,
-                                                Some(*chat_id),
-                                                None,
-                                                None,
-                                                None,
-                                                Some(&wallet_masked),
-                                                Some(&txid_masked),
-                                                block_masked.as_deref(),
-                                                Some("suppressed"),
-                                                None,
-                                                None,
-                                                &format!(
-                                                    r#"{{"amount_kas":{},"daa_score":{},"reason":"alert_delivery_disabled"}}"#,
-                                                    event.amount_kas,
-                                                    event.daa_score
-                                                ),
-                                            )
-                                            .await;
-
-                                        continue;
-                                    }
-
-                                    if crate::infrastructure::telegram_delivery_queue::delivery_queue_enabled() {
-                                        match crate::infrastructure::telegram_delivery_queue::enqueue_alert_message(
-                                            &db_clone.pool,
-                                            *chat_id,
-                                            &final_msg,
-                                            Some(&wallet_masked),
-                                            Some(&txid_masked),
-                                            block_masked.as_deref(),
-                                            Some(event.amount_kas),
-                                            Some(event.daa_score as i64),
-                                        )
-                                        .await
-                                        {
-                                            Ok(_) => {
-                                                info!(
-                                                    "📥 [ALERT QUEUED] Wallet: {} | Chat: {}",
-                                                    crate::utils::format_short_wallet(&event.wallet_address),
-                                                    chat_id
-                                                );
-                                                continue;
-                                            }
-                                            Err(e) => {
-                                                crate::infrastructure::metrics::inc_db_errors();
-                                                error!(
-                                                    "[DELIVERY QUEUE] Failed to enqueue alert for chat {}: {}. Falling back to direct send.",
-                                                    chat_id, e
-                                                );
-                                            }
-                                        }
-                                    }
-
-                                    crate::utils::log_multiline(
-                                        &format!("📤 [BOT OUT FALLBACK] Chat: {}", chat_id),
-                                        &final_msg,
-                                        true,
-                                    );
-
-                                    match bot_clone
-                                        .send_message(ChatId(*chat_id), &final_msg)
-                                        .parse_mode(teloxide::types::ParseMode::Html)
-                                        .link_preview_options(teloxide::types::LinkPreviewOptions {
-                                            url: None,
-                                            is_disabled: true,
-                                            show_above_text: false,
-                                            prefer_small_media: false,
-                                            prefer_large_media: false,
-                                        })
-                                        .await
-                                    {
-                                        Ok(_) => {
-                                            info!(
-                                                "✅ [ALERT DELIVERED] Wallet: {} | Chat: {}",
-                                                crate::utils::format_short_wallet(&event.wallet_address),
-                                                chat_id
-                                            );                                            let delivery_outcome =
-                                                crate::wallet::alert_delivery::delivery_outcome(
-                                                    crate::wallet::alert_delivery::AlertDeliveryAttempt::SendSucceeded,
-                                                );
-
-                                            if !crate::wallet::alert_delivery::should_record_delivered(delivery_outcome) {
-                                                tracing::warn!(
-                                                    "[ALERT DELIVERY] Unexpected non-delivered outcome after successful Telegram send. chat_id={}",
-                                                    chat_id
-                                                );
-                                            }
-
-
-
-                                            let _ = db_clone
-                                                .record_bot_event_typed(
-                                                    BotEventType::AlertDelivered,
-                                                    EventSeverity::Info,
-                                                    Some(*chat_id),
-                                                    None,
-                                                    None,
-                                                    None,
-                                                    Some(&wallet_masked),
-                                                    Some(&txid_masked),
-                                                    block_masked.as_deref(),
-                                                    Some("delivered"),
-                                                    None,
-                                                    None,
-                                                    &format!(
-                                                        r#"{{"amount_kas":{},"daa_score":{}}}"#,
-                                                        event.amount_kas,
-                                                        event.daa_score
-                                                    ),
-                                                )
-                                                .await;
-}
-                                        Err(e) => {
-                                            error!(
-                                                "[TELEGRAM ERROR] Failed to send wallet alert to chat {}: {}",
-                                                chat_id, e
-                                            );                                            let delivery_outcome =
-                                                crate::wallet::alert_delivery::delivery_outcome(
-                                                    crate::wallet::alert_delivery::AlertDeliveryAttempt::SendFailed,
-                                                );
-
-                                            if !crate::wallet::alert_delivery::should_record_failed(delivery_outcome) {
-                                                tracing::warn!(
-                                                    "[ALERT DELIVERY] Unexpected non-failed outcome after Telegram send error. chat_id={}",
-                                                    chat_id
-                                                );
-                                            }
-
-
-
-                                            let err_text = e.to_string();
-                                            let _ = db_clone
-                                                .record_bot_event_typed(
-                                                    BotEventType::AlertDeliveryFailed,
-                                                    EventSeverity::Error,
-                                                    Some(*chat_id),
-                                                    None,
-                                                    None,
-                                                    None,
-                                                    Some(&wallet_masked),
-                                                    Some(&txid_masked),
-                                                    block_masked.as_deref(),
-                                                    Some("failed"),
-                                                    Some(&err_text),
-                                                    None,
-                                                    &format!(
-                                                        r#"{{"amount_kas":{},"daa_score":{}}}"#,
-                                                        event.amount_kas,
-                                                        event.daa_score
-                                                    ),
-                                                )
-                                                .await;
-}
-                                    }
-                                }
                             }
-                        }
-                        Err(e) => {
-                            error!("Failed to check UTXOs for {}: {}", wallet_address, e);
+                            Err(error) => {
+                                crate::infrastructure::metrics::inc_db_errors();
+                                let error_text = error.to_string();
+
+                                error!(
+                                    "[ALERT OUTBOX] Atomic commit failed. Wallet: {} | TX: {} | Error: {}. The event will be retried on the next scan.",
+                                    wallet_masked,
+                                    txid_masked,
+                                    error_text
+                                );
+
+                                let _ = db
+                                    .record_bot_event_typed(
+                                        BotEventType::DbError,
+                                        EventSeverity::Error,
+                                        None,
+                                        None,
+                                        None,
+                                        None,
+                                        Some(&wallet_masked),
+                                        Some(&txid_masked),
+                                        block_masked.as_deref(),
+                                        Some("alert_outbox_commit_failed"),
+                                        Some(&error_text),
+                                        None,
+                                        r#"{"operation":"commit_alert_outbox","action":"retry_next_scan"}"#,
+                                    )
+                                    .await;
+                            }
                         }
                     }
                 });

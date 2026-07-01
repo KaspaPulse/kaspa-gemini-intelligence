@@ -4,6 +4,8 @@ pub struct LiveBlockEvent {
     pub wallet_address: String,
     pub amount_kas: f64,
     pub live_balance_kas: f64,
+    pub source_outpoint: String,
+    pub alert_key: String,
     pub tx_id: String,
     pub block_time_ms: u64,
     pub acc_block_hash: String,
