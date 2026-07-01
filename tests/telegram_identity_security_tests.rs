@@ -108,3 +108,15 @@ fn admin_and_pending_input_sessions_are_separate() {
     assert!(!context.contains("admin_sessions"));
     assert!(!raw_handler.contains("admin_confirmations.remove"));
 }
+
+#[test]
+fn admin_confirmation_nonce_is_redacted_before_callback_logging() {
+    let source = read_source("src/presentation/telegram/handlers/mod.rs");
+    let utils = read_source("src/utils.rs");
+
+    let normalized_source = source.replace("\r\n", "\n");
+
+    assert!(normalized_source.contains("sanitize_callback_data_for_log(&data)"));
+    assert!(utils.contains("admin_do:{}:[REDACTED]"));
+    assert!(!normalized_source.contains("&data,\n        false,"));
+}

@@ -355,6 +355,29 @@ pub fn sanitize_for_log(input: &str) -> String {
     truncate_for_log(&text)
 }
 
+pub fn sanitize_callback_data_for_log(data: &str) -> String {
+    if let Some(rest) = data.strip_prefix("admin_do:") {
+        let safe_action = rest
+            .split(':')
+            .next()
+            .unwrap_or_default()
+            .chars()
+            .filter(|value| value.is_ascii_lowercase() || *value == '_')
+            .take(48)
+            .collect::<String>();
+
+        let action = if safe_action.is_empty() {
+            "unknown"
+        } else {
+            safe_action.as_str()
+        };
+
+        return format!("admin_do:{}:[REDACTED]", action);
+    }
+
+    sanitize_for_log(data)
+}
+
 pub fn sanitize_user_text(input: &str) -> String {
     input
         .replace('\r', "\n")

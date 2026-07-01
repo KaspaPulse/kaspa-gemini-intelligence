@@ -529,6 +529,8 @@ pub async fn handle_callback(
         }
     };
 
+    let callback_data_for_log = crate::utils::sanitize_callback_data_for_log(&data);
+
     crate::utils::log_multiline(
         &format!(
             "BOT CALLBACK IN | Actor: {} | Chat: {} | User: {} | Data:",
@@ -539,7 +541,7 @@ pub async fn handle_callback(
                 .clone()
                 .unwrap_or_else(|| "Unknown".to_string())
         ),
-        &data,
+        &callback_data_for_log,
         false,
     );
 
