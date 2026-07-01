@@ -7,12 +7,13 @@ pub async fn handle_add(
     bot: Bot,
     msg: Message,
     cid: i64,
+    actor_user_id: u64,
     wallet: String,
     wallet_mgt: Arc<WalletManagementUseCase>,
 ) -> anyhow::Result<()> {
     let clean_wallet = crate::utils::normalize_wallet_input(&wallet);
 
-    if crate::utils::is_add_wallet_rate_limited(cid) {
+    if crate::utils::is_add_wallet_rate_limited(actor_user_id) {
         crate::send_logged!(bot, msg, crate::utils::rate_limit_message());
         return Ok(());
     }

@@ -5,6 +5,7 @@ pub mod network;
 pub mod raw_message;
 pub mod wallet;
 
+use crate::domain::models::{PendingInputAction, SensitiveAction};
 use crate::infrastructure::database::postgres_adapter::PostgresRepository;
 use crate::network::stats_use_cases::{
     GetMarketStatsUseCase, GetMinerStatsUseCase, NetworkStatsUseCase,
@@ -36,13 +37,24 @@ pub fn handle_command(
     app_context: Arc<crate::domain::models::AppContext>,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send>> {
     Box::pin(async move {
+        let identity = match crate::presentation::telegram::request_identity::from_message(&msg) {
+            Ok(identity) => identity,
+            Err(reason) => {
+                let _ = bot.send_message(msg.chat.id, reason).await;
+                return Ok(());
+            }
+        };
+
         let chat_id = msg.chat.id;
-        let cid = chat_id.0;
-        let is_admin = cid == app_context.admin_id;
+        let cid = identity.chat_id;
+        let actor_user_id = identity.actor_user_id;
+        let is_admin =
+            identity.is_private_admin(app_context.admin_user_id, app_context.admin_chat_id);
 
         crate::utils::log_multiline(
             &format!(
-                "BOT IN | Chat: {} | User: {}",
+                "BOT IN | Actor: {} | Chat: {} | User: {}",
+                actor_user_id,
                 cid,
                 msg.from
                     .as_ref()
@@ -52,6 +64,15 @@ pub fn handle_command(
             msg.text().unwrap_or("Callback/System"),
             false,
         );
+
+        if cmd.is_admin_only() && !is_admin {
+            crate::send_logged!(
+                bot,
+                msg,
+                "⛔ <b>Admin commands are available only to the configured admin user in the private admin chat.</b>"
+            );
+            return Ok(());
+        }
 
         if app_context.maintenance_mode.load(Ordering::Relaxed) && !is_admin {
             let _ = bot
@@ -64,7 +85,7 @@ pub fn handle_command(
             return Ok(());
         }
 
-        if !is_admin && crate::utils::is_command_rate_limited(cid) {
+        if !is_admin && crate::utils::is_command_rate_limited(actor_user_id) {
             crate::send_logged!(bot, msg, crate::utils::rate_limit_message());
             return Ok(());
         }
@@ -239,7 +260,7 @@ For mining alerts, wait for the configured confirmations before expecting Telegr
             }
 
             Command::Add(wallet) => {
-                wallet::handle_add(bot, msg, cid, wallet, ucs.wallet_mgt).await?
+                wallet::handle_add(bot, msg, cid, actor_user_id, wallet, ucs.wallet_mgt).await?
             }
             Command::Remove(wallet) => {
                 wallet::handle_remove(bot, msg, cid, wallet, ucs.wallet_mgt).await?
@@ -287,9 +308,9 @@ For mining alerts, wait for the configured confirmations before expecting Telegr
 
                 crate::presentation::telegram::handlers::admin_confirm::send_command_confirmation(
                     &bot,
-                    msg.chat.id,
                     &app_context,
-                    crate::presentation::telegram::handlers::admin_confirm::SensitiveAdminAction::Pause,
+                    identity,
+                    SensitiveAction::Pause,
                 )
                 .await?;
             }
@@ -301,9 +322,9 @@ For mining alerts, wait for the configured confirmations before expecting Telegr
 
                 crate::presentation::telegram::handlers::admin_confirm::send_command_confirmation(
                     &bot,
-                    msg.chat.id,
                     &app_context,
-                    crate::presentation::telegram::handlers::admin_confirm::SensitiveAdminAction::Resume,
+                    identity,
+                    SensitiveAction::Resume,
                 )
                 .await?;
             }
@@ -315,9 +336,9 @@ For mining alerts, wait for the configured confirmations before expecting Telegr
 
                 crate::presentation::telegram::handlers::admin_confirm::send_command_confirmation(
                     &bot,
-                    msg.chat.id,
                     &app_context,
-                    crate::presentation::telegram::handlers::admin_confirm::SensitiveAdminAction::MuteAlerts,
+                    identity,
+                    SensitiveAction::MuteAlerts,
                 )
                 .await?;
             }
@@ -329,9 +350,9 @@ For mining alerts, wait for the configured confirmations before expecting Telegr
 
                 crate::presentation::telegram::handlers::admin_confirm::send_command_confirmation(
                     &bot,
-                    msg.chat.id,
                     &app_context,
-                    crate::presentation::telegram::handlers::admin_confirm::SensitiveAdminAction::UnmuteAlerts,
+                    identity,
+                    SensitiveAction::UnmuteAlerts,
                 )
                 .await?;
             }
@@ -351,9 +372,9 @@ For mining alerts, wait for the configured confirmations before expecting Telegr
 
                 crate::presentation::telegram::handlers::admin_confirm::send_command_confirmation(
                     &bot,
-                    msg.chat.id,
                     &app_context,
-                    crate::presentation::telegram::handlers::admin_confirm::SensitiveAdminAction::Restart,
+                    identity,
+                    SensitiveAction::Restart,
                 )
                 .await?;
             }
@@ -375,8 +396,8 @@ For mining alerts, wait for the configured confirmations before expecting Telegr
                 {
                     crate::presentation::telegram::handlers::admin_confirm::send_command_confirmation(
                         &bot,
-                        msg.chat.id,
                         &app_context,
+                        identity,
                         action,
                     )
                     .await?;
@@ -432,9 +453,9 @@ For mining alerts, wait for the configured confirmations before expecting Telegr
 
                 crate::presentation::telegram::handlers::admin_confirm::send_command_confirmation(
                     &bot,
-                    msg.chat.id,
                     &app_context,
-                    crate::presentation::telegram::handlers::admin_confirm::SensitiveAdminAction::CleanupEvents,
+                    identity,
+                    SensitiveAction::CleanupEvents,
                 )
                 .await?;
             }
@@ -459,7 +480,7 @@ For mining alerts, wait for the configured confirmations before expecting Telegr
                     crate::send_logged!(bot, msg, "⛔ Unauthorized.");
                     return Ok(());
                 }
-                admin::handle_broadcast(bot, msg, app_context.admin_id, msg_text).await?;
+                admin::handle_broadcast(bot, msg, msg_text).await?;
             }
             Command::Settings => {
                 if !is_admin {
@@ -500,9 +521,19 @@ pub async fn handle_callback(
         return Ok(());
     };
 
+    let identity = match crate::presentation::telegram::request_identity::from_callback(&q) {
+        Ok(identity) => identity,
+        Err(reason) => {
+            let _ = bot.answer_callback_query(q.id).text(reason).await;
+            return Ok(());
+        }
+    };
+
     crate::utils::log_multiline(
         &format!(
-            "BOT CALLBACK IN | User: {} | Data:",
+            "BOT CALLBACK IN | Actor: {} | Chat: {} | User: {} | Data:",
+            identity.actor_user_id,
+            identity.chat_id,
             q.from
                 .username
                 .clone()
@@ -512,15 +543,10 @@ pub async fn handle_callback(
         false,
     );
 
-    let callback_chat_id = q
-        .message
-        .as_ref()
-        .map(|m| m.chat().id.0)
-        .unwrap_or(q.from.id.0 as i64);
+    let callback_is_admin =
+        identity.is_private_admin(app_context.admin_user_id, app_context.admin_chat_id);
 
-    let callback_is_admin = callback_chat_id == app_context.admin_id;
-
-    if !callback_is_admin && crate::utils::is_callback_rate_limited(callback_chat_id) {
+    if !callback_is_admin && crate::utils::is_callback_rate_limited(identity.actor_user_id) {
         let _ = bot
             .answer_callback_query(q.id)
             .text("Too many requests. Please slow down.")
@@ -539,23 +565,26 @@ pub async fn handle_callback(
     if data.starts_with("admin_do:") {
         match crate::presentation::telegram::handlers::admin_confirm::validate_admin_do_callback(
             &app_context,
-            callback_chat_id,
+            identity,
             &data,
         ) {
             Ok(action) => {
                 data = action.execute_callback().to_string();
                 confirmed_sensitive_action = true;
-                crate::infrastructure::metrics::inc_admin_actions_confirmed();
+                if action.requires_admin() {
+                    crate::infrastructure::metrics::inc_admin_actions_confirmed();
 
-                let _ = crate::infrastructure::admin_audit::record_admin_action(
-                    &app_context.pool,
-                    callback_chat_id,
-                    action.as_str(),
-                    None,
-                    Some("confirmed"),
-                    "confirmed",
-                )
-                .await;
+                    let _ = crate::infrastructure::admin_audit::record_admin_action(
+                        &app_context.pool,
+                        identity.actor_user_id,
+                        identity.chat_id,
+                        action.as_str(),
+                        None,
+                        Some("confirmed"),
+                        "confirmed",
+                    )
+                    .await;
+                }
 
                 let _ = bot
                     .answer_callback_query(q.id.clone())
@@ -579,7 +608,7 @@ pub async fn handle_callback(
                             ),
                         )
                         .parse_mode(ParseMode::Html)
-                        .reply_markup(if msg.chat().id.0 == app_context.admin_id {
+                        .reply_markup(if callback_is_admin {
                             crate::presentation::telegram::menus::TelegramMenus::admin_menu_markup()
                         } else {
                             crate::presentation::telegram::menus::TelegramMenus::main_menu_markup()
@@ -598,17 +627,7 @@ pub async fn handle_callback(
                 &data,
             )
         {
-            if matches!(
-                action,
-                crate::presentation::telegram::handlers::admin_confirm::SensitiveAdminAction::Pause
-                    | crate::presentation::telegram::handlers::admin_confirm::SensitiveAdminAction::Resume
-                    | crate::presentation::telegram::handlers::admin_confirm::SensitiveAdminAction::Restart
-                    | crate::presentation::telegram::handlers::admin_confirm::SensitiveAdminAction::CleanupEvents
-                    | crate::presentation::telegram::handlers::admin_confirm::SensitiveAdminAction::ToggleMemoryCleaner
-                    | crate::presentation::telegram::handlers::admin_confirm::SensitiveAdminAction::ToggleLiveSync
-                    | crate::presentation::telegram::handlers::admin_confirm::SensitiveAdminAction::ToggleMaintenance
-            ) && !callback_is_admin
-            {
+            if action.requires_admin() && !callback_is_admin {
                 let _ = bot
                     .answer_callback_query(q.id.clone())
                     .text("Unauthorized.")
@@ -623,6 +642,7 @@ pub async fn handle_callback(
                     &bot,
                     &msg,
                     &app_context,
+                    identity,
                     action,
                 )
                 .await?;
@@ -645,7 +665,7 @@ pub async fn handle_callback(
                         "⏳ <b>Confirmation expired.</b>\nPlease start the action again.",
                     )
                     .parse_mode(ParseMode::Html)
-                    .reply_markup(if msg.chat().id.0 == app_context.admin_id {
+                    .reply_markup(if callback_is_admin {
                         crate::presentation::telegram::menus::TelegramMenus::admin_menu_markup()
                     } else {
                         crate::presentation::telegram::menus::TelegramMenus::main_menu_markup()
@@ -657,13 +677,66 @@ pub async fn handle_callback(
         }
     }
 
+    if matches!(
+        data.as_str(),
+        "do_pause" | "do_resume" | "do_restart" | "do_cleanup_events"
+    ) {
+        if !confirmed_sensitive_action {
+            let _ = bot
+                .answer_callback_query(q.id.clone())
+                .text("Confirmation expired. Please try again.")
+                .await;
+            return Ok(());
+        }
+
+        if !callback_is_admin {
+            let _ = bot
+                .answer_callback_query(q.id.clone())
+                .text("Unauthorized.")
+                .await;
+            return Ok(());
+        }
+
+        if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(mut message)) = q.message {
+            message.from = Some(q.from.clone());
+
+            match data.as_str() {
+                "do_pause" => {
+                    admin::handle_pause(bot, message, app_context).await?;
+                }
+                "do_resume" => {
+                    admin::handle_resume(bot, message, app_context).await?;
+                }
+                "do_restart" => {
+                    admin::handle_restart(bot, message).await?;
+                }
+                "do_cleanup_events" => {
+                    admin::handle_cleanup_events(bot, message, app_context).await?;
+                }
+                _ => unreachable!("confirmed sensitive action was prevalidated"),
+            }
+        } else {
+            let _ = bot
+                .answer_callback_query(q.id)
+                .text("This confirmation message is no longer accessible.")
+                .await;
+        }
+
+        return Ok(());
+    }
+
     if data == "cancel_action" {
+        crate::presentation::telegram::handlers::admin_confirm::cancel_for_identity(
+            &app_context,
+            identity,
+        );
+
         let _ = bot
             .answer_callback_query(q.id.clone())
             .text("Cancelled.")
             .await;
         if let Some(msg) = q.message {
-            let markup = if msg.chat().id.0 == app_context.admin_id {
+            let markup = if callback_is_admin {
                 crate::presentation::telegram::menus::TelegramMenus::admin_menu_markup()
             } else {
                 crate::presentation::telegram::menus::TelegramMenus::main_menu_markup()
@@ -822,8 +895,8 @@ pub async fn handle_callback(
 
         if let Some(msg) = q.message {
             app_context
-                .admin_sessions
-                .insert(msg.chat().id.0, "ADD_WALLET".to_string());
+                .pending_input_sessions
+                .insert(identity.actor_chat_key(), PendingInputAction::AddWallet);
 
             let text = "➕ <b>Add Wallet</b>\nPlease send your Kaspa wallet address now.\n\nExample:\n<code>kaspa:qq...</code>";
 

@@ -29,9 +29,9 @@ fn validates_wallet_size() {
 #[test]
 fn add_wallet_rate_limit_blocks_burst() {
     std::env::set_var("RATE_LIMIT_ADD_WALLET_PER_MINUTE", "1");
-    let chat_id = 9988776655_i64;
-    let first = is_add_wallet_rate_limited(chat_id);
-    let second = is_add_wallet_rate_limited(chat_id);
+    let actor_user_id = 9988776655_u64;
+    let first = is_add_wallet_rate_limited(actor_user_id);
+    let second = is_add_wallet_rate_limited(actor_user_id);
     assert!(!first);
     assert!(second);
 }

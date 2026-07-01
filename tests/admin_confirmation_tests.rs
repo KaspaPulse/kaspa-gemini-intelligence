@@ -1,29 +1,30 @@
+use kaspa_pulse::domain::models::{RequestIdentity, SensitiveAction};
 use kaspa_pulse::presentation::telegram::handlers::admin_confirm::{
-    action_from_admin_do_callback, sensitive_action_from_callback,
-    sensitive_action_from_toggle_flag, SensitiveAdminAction,
+    action_from_admin_do_callback, confirmation_callback, sensitive_action_from_callback,
+    sensitive_action_from_toggle_flag,
 };
 
 #[test]
 fn sensitive_admin_callbacks_are_detected() {
     assert_eq!(
         sensitive_action_from_callback("cmd_pause"),
-        Some(SensitiveAdminAction::Pause)
+        Some(SensitiveAction::Pause)
     );
     assert_eq!(
         sensitive_action_from_callback("cmd_resume"),
-        Some(SensitiveAdminAction::Resume)
+        Some(SensitiveAction::Resume)
     );
     assert_eq!(
         sensitive_action_from_callback("cmd_restart"),
-        Some(SensitiveAdminAction::Restart)
+        Some(SensitiveAction::Restart)
     );
     assert_eq!(
         sensitive_action_from_callback("cmd_cleanup_events"),
-        Some(SensitiveAdminAction::CleanupEvents)
+        Some(SensitiveAction::CleanupEvents)
     );
     assert_eq!(
         sensitive_action_from_callback("confirm_forget_all"),
-        Some(SensitiveAdminAction::ForgetAll)
+        Some(SensitiveAction::ForgetAll)
     );
 }
 
@@ -31,29 +32,78 @@ fn sensitive_admin_callbacks_are_detected() {
 fn sensitive_toggle_flags_are_detected() {
     assert_eq!(
         sensitive_action_from_toggle_flag("MAINTENANCE"),
-        Some(SensitiveAdminAction::ToggleMaintenance)
+        Some(SensitiveAction::ToggleMaintenance)
     );
     assert_eq!(
         sensitive_action_from_toggle_flag("SYNC"),
-        Some(SensitiveAdminAction::ToggleLiveSync)
+        Some(SensitiveAction::ToggleLiveSync)
     );
     assert_eq!(
         sensitive_action_from_toggle_flag("MEMORY"),
-        Some(SensitiveAdminAction::ToggleMemoryCleaner)
+        Some(SensitiveAction::ToggleMemoryCleaner)
     );
 }
 
 #[test]
 fn confirmed_actions_rewrite_to_original_callbacks() {
-    assert_eq!(SensitiveAdminAction::Pause.execute_callback(), "cmd_pause");
+    assert_eq!(SensitiveAction::Pause.execute_callback(), "do_pause");
     assert_eq!(
-        SensitiveAdminAction::ToggleMaintenance.execute_callback(),
+        SensitiveAction::ToggleMaintenance.execute_callback(),
         "btn_toggle_MAINTENANCE_MODE"
     );
     assert_eq!(
-        SensitiveAdminAction::ForgetAll.execute_callback(),
+        SensitiveAction::ForgetAll.execute_callback(),
         "do_forget_all"
     );
+    assert_ne!(SensitiveAction::Pause.execute_callback(), "cmd_pause");
+    assert_ne!(
+        SensitiveAction::CleanupEvents.execute_callback(),
+        "cmd_cleanup_events"
+    );
+}
+
+#[test]
+fn admin_and_user_destructive_actions_have_separate_scopes() {
+    assert!(SensitiveAction::Pause.requires_admin());
+    assert!(SensitiveAction::ToggleMaintenance.requires_admin());
+    assert!(!SensitiveAction::ClearWallets.requires_admin());
+    assert!(!SensitiveAction::ForgetAll.requires_admin());
+}
+
+#[test]
+fn request_identity_requires_private_actor_and_chat_match_for_admin() {
+    let private_admin = RequestIdentity {
+        actor_user_id: 42,
+        chat_id: 42,
+        message_id: 1,
+        is_private: true,
+    };
+    let group_admin_actor = RequestIdentity {
+        actor_user_id: 42,
+        chat_id: -100,
+        message_id: 1,
+        is_private: false,
+    };
+    let wrong_actor = RequestIdentity {
+        actor_user_id: 99,
+        chat_id: 42,
+        message_id: 1,
+        is_private: true,
+    };
+
+    assert!(private_admin.is_private_admin(42, 42));
+    assert!(!group_admin_actor.is_private_admin(42, 42));
+    assert!(!wrong_actor.is_private_admin(42, 42));
+}
+
+#[test]
+fn confirmation_callback_fits_telegram_limit() {
+    let callback = confirmation_callback(
+        SensitiveAction::ToggleMaintenance,
+        "0123456789abcdef0123456789abcdef",
+    );
+
+    assert!(callback.len() <= 64);
 }
 
 #[test]

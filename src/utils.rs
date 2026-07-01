@@ -7,8 +7,6 @@ use teloxide::{
     types::{ChatId, InlineKeyboardMarkup},
 };
 
-type SpamLimiter = RateLimiter<i64, DefaultKeyedStateStore<i64>, DefaultClock>;
-
 pub fn f_num(n: f64) -> String {
     let s = format!("{:.0}", n);
     let mut result = String::new();
@@ -98,14 +96,6 @@ pub fn format_hash(hash: &str, link_type: &str) -> String {
         hash,
         format_short_wallet(hash)
     )
-}
-
-pub fn is_spam(chat_id: i64) -> bool {
-    static LIMITER: OnceLock<SpamLimiter> = OnceLock::new();
-    let limiter = LIMITER
-        .get_or_init(|| RateLimiter::keyed(per_second_quota("RATE_LIMIT_COMMANDS_PER_SECOND", 1)));
-
-    limiter.check_key(&chat_id).is_err()
 }
 
 pub fn clean_for_log(s: &str) -> String {
@@ -251,7 +241,7 @@ pub async fn edit_logged_message(
 
 // === Telegram request protection helpers (Stage 3) ===
 
-type TelegramLimiter = RateLimiter<i64, DefaultKeyedStateStore<i64>, DefaultClock>;
+type TelegramLimiter = RateLimiter<u64, DefaultKeyedStateStore<u64>, DefaultClock>;
 
 fn env_u32(key: &str, default_value: u32) -> u32 {
     std::env::var(key)
@@ -274,32 +264,32 @@ fn per_minute_quota(key: &str, default_value: u32) -> Quota {
     Quota::per_minute(safe_nonzero(env_u32(key, default_value), default_value))
 }
 
-pub fn is_command_rate_limited(chat_id: i64) -> bool {
+pub fn is_command_rate_limited(actor_user_id: u64) -> bool {
     static LIMITER: OnceLock<TelegramLimiter> = OnceLock::new();
 
     let limiter = LIMITER
         .get_or_init(|| RateLimiter::keyed(per_second_quota("RATE_LIMIT_COMMANDS_PER_SECOND", 1)));
 
-    limiter.check_key(&chat_id).is_err()
+    limiter.check_key(&actor_user_id).is_err()
 }
 
-pub fn is_callback_rate_limited(chat_id: i64) -> bool {
+pub fn is_callback_rate_limited(actor_user_id: u64) -> bool {
     static LIMITER: OnceLock<TelegramLimiter> = OnceLock::new();
 
     let limiter = LIMITER
         .get_or_init(|| RateLimiter::keyed(per_second_quota("RATE_LIMIT_CALLBACKS_PER_SECOND", 3)));
 
-    limiter.check_key(&chat_id).is_err()
+    limiter.check_key(&actor_user_id).is_err()
 }
 
-pub fn is_add_wallet_rate_limited(chat_id: i64) -> bool {
+pub fn is_add_wallet_rate_limited(actor_user_id: u64) -> bool {
     static LIMITER: OnceLock<TelegramLimiter> = OnceLock::new();
 
     let limiter = LIMITER.get_or_init(|| {
         RateLimiter::keyed(per_minute_quota("RATE_LIMIT_ADD_WALLET_PER_MINUTE", 5))
     });
 
-    limiter.check_key(&chat_id).is_err()
+    limiter.check_key(&actor_user_id).is_err()
 }
 
 pub fn max_wallets_per_user() -> i64 {

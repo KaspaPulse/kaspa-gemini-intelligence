@@ -309,18 +309,35 @@ async fn main() -> anyhow::Result<()> {
     let bot_token =
         env::var("BOT_TOKEN").map_err(|_| anyhow::anyhow!("BOT_TOKEN must be set in .env"))?;
     let bot = Bot::new(bot_token);
-    // Telegram command scopes are synchronized after ADMIN_ID validation.
+    // Telegram command scopes are synchronized after actor/chat identity validation.
+    // ADMIN_ID remains a backward-compatible private-chat fallback.
+    let legacy_admin_id = env::var("ADMIN_ID").ok();
+    let admin_user_id_raw = env::var("ADMIN_USER_ID")
+        .ok()
+        .or_else(|| legacy_admin_id.clone())
+        .ok_or_else(|| {
+            anyhow::anyhow!("ADMIN_USER_ID must be set (or ADMIN_ID for backward compatibility)")
+        })?;
+    let admin_chat_id_raw = env::var("ADMIN_CHAT_ID")
+        .ok()
+        .or(legacy_admin_id)
+        .ok_or_else(|| {
+            anyhow::anyhow!("ADMIN_CHAT_ID must be set (or ADMIN_ID for backward compatibility)")
+        })?;
 
-    let admin_id_raw = env::var("ADMIN_ID")
-        .map_err(|_| anyhow::anyhow!("ADMIN_ID must be set in .env for production safety"))?;
-
-    let admin_id: i64 = admin_id_raw
+    let admin_user_id: u64 = admin_user_id_raw
         .parse()
-        .map_err(|_| anyhow::anyhow!("ADMIN_ID must be a valid numeric Telegram chat ID"))?;
+        .map_err(|_| anyhow::anyhow!("ADMIN_USER_ID must be a positive Telegram user ID"))?;
+    let admin_chat_id: i64 = admin_chat_id_raw
+        .parse()
+        .map_err(|_| anyhow::anyhow!("ADMIN_CHAT_ID must be a numeric Telegram chat ID"))?;
 
-    if admin_id <= 0 {
+    let admin_private_chat_id = i64::try_from(admin_user_id)
+        .map_err(|_| anyhow::anyhow!("ADMIN_USER_ID is outside the supported Telegram ID range"))?;
+
+    if admin_user_id == 0 || admin_chat_id <= 0 || admin_chat_id != admin_private_chat_id {
         return Err(anyhow::anyhow!(
-            "ADMIN_ID must be greater than zero for production safety"
+            "Admin commands require a private chat: ADMIN_CHAT_ID must equal ADMIN_USER_ID"
         ));
     }
 
@@ -341,7 +358,7 @@ async fn main() -> anyhow::Result<()> {
     let _ = bot
         .delete_my_commands()
         .scope(BotCommandScope::Chat {
-            chat_id: teloxide::types::Recipient::Id(ChatId(admin_id)),
+            chat_id: teloxide::types::Recipient::Id(ChatId(admin_chat_id)),
         })
         .await;
 
@@ -354,7 +371,7 @@ async fn main() -> anyhow::Result<()> {
     let _ = bot
         .set_my_commands(crate::presentation::telegram::commands::admin_bot_commands())
         .scope(BotCommandScope::Chat {
-            chat_id: teloxide::types::Recipient::Id(ChatId(admin_id)),
+            chat_id: teloxide::types::Recipient::Id(ChatId(admin_chat_id)),
         })
         .await;
 
@@ -365,7 +382,8 @@ async fn main() -> anyhow::Result<()> {
     let app_context = std::sync::Arc::new(crate::domain::models::AppContext::new(
         rpc_client_arc.clone(),
         pool.clone(),
-        admin_id,
+        admin_user_id,
+        admin_chat_id,
     ));
 
     {

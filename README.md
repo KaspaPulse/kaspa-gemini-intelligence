@@ -277,7 +277,7 @@ kaspa_pulse_db_errors_total
 | `/broadcast`      | Broadcast admin message                  |
 | `/toggle`         | Toggle selected feature flag             |
 
-Admin-sensitive actions should use confirmation flow where applicable.
+Admin-sensitive actions are authorized by Telegram actor identity, restricted to the configured private admin chat, and require one-time confirmation where applicable.
 
 ---
 
@@ -292,7 +292,11 @@ Do **not** commit `.env` to Git.
 # TELEGRAM BOT CONFIGURATION
 # ==============================================================================
 BOT_TOKEN=PUT_YOUR_TELEGRAM_BOT_TOKEN_HERE
-ADMIN_ID=PUT_YOUR_TELEGRAM_ADMIN_ID_HERE
+ADMIN_USER_ID=PUT_YOUR_TELEGRAM_ADMIN_USER_ID_HERE
+ADMIN_CHAT_ID=PUT_THE_SAME_PRIVATE_CHAT_ID_HERE
+
+# Backward-compatible fallback only. Prefer the two explicit fields above.
+# ADMIN_ID=PUT_YOUR_TELEGRAM_ADMIN_ID_HERE
 
 # ==============================================================================
 # KASPA NODE & DATABASE
