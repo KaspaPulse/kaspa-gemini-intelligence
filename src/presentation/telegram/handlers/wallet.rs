@@ -370,6 +370,44 @@ pub async fn handle_wallet_remove_confirm(
     Ok(())
 }
 
+async fn restore_wallet_removal_state(
+    bot: &Bot,
+    chat_id: teloxide::types::ChatId,
+    message_id: teloxide::types::MessageId,
+    text: impl Into<String>,
+) {
+    let text = text.into();
+    let markup = crate::presentation::telegram::menus::TelegramMenus::wallet_menu_markup();
+    let fallback_markup = markup.clone();
+
+    if let Err(edit_error) = bot
+        .edit_message_text(chat_id, message_id, text.clone())
+        .parse_mode(teloxide::types::ParseMode::Html)
+        .reply_markup(markup)
+        .await
+    {
+        tracing::warn!(
+            "[CALLBACK UI] Failed to restore wallet removal message {} in chat {}: {}",
+            message_id.0,
+            chat_id.0,
+            edit_error
+        );
+
+        if let Err(send_error) = bot
+            .send_message(chat_id, text)
+            .parse_mode(teloxide::types::ParseMode::Html)
+            .reply_markup(fallback_markup)
+            .await
+        {
+            tracing::error!(
+                "[CALLBACK UI] Failed to send wallet removal replacement panel in chat {}: {}",
+                chat_id.0,
+                send_error
+            );
+        }
+    }
+}
+
 pub async fn handle_wallet_remove_do(
     bot: Bot,
     chat_id: teloxide::types::ChatId,
@@ -379,23 +417,15 @@ pub async fn handle_wallet_remove_do(
     wallet_query: Arc<WalletQueriesUseCase>,
     wallet_mgt: Arc<WalletManagementUseCase>,
 ) -> anyhow::Result<()> {
-    let wallets = wallet_query.get_list(cid).await.unwrap_or_default();
+    let wallets = wallet_query.get_list(cid).await?;
 
     let Some(address) = wallets.get(index) else {
-        edit_text(
-            &bot,
-            chat_id,
-            message_id,
-            "⚠️ Wallet not found.".to_string(),
-            crate::presentation::telegram::menus::TelegramMenus::main_menu_markup(),
-        )
-        .await;
+        restore_wallet_removal_state(&bot, chat_id, message_id, "⚠️ <b>Wallet not found.</b>")
+            .await;
         return Ok(());
     };
 
-    if let Err(e) = wallet_mgt.remove_wallet(address, cid).await {
-        tracing::error!("[DATABASE ERROR] Failed to remove wallet: {}", e);
-    }
+    wallet_mgt.remove_wallet(address, cid).await?;
 
     let text = format!(
         "🗑️ <b>Wallet Removed</b>\n\
@@ -404,14 +434,7 @@ pub async fn handle_wallet_remove_do(
         index + 1
     );
 
-    edit_text(
-        &bot,
-        chat_id,
-        message_id,
-        text,
-        crate::presentation::telegram::menus::TelegramMenus::main_menu_markup(),
-    )
-    .await;
+    restore_wallet_removal_state(&bot, chat_id, message_id, text).await;
 
     Ok(())
 }

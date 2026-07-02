@@ -278,6 +278,7 @@ async fn main() -> anyhow::Result<()> {
     .await;
 
     if preflight.is_err() {
+        crate::infrastructure::metrics::inc_rpc_timeouts();
         tracing::warn!(
             "[SYSTEM] Node pre-flight timed out. Bot will start in degraded mode and node monitor will keep retrying."
         );
@@ -509,6 +510,7 @@ async fn main() -> anyhow::Result<()> {
         bot.clone(),
         node_provider.clone(),
         db_repo.clone(),
+        app_context.live_sync_enabled.clone(),
         cancel_token.clone(),
     );
 
@@ -545,6 +547,8 @@ async fn main() -> anyhow::Result<()> {
         cancel_token.clone(),
     );
 
+    crate::infrastructure::webhook_security::spawn_health_endpoint(cancel_token.clone());
+
     use crate::presentation::telegram::handlers;
 
     let handler = dptree::entry()
@@ -565,6 +569,9 @@ async fn main() -> anyhow::Result<()> {
         miner_stats: get_miner_stats_uc.clone(),
         dag_uc: dag_uc.clone(),
     };
+    let callback_execution_registry = Arc::new(
+        crate::presentation::telegram::callback_inflight::CallbackExecutionRegistry::default(),
+    );
 
     let mut dispatcher = Dispatcher::builder(bot.clone(), handler)
         .dependencies(dptree::deps![
@@ -572,7 +579,8 @@ async fn main() -> anyhow::Result<()> {
             node_provider,
             app_context,
             dag_uc,
-            bot_use_cases
+            bot_use_cases,
+            callback_execution_registry
         ])
         .enable_ctrlc_handler()
         .build();
@@ -626,8 +634,6 @@ async fn main() -> anyhow::Result<()> {
             port,
             domain
         );
-
-        crate::infrastructure::webhook_security::spawn_health_endpoint(cancel_token.clone());
 
         let options = teloxide::update_listeners::webhooks::Options::new(addr, url)
             .secret_token(secret_token)

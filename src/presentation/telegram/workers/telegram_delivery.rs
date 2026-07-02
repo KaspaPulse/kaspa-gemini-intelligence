@@ -1,7 +1,9 @@
+use chrono::Utc;
 use sqlx::PgPool;
 use std::time::Duration;
 use teloxide::prelude::*;
 use teloxide::types::{ChatId, LinkPreviewOptions, ParseMode};
+use tokio::time::MissedTickBehavior;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
@@ -11,143 +13,172 @@ pub fn start_telegram_delivery_worker(bot: Bot, pool: PgPool, token: Cancellatio
         async move {
             info!("📬 [WORKER] Telegram delivery worker started.");
 
+            let mut delivery_timer = tokio::time::interval(Duration::from_secs(2));
+            delivery_timer.set_missed_tick_behavior(MissedTickBehavior::Skip);
+            let metrics_interval_seconds = crate::infrastructure::resilience::runtime::env_u64(
+                "DELIVERY_QUEUE_METRICS_INTERVAL_SECS",
+                30,
+            );
+            let mut metrics_timer =
+                tokio::time::interval(Duration::from_secs(metrics_interval_seconds));
+            metrics_timer.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
             loop {
                 tokio::select! {
                     _ = token.cancelled() => {
                         info!("[WORKER] Telegram delivery worker shutdown requested.");
                         break;
                     }
-                    _ = tokio::time::sleep(Duration::from_secs(2)) => {}
-                }
-
-                if !crate::infrastructure::telegram_delivery_queue::delivery_queue_enabled() {
-                    continue;
-                }
-
-                match crate::infrastructure::telegram_delivery_queue::queue_stats(&pool).await {
-                    Ok(stats) => {
-                        tracing::debug!(
-                            "[DELIVERY QUEUE] pending={} processing={} sent={} failed={} suppressed={}",
-                            stats.pending,
-                            stats.processing,
-                            stats.sent,
-                            stats.failed,
-                            stats.suppressed
-                        );
+                    _ = metrics_timer.tick() => {
+                        if crate::infrastructure::telegram_delivery_queue::delivery_queue_enabled() {
+                            refresh_queue_metrics(&pool).await;
+                        }
                     }
-                    Err(e) => {
-                        crate::infrastructure::metrics::inc_db_errors();
-                        tracing::warn!("[DELIVERY QUEUE] Failed to read queue stats: {}", e);
-                    }
-                }
-
-                let batch =
-                    match crate::infrastructure::telegram_delivery_queue::fetch_pending_batch(
-                        &pool, 25,
-                    )
-                    .await
-                    {
-                        Ok(batch) => batch,
-                        Err(e) => {
-                            crate::infrastructure::metrics::inc_db_errors();
-                            error!("[DELIVERY QUEUE] Failed to fetch pending messages: {}", e);
+                    _ = delivery_timer.tick() => {
+                        if !crate::infrastructure::telegram_delivery_queue::delivery_queue_enabled() {
                             continue;
                         }
-                    };
 
-                if batch.is_empty() {
-                    continue;
-                }
-
-                for item in batch {
-                    crate::utils::log_multiline(
-                        &format!("📤 [BOT QUEUE OUT] Chat: {}", item.chat_id),
-                        &item.message_html,
-                        true,
-                    );
-
-                    let send_result = bot
-                        .send_message(ChatId(item.chat_id), &item.message_html)
-                        .parse_mode(ParseMode::Html)
-                        .link_preview_options(LinkPreviewOptions {
-                            url: None,
-                            is_disabled: true,
-                            show_above_text: false,
-                            prefer_small_media: false,
-                            prefer_large_media: false,
-                        })
-                        .await;
-
-                    match send_result {
-                        Ok(_) => {
-                            crate::infrastructure::metrics::inc_alerts_delivered();
-
-                            if let Err(e) =
-                                crate::infrastructure::telegram_delivery_queue::mark_sent(
-                                    &pool, item.id,
-                                )
-                                .await
-                            {
-                                crate::infrastructure::metrics::inc_db_errors();
-                                error!(
-                                    "[DELIVERY QUEUE] Failed to mark sent id {}: {}",
-                                    item.id, e
-                                );
-                            }
-
-                            info!(
-                                "✅ [QUEUED ALERT DELIVERED] id={} | chat={} | wallet={} | txid={} | block={} | amount_kas={} | daa_score={}",
-                                item.id,
-                                item.chat_id,
-                                item.wallet_masked.as_deref().unwrap_or("unknown"),
-                                item.txid_masked.as_deref().unwrap_or("unknown"),
-                                item.block_hash_masked.as_deref().unwrap_or("unknown"),
-                                item.amount_kas
-                                    .map(|value| format!("{:.8}", value))
-                                    .unwrap_or_else(|| "unknown".to_string()),
-                                item.daa_score
-                                    .map(|value| value.to_string())
-                                    .unwrap_or_else(|| "unknown".to_string())
-                            );
-                        }
-                        Err(e) => {
-                            crate::infrastructure::metrics::inc_telegram_send_failures();
-
-                            let err_text = e.to_string();
-
-                            if let Some(retry_after) =
-                                crate::infrastructure::telegram_delivery_queue::retry_after_seconds(
-                                    &err_text,
-                                )
-                            {
-                                tracing::warn!(
-                                    "[TELEGRAM RATE LIMIT] retry_after={}s for queued alert id={}",
-                                    retry_after,
-                                    item.id
-                                );
-                            }
-
-                            if let Err(db_error) =
-                                crate::infrastructure::telegram_delivery_queue::mark_failed(
-                                    &pool, item.id, &err_text,
-                                )
-                                .await
-                            {
-                                crate::infrastructure::metrics::inc_db_errors();
-                                error!(
-                                    "[DELIVERY QUEUE] Failed to mark failed id {}: {}",
-                                    item.id, db_error
-                                );
-                            }
-
-                            error!(
-                                "[TELEGRAM ERROR] Queued alert send failed. id={} chat={} error={}",
-                                item.id, item.chat_id, err_text
-                            );
-                        }
+                        deliver_pending_batch(&bot, &pool).await;
                     }
                 }
             }
         },
     );
+}
+
+async fn refresh_queue_metrics(pool: &PgPool) {
+    match crate::infrastructure::telegram_delivery_queue::queue_stats(pool).await {
+        Ok(stats) => {
+            crate::infrastructure::observability::set_queue_snapshot(
+                stats.pending,
+                stats.processing,
+                stats.failed,
+                stats.oldest_active_age_seconds,
+            );
+            tracing::debug!(
+                "[DELIVERY QUEUE] pending={} processing={} sent={} failed={} suppressed={} oldest_active_age={}s",
+                stats.pending,
+                stats.processing,
+                stats.sent,
+                stats.failed,
+                stats.suppressed,
+                stats.oldest_active_age_seconds
+            );
+        }
+        Err(error) => {
+            crate::infrastructure::metrics::inc_db_errors();
+            tracing::warn!("[DELIVERY QUEUE] Failed to read queue stats: {}", error);
+        }
+    }
+}
+
+async fn deliver_pending_batch(bot: &Bot, pool: &PgPool) {
+    let batch =
+        match crate::infrastructure::telegram_delivery_queue::fetch_pending_batch(pool, 25).await {
+            Ok(batch) => batch,
+            Err(error) => {
+                crate::infrastructure::metrics::inc_db_errors();
+                error!(
+                    "[DELIVERY QUEUE] Failed to fetch pending messages: {}",
+                    error
+                );
+                return;
+            }
+        };
+
+    for item in batch {
+        crate::utils::log_multiline(
+            &format!("📤 [BOT QUEUE OUT] Chat: {}", item.chat_id),
+            &item.message_html,
+            true,
+        );
+
+        let send_result = bot
+            .send_message(ChatId(item.chat_id), &item.message_html)
+            .parse_mode(ParseMode::Html)
+            .link_preview_options(LinkPreviewOptions {
+                url: None,
+                is_disabled: true,
+                show_above_text: false,
+                prefer_small_media: false,
+                prefer_large_media: false,
+            })
+            .await;
+
+        match send_result {
+            Ok(_) => {
+                crate::infrastructure::metrics::inc_alerts_delivered();
+                let delivered_at = Utc::now();
+                let latency_ms = delivered_at
+                    .signed_duration_since(item.created_at)
+                    .num_milliseconds()
+                    .max(0) as u64;
+                crate::infrastructure::observability::observe_delivery_latency(latency_ms);
+                crate::infrastructure::observability::mark_telegram_delivery(
+                    delivered_at.timestamp().max(0) as u64,
+                );
+
+                if let Err(error) =
+                    crate::infrastructure::telegram_delivery_queue::mark_sent(pool, item.id).await
+                {
+                    crate::infrastructure::metrics::inc_db_errors();
+                    error!(
+                        "[DELIVERY QUEUE] Failed to mark sent id {}: {}",
+                        item.id, error
+                    );
+                }
+
+                info!(
+                    "✅ [QUEUED ALERT DELIVERED] id={} | chat={} | wallet={} | txid={} | block={} | amount_kas={} | daa_score={}",
+                    item.id,
+                    item.chat_id,
+                    item.wallet_masked.as_deref().unwrap_or("unknown"),
+                    item.txid_masked.as_deref().unwrap_or("unknown"),
+                    item.block_hash_masked.as_deref().unwrap_or("unknown"),
+                    item.amount_kas
+                        .map(|value| format!("{:.8}", value))
+                        .unwrap_or_else(|| "unknown".to_string()),
+                    item.daa_score
+                        .map(|value| value.to_string())
+                        .unwrap_or_else(|| "unknown".to_string())
+                );
+            }
+            Err(error) => {
+                crate::infrastructure::metrics::inc_telegram_send_failures();
+
+                let error_text = error.to_string();
+
+                if let Some(retry_after) =
+                    crate::infrastructure::telegram_delivery_queue::retry_after_seconds(&error_text)
+                {
+                    tracing::warn!(
+                        "[TELEGRAM RATE LIMIT] retry_after={}s for queued alert id={}",
+                        retry_after,
+                        item.id
+                    );
+                }
+
+                if let Err(database_error) =
+                    crate::infrastructure::telegram_delivery_queue::mark_failed(
+                        pool,
+                        item.id,
+                        &error_text,
+                    )
+                    .await
+                {
+                    crate::infrastructure::metrics::inc_db_errors();
+                    error!(
+                        "[DELIVERY QUEUE] Failed to mark failed id {}: {}",
+                        item.id, database_error
+                    );
+                }
+
+                error!(
+                    "[TELEGRAM ERROR] Queued alert send failed. id={} chat={} error={}",
+                    item.id, item.chat_id, error_text
+                );
+            }
+        }
+    }
 }

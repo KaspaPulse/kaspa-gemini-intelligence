@@ -249,6 +249,12 @@ impl WalletQueriesUseCase {
     }
 }
 
+#[derive(Debug)]
+pub struct WalletUtxoScanResult {
+    pub events: Vec<LiveBlockEvent>,
+    pub completed_without_errors: bool,
+}
+
 pub struct UtxoMonitorService {
     node: Arc<KaspaRpcAdapter>,
     db: Arc<PostgresRepository>,
@@ -273,7 +279,7 @@ impl UtxoMonitorService {
     pub async fn check_wallet_utxos(
         &self,
         wallet_address: &str,
-    ) -> Result<Vec<LiveBlockEvent>, AppError> {
+    ) -> Result<WalletUtxoScanResult, AppError> {
         let utxos = self.node.get_utxos(wallet_address).await?;
 
         let min_reward_confirmations = std::env::var("MIN_REWARD_CONFIRMATIONS")
@@ -283,6 +289,7 @@ impl UtxoMonitorService {
             .clamp(1, 10_000);
 
         let virtual_daa_score = self.node.get_virtual_daa_score().await?;
+        let mut completed_without_errors = true;
 
         let mut current_outpoints = HashSet::new();
         let mut current_outpoints_vec = Vec::new();
@@ -369,6 +376,7 @@ impl UtxoMonitorService {
                         )
                         .await
                     {
+                        completed_without_errors = false;
                         let wallet_masked = crate::utils::format_short_wallet(wallet_address);
                         let txid_masked = crate::utils::format_short_wallet(&utxo.transaction_id);
                         let error_text = e.to_string();
@@ -409,6 +417,7 @@ impl UtxoMonitorService {
                     .delete_pending_reward(wallet_address, &utxo.outpoint)
                     .await
                 {
+                    completed_without_errors = false;
                     tracing::warn!(
                         "[DATABASE WARNING] Failed to delete pending reward before processing. wallet={} tx={}: {}",
                         crate::utils::format_short_wallet(wallet_address),
@@ -442,6 +451,7 @@ impl UtxoMonitorService {
             .upsert_seen_utxos(wallet_address, &current_outpoints_vec)
             .await
         {
+            completed_without_errors = false;
             let wallet_masked = crate::utils::format_short_wallet(wallet_address);
             let error_text = e.to_string();
 
@@ -461,11 +471,15 @@ impl UtxoMonitorService {
             .prune_seen_utxos(wallet_address, &current_outpoints_vec)
             .await
         {
+            completed_without_errors = false;
             tracing::warn!("[DATABASE WARNING] Failed to prune seen UTXOs: {}", e);
         }
 
         if new_rewards.is_empty() {
-            return Ok(vec![]);
+            return Ok(WalletUtxoScanResult {
+                events: Vec::new(),
+                completed_without_errors,
+            });
         }
 
         let mut join_set = tokio::task::JoinSet::new();
@@ -477,6 +491,8 @@ impl UtxoMonitorService {
             let wallet = wallet_address.to_string();
 
             join_set.spawn(async move {
+                let mut task_succeeded = true;
+
                 if utxo.is_coinbase {
                     let block = MinedBlock {
                         wallet_address: wallet.clone(),
@@ -486,6 +502,7 @@ impl UtxoMonitorService {
                     };
 
                     if let Err(e) = db.record_mined_block(block).await {
+                        task_succeeded = false;
                         let wallet_masked = crate::utils::format_short_wallet(&wallet);
                         let txid_masked = crate::utils::format_short_wallet(&utxo.transaction_id);
                         let error_text = e.to_string();
@@ -537,7 +554,7 @@ impl UtxoMonitorService {
                                 e
                             );
 
-                            return None;
+                            return (None, false);
                         }
                     };
 
@@ -550,6 +567,7 @@ impl UtxoMonitorService {
                 let live_balance = match node.get_balance(&wallet).await {
                     Ok((balance, _)) => balance,
                     Err(e) => {
+                        task_succeeded = false;
                         let error_message = e.to_string();
                         let wallet_masked = crate::utils::format_short_wallet(&wallet);
                         let txid_masked_for_balance =
@@ -589,20 +607,33 @@ impl UtxoMonitorService {
                     daa_score: utxo.block_daa_score,
                 };
 
-                Some((block_time_ms, event))
+                (Some((block_time_ms, event)), task_succeeded)
             });
         }
 
         let mut sorted_events = Vec::new();
 
         while let Some(result) = join_set.join_next().await {
-            if let Ok(Some(data)) = result {
-                sorted_events.push(data);
+            match result {
+                Ok((Some(data), task_succeeded)) => {
+                    completed_without_errors &= task_succeeded;
+                    sorted_events.push(data);
+                }
+                Ok((None, _)) => {
+                    completed_without_errors = false;
+                }
+                Err(error) => {
+                    completed_without_errors = false;
+                    tracing::error!("[WORKER] Reward analysis task failed to join: {}", error);
+                }
             }
         }
 
         sorted_events.sort_by_key(|(time, _)| *time);
 
-        Ok(sorted_events.into_iter().map(|(_, event)| event).collect())
+        Ok(WalletUtxoScanResult {
+            events: sorted_events.into_iter().map(|(_, event)| event).collect(),
+            completed_without_errors,
+        })
     }
 }

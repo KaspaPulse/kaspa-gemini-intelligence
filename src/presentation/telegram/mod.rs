@@ -1,6 +1,7 @@
 #[macro_use]
 pub mod macros;
 
+pub mod callback_inflight;
 pub mod commands;
 pub mod formatting;
 pub mod handlers;

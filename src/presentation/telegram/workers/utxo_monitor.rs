@@ -2,11 +2,15 @@ use crate::domain::entities::TrackedWallet;
 use crate::domain::models::{BotEventType, EventSeverity};
 use crate::infrastructure::database::postgres_adapter::PostgresRepository;
 use crate::infrastructure::node::kaspa_adapter::KaspaRpcAdapter;
+use crate::infrastructure::node::subscription::{
+    spawn_subscription_runtime, MonitoringMode, MonitoringSchedule,
+};
 use crate::infrastructure::telegram_delivery_queue::{
     commit_alert_outbox, AlertOutboxOutcome, AlertOutboxRequest,
 };
 use chrono::{TimeZone, Utc};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use teloxide::prelude::*;
@@ -39,27 +43,69 @@ pub fn start_utxo_monitor(
     _bot: Bot,
     node: Arc<KaspaRpcAdapter>,
     db: Arc<PostgresRepository>,
+    live_sync_enabled: Arc<AtomicBool>,
     token: CancellationToken,
 ) {
     let analyzer = Arc::new(AnalyzeDagUseCase::new(node.clone()));
     let utxo_service = Arc::new(UtxoMonitorService::new(node.clone(), db.clone(), analyzer));
     let semaphore = Arc::new(Semaphore::new(10));
+    let mode = MonitoringMode::from_env();
+    let poll_interval = Duration::from_secs(crate::infrastructure::resilience::runtime::env_u64(
+        "KASPA_MONITOR_POLL_INTERVAL_SECS",
+        10,
+    ));
+    let reconciliation_interval =
+        Duration::from_secs(crate::infrastructure::resilience::runtime::env_u64(
+            "KASPA_MONITOR_RECONCILIATION_INTERVAL_SECS",
+            60,
+        ));
+    let subscription_minimum_interval =
+        Duration::from_secs(crate::infrastructure::resilience::runtime::env_u64(
+            "KASPA_SUBSCRIPTION_MIN_SCAN_INTERVAL_SECS",
+            2,
+        ));
+    let (mut schedule, signal_sender, lifecycle) = MonitoringSchedule::new(
+        mode,
+        poll_interval,
+        reconciliation_interval,
+        subscription_minimum_interval,
+    );
+
+    spawn_subscription_runtime(node.client.clone(), signal_sender, lifecycle, token.clone());
 
     crate::infrastructure::resilience::runtime::spawn_resilient("utxo_monitor_task", async move {
         info!("🚀 [WORKER] UTXO monitor started.");
 
+        info!(
+            "[WORKER] UTXO monitor mode={} poll={}s reconciliation={}s.",
+            mode.as_str(),
+            poll_interval.as_secs(),
+            reconciliation_interval.as_secs()
+        );
+
         loop {
-            crate::infrastructure::metrics::mark_utxo_scan();
-            tokio::select! {
-                _ = token.cancelled() => {
-                    info!("[WORKER] UTXO monitor shutdown requested.");
-                    break;
-                }
-                _ = tokio::time::sleep(Duration::from_secs(10)) => {}
+            let Some(trigger) = schedule.next_trigger(&token).await else {
+                info!("[WORKER] UTXO monitor shutdown requested.");
+                break;
+            };
+
+            if !live_sync_enabled.load(Ordering::Relaxed) {
+                tracing::debug!(
+                    "[WORKER] UTXO scan skipped while live monitoring is paused. trigger={}",
+                    trigger.as_str()
+                );
+                continue;
             }
 
-            if let Ok((is_online, _)) = node.get_node_health().await {
-                if !is_online {
+            crate::infrastructure::observability::record_scan_trigger(trigger);
+            tracing::debug!("[WORKER] UTXO scan triggered by {}.", trigger.as_str());
+
+            match node.get_node_health().await {
+                Ok((true, _)) => {
+                    crate::infrastructure::observability::set_node_connected(true);
+                }
+                Ok((false, _)) | Err(_) => {
+                    crate::infrastructure::observability::set_node_connected(false);
                     continue;
                 }
             }
@@ -73,6 +119,7 @@ pub fn start_utxo_monitor(
             };
 
             if wallets.is_empty() {
+                mark_scan_success();
                 continue;
             }
 
@@ -87,18 +134,25 @@ pub fn start_utxo_monitor(
                 join_set.spawn(async move {
                     let _permit = match semaphore.acquire_owned().await {
                         Ok(permit) => permit,
-                        Err(_) => return,
-                    };
-
-                    let events = match service.check_wallet_utxos(&wallet_address).await {
-                        Ok(events) => events,
                         Err(error) => {
-                            error!("Failed to check UTXOs for {}: {}", wallet_address, error);
-                            return;
+                            error!(
+                                "Failed to acquire a UTXO scan permit for {}: {}",
+                                wallet_address, error
+                            );
+                            return false;
                         }
                     };
 
-                    for event in events {
+                    let scan_result = match service.check_wallet_utxos(&wallet_address).await {
+                        Ok(scan_result) => scan_result,
+                        Err(error) => {
+                            error!("Failed to check UTXOs for {}: {}", wallet_address, error);
+                            return false;
+                        }
+                    };
+                    let mut wallet_scan_succeeded = scan_result.completed_without_errors;
+
+                    for event in scan_result.events {
                         let log_time = if event.block_time_ms > 0 {
                             Utc.timestamp_millis_opt(event.block_time_ms as i64)
                                 .single()
@@ -238,7 +292,9 @@ pub fn start_utxo_monitor(
                                     .await;
                             }
                             Err(error) => {
+                                wallet_scan_succeeded = false;
                                 crate::infrastructure::metrics::inc_db_errors();
+                                crate::infrastructure::observability::increment_outbox_failures();
                                 let error_text = error.to_string();
 
                                 error!(
@@ -268,12 +324,41 @@ pub fn start_utxo_monitor(
                             }
                         }
                     }
+
+                    wallet_scan_succeeded
                 });
             }
 
-            while join_set.join_next().await.is_some() {}
+            let mut wallet_scan_outcomes = Vec::new();
+            while let Some(result) = join_set.join_next().await {
+                match result {
+                    Ok(succeeded) => wallet_scan_outcomes.push(succeeded),
+                    Err(error) => {
+                        error!("[WORKER] UTXO wallet scan task failed to join: {}", error);
+                        wallet_scan_outcomes.push(false);
+                    }
+                }
+            }
+
+            if all_wallet_scan_tasks_succeeded(&wallet_scan_outcomes) {
+                mark_scan_success();
+            } else {
+                warn!(
+                    "[WORKER] UTXO scan completed with wallet failures; successful-scan freshness was not advanced."
+                );
+            }
         }
     });
+}
+
+fn all_wallet_scan_tasks_succeeded(outcomes: &[bool]) -> bool {
+    outcomes.iter().all(|succeeded| *succeeded)
+}
+
+fn mark_scan_success() {
+    let now = crate::infrastructure::metrics::now_unix_secs();
+    crate::infrastructure::metrics::mark_utxo_scan();
+    crate::infrastructure::observability::mark_successful_scan(now);
 }
 
 #[cfg(test)]
@@ -323,5 +408,13 @@ mod tests {
 
         assert_eq!(grouped.get("kaspa:wallet_a"), Some(&vec![1, 3]));
         assert_eq!(grouped.get("kaspa:wallet_b"), Some(&vec![2]));
+    }
+
+    #[test]
+    fn successful_scan_requires_every_wallet_task_to_succeed() {
+        assert!(all_wallet_scan_tasks_succeeded(&[]));
+        assert!(all_wallet_scan_tasks_succeeded(&[true, true]));
+        assert!(!all_wallet_scan_tasks_succeeded(&[true, false]));
+        assert!(!all_wallet_scan_tasks_succeeded(&[false]));
     }
 }

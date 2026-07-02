@@ -14,6 +14,7 @@ pub struct QueuedTelegramMessage {
     pub block_hash_masked: Option<String>,
     pub amount_kas: Option<f64>,
     pub daa_score: Option<i64>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -23,6 +24,7 @@ pub struct DeliveryQueueStats {
     pub sent: i64,
     pub failed: i64,
     pub suppressed: i64,
+    pub oldest_active_age_seconds: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -278,7 +280,8 @@ pub async fn fetch_pending_batch(
             q.txid_masked,
             q.block_hash_masked,
             q.amount_kas,
-            q.daa_score",
+            q.daa_score,
+            q.created_at",
     )
     .bind(limit)
     .bind(locked_by)
@@ -393,40 +396,72 @@ pub async fn pending_count(pool: &PgPool) -> Result<i64, AppError> {
 }
 
 pub async fn queue_stats(pool: &PgPool) -> Result<DeliveryQueueStats, AppError> {
-    let rows = sqlx::query(
-        "SELECT status, COUNT(*)::BIGINT AS count
-         FROM telegram_delivery_queue
-         GROUP BY status",
+    let row = sqlx::query(
+        "SELECT
+            COUNT(*) FILTER (WHERE status = 'pending')::BIGINT AS pending,
+            COUNT(*) FILTER (WHERE status = 'processing')::BIGINT AS processing,
+            COUNT(*) FILTER (WHERE status = 'sent')::BIGINT AS sent,
+            COUNT(*) FILTER (WHERE status = 'failed')::BIGINT AS failed,
+            COUNT(*) FILTER (WHERE status = 'suppressed')::BIGINT AS suppressed,
+            COUNT(*) FILTER (
+                WHERE status IS NULL
+                   OR status NOT IN ('pending', 'processing', 'sent', 'failed', 'suppressed')
+            )::BIGINT AS unexpected_status_count,
+            MIN(COALESCE(status, '<NULL>')) FILTER (
+                WHERE status IS NULL
+                   OR status NOT IN ('pending', 'processing', 'sent', 'failed', 'suppressed')
+            ) AS unexpected_status,
+            COALESCE(
+                EXTRACT(EPOCH FROM (
+                    NOW() - MIN(created_at) FILTER (
+                        WHERE status IN ('pending', 'processing')
+                    )
+                )),
+                0
+            )::BIGINT AS oldest_active_age_seconds
+         FROM telegram_delivery_queue",
     )
-    .fetch_all(pool)
+    .fetch_one(pool)
     .await
     .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
-    let mut stats = DeliveryQueueStats::default();
+    let unexpected_status_count = row
+        .try_get::<i64, _>("unexpected_status_count")
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
-    for row in rows {
-        let status = row
-            .try_get::<String, _>("status")
-            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-        let count = row
-            .try_get::<i64, _>("count")
-            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-
-        match status.as_str() {
-            "pending" => stats.pending = count,
-            "processing" => stats.processing = count,
-            "sent" => stats.sent = count,
-            "failed" => stats.failed = count,
-            "suppressed" => stats.suppressed = count,
-            unexpected => {
-                return Err(AppError::DatabaseError(format!(
-                    "Unexpected Telegram delivery queue status: {unexpected}"
-                )));
-            }
-        }
+    if unexpected_status_count != 0 {
+        let unexpected_status = row
+            .try_get::<Option<String>, _>("unexpected_status")
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?
+            .unwrap_or_else(|| "<unknown>".to_string());
+        return Err(AppError::DatabaseError(format!(
+            "Unexpected Telegram delivery queue status: {unexpected_status}"
+        )));
     }
 
-    Ok(stats)
+    let oldest_active_age_seconds = row
+        .try_get::<i64, _>("oldest_active_age_seconds")
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?
+        .max(0) as u64;
+
+    Ok(DeliveryQueueStats {
+        pending: row
+            .try_get::<i64, _>("pending")
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?,
+        processing: row
+            .try_get::<i64, _>("processing")
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?,
+        sent: row
+            .try_get::<i64, _>("sent")
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?,
+        failed: row
+            .try_get::<i64, _>("failed")
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?,
+        suppressed: row
+            .try_get::<i64, _>("suppressed")
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?,
+        oldest_active_age_seconds,
+    })
 }
 
 #[cfg(test)]
