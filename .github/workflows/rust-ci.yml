@@ -21,6 +21,7 @@ env:
   ADMIN_ID: "484901117"
   NODE_URL_01: "wss://example.invalid/json"
   DATABASE_URL: "postgres://kaspa_pulse_app:TEST_PASSWORD@127.0.0.1:5432/kaspa_dev?sslmode=disable"
+  DATABASE_ADMIN_URL: "postgres://postgres:POSTGRES_TEST_PASSWORD@127.0.0.1:5432/kaspa_dev?sslmode=disable"
   WEBHOOK_SECRET_TOKEN: "TEST_WEBHOOK_SECRET_TOKEN_PLACEHOLDER_32_CHARS"
   USE_WEBHOOK: "false"
   WEBHOOK_DOMAIN: "example.invalid"
@@ -48,6 +49,21 @@ jobs:
     name: check
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: kaspa_dev
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: POSTGRES_TEST_PASSWORD
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d kaspa_dev"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -64,6 +80,14 @@ jobs:
         run: |
           rustc --version
           cargo --version
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+
+      - name: Prepare PostgreSQL test schema
+        run: bash scripts/ci-prepare-postgres.sh
 
       - name: Check formatting
         run: cargo fmt --all -- --check
