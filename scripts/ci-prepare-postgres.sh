@@ -58,14 +58,23 @@ done < <(
     sort
 )
 
-echo "Granting CI-only reset privileges for characterization tests..."
+echo "Granting CI-only privileges for characterization tests..."
 psql "$DATABASE_ADMIN_URL" \
-    -v ON_ERROR_STOP=1 \
-    -c "GRANT TRUNCATE ON TABLE
-            telegram_delivery_queue,
-            wallet_alert_dedup,
-            user_wallets
-        TO kaspa_pulse_app;"
+    -v ON_ERROR_STOP=1 <<'SQL'
+GRANT TRUNCATE ON TABLE
+    telegram_delivery_queue,
+    wallet_alert_dedup,
+    user_wallets
+TO kaspa_pulse_app;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
+    user_wallets
+TO kaspa_pulse_app;
+
+GRANT SELECT, INSERT ON TABLE
+    wallet_alert_dedup
+TO kaspa_pulse_app;
+SQL
 
 echo "Verifying the runtime role can access the delivery queue..."
 psql "$DATABASE_URL" \
@@ -81,12 +90,12 @@ psql "$DATABASE_URL" \
             AND has_table_privilege(
                 current_user,
                 'public.wallet_alert_dedup',
-                'TRUNCATE'
+                'SELECT,INSERT,TRUNCATE'
             )
             AND has_table_privilege(
                 current_user,
                 'public.user_wallets',
-                'TRUNCATE'
+                'SELECT,INSERT,UPDATE,DELETE,TRUNCATE'
             );
     " |
 grep -qx 't'
