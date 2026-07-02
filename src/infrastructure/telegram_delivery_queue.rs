@@ -1,7 +1,10 @@
 use crate::domain::errors::AppError;
 use sqlx::{PgPool, Row};
+use std::collections::BTreeSet;
 
-#[derive(Debug, Clone)]
+const DEFAULT_MAX_DELIVERY_ATTEMPTS: i32 = 5;
+
+#[derive(Debug, Clone, sqlx::FromRow)]
 pub struct QueuedTelegramMessage {
     pub id: i64,
     pub chat_id: i64,
@@ -11,6 +14,7 @@ pub struct QueuedTelegramMessage {
     pub block_hash_masked: Option<String>,
     pub amount_kas: Option<f64>,
     pub daa_score: Option<i64>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -20,6 +24,28 @@ pub struct DeliveryQueueStats {
     pub sent: i64,
     pub failed: i64,
     pub suppressed: i64,
+    pub oldest_active_age_seconds: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AlertOutboxOutcome {
+    Enqueued { recipients: usize },
+    Reconciled { recipients: usize },
+    Duplicate,
+    Suppressed { recipients: usize },
+}
+
+pub struct AlertOutboxRequest<'a> {
+    pub wallet: &'a str,
+    pub source_outpoint: &'a str,
+    pub alert_key: &'a str,
+    pub message_html: &'a str,
+    pub chat_ids: &'a [i64],
+    pub wallet_masked: Option<&'a str>,
+    pub txid_masked: Option<&'a str>,
+    pub block_hash_masked: Option<&'a str>,
+    pub amount_kas: Option<f64>,
+    pub daa_score: Option<i64>,
 }
 
 pub fn delivery_queue_enabled() -> bool {
@@ -30,6 +56,15 @@ pub fn delivery_queue_enabled() -> bool {
         }
         Err(_) => true,
     }
+}
+
+pub fn max_delivery_attempts() -> i32 {
+    std::env::var("TELEGRAM_DELIVERY_MAX_ATTEMPTS")
+        .ok()
+        .and_then(|value| value.parse::<i32>().ok())
+        .filter(|value| *value > 0)
+        .map(|value| value.clamp(1, 100))
+        .unwrap_or(DEFAULT_MAX_DELIVERY_ATTEMPTS)
 }
 
 pub fn worker_id() -> String {
@@ -79,6 +114,132 @@ pub async fn enqueue_alert_message(
     Ok(())
 }
 
+pub async fn commit_alert_outbox(
+    pool: &PgPool,
+    request: AlertOutboxRequest<'_>,
+) -> Result<AlertOutboxOutcome, AppError> {
+    if request.wallet.trim().is_empty()
+        || request.source_outpoint.trim().is_empty()
+        || request.alert_key.trim().is_empty()
+    {
+        return Err(AppError::Internal(
+            "Alert outbox identity fields must not be empty".to_string(),
+        ));
+    }
+
+    let recipients: BTreeSet<i64> = request.chat_ids.iter().copied().collect();
+    if recipients.is_empty() {
+        return Err(AppError::Internal(
+            "Alert outbox requires at least one recipient".to_string(),
+        ));
+    }
+
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    let delivery_setting = sqlx::query_scalar::<_, String>(
+        "SELECT value_data FROM system_settings WHERE key_name = $1",
+    )
+    .bind(crate::wallet::alert_delivery_gate::ALERT_DELIVERY_SETTING_KEY)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    let delivery_enabled = delivery_setting
+        .as_deref()
+        .map(crate::wallet::alert_delivery_gate::parse_enabled_value)
+        .unwrap_or(true);
+
+    if delivery_enabled && !delivery_queue_enabled() {
+        return Err(AppError::Internal(
+            "Telegram delivery queue is required for transactional alert delivery".to_string(),
+        ));
+    }
+
+    let dedup_inserted = sqlx::query(
+        "INSERT INTO wallet_alert_dedup (wallet, alert_key, txid_masked, block_hash_masked)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (wallet, alert_key) DO NOTHING",
+    )
+    .bind(request.wallet)
+    .bind(request.alert_key)
+    .bind(request.txid_masked)
+    .bind(request.block_hash_masked)
+    .execute(&mut *transaction)
+    .await
+    .map_err(|e| AppError::DatabaseError(e.to_string()))?
+    .rows_affected()
+        == 1;
+
+    sqlx::query(
+        "INSERT INTO wallet_seen_utxos (wallet, outpoint, first_seen_at, last_seen_at)
+         VALUES ($1, $2, NOW(), NOW())
+         ON CONFLICT (wallet, outpoint)
+         DO UPDATE SET last_seen_at = NOW()",
+    )
+    .bind(request.wallet)
+    .bind(request.source_outpoint)
+    .execute(&mut *transaction)
+    .await
+    .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    if !delivery_enabled {
+        transaction
+            .commit()
+            .await
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+        return Ok(AlertOutboxOutcome::Suppressed {
+            recipients: recipients.len(),
+        });
+    }
+
+    let mut inserted_rows = 0usize;
+
+    for chat_id in &recipients {
+        let result = sqlx::query(
+            "INSERT INTO telegram_delivery_queue
+             (chat_id, message_html, status, wallet_masked, txid_masked,
+              block_hash_masked, amount_kas, daa_score, next_attempt_at, event_key)
+             VALUES ($1, $2, 'pending', $3, $4, $5, $6, $7, NOW(), $8)
+             ON CONFLICT (chat_id, event_key) WHERE event_key IS NOT NULL
+             DO NOTHING",
+        )
+        .bind(*chat_id)
+        .bind(request.message_html)
+        .bind(request.wallet_masked)
+        .bind(request.txid_masked)
+        .bind(request.block_hash_masked)
+        .bind(request.amount_kas)
+        .bind(request.daa_score)
+        .bind(request.source_outpoint)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+        inserted_rows += result.rows_affected() as usize;
+    }
+
+    transaction
+        .commit()
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    if dedup_inserted && inserted_rows == recipients.len() {
+        Ok(AlertOutboxOutcome::Enqueued {
+            recipients: inserted_rows,
+        })
+    } else if inserted_rows > 0 {
+        Ok(AlertOutboxOutcome::Reconciled {
+            recipients: inserted_rows,
+        })
+    } else {
+        Ok(AlertOutboxOutcome::Duplicate)
+    }
+}
+
 pub async fn fetch_pending_batch(
     pool: &PgPool,
     limit: i64,
@@ -86,7 +247,7 @@ pub async fn fetch_pending_batch(
     let limit = limit.clamp(1, 100);
     let locked_by = worker_id();
 
-    let rows = sqlx::query(
+    sqlx::query_as::<_, QueuedTelegramMessage>(
         "WITH picked AS (
             SELECT id
             FROM telegram_delivery_queue
@@ -98,7 +259,7 @@ pub async fn fetch_pending_batch(
                         AND locked_at < NOW() - INTERVAL '120 seconds'
                     )
                 )
-                AND attempts < 5
+                AND attempts < $3
                 AND next_attempt_at <= NOW()
             ORDER BY created_at ASC
             FOR UPDATE SKIP LOCKED
@@ -119,43 +280,19 @@ pub async fn fetch_pending_batch(
             q.txid_masked,
             q.block_hash_masked,
             q.amount_kas,
-            q.daa_score",
+            q.daa_score,
+            q.created_at",
     )
     .bind(limit)
     .bind(locked_by)
+    .bind(max_delivery_attempts())
     .fetch_all(pool)
     .await
-    .map_err(|e| AppError::DatabaseError(e.to_string()))?;
-
-    let mut messages = Vec::with_capacity(rows.len());
-
-    for row in rows {
-        messages.push(QueuedTelegramMessage {
-            id: row.try_get::<i64, _>("id").unwrap_or_default(),
-            chat_id: row.try_get::<i64, _>("chat_id").unwrap_or_default(),
-            message_html: row.try_get::<String, _>("message_html").unwrap_or_default(),
-            wallet_masked: row
-                .try_get::<Option<String>, _>("wallet_masked")
-                .ok()
-                .flatten(),
-            txid_masked: row
-                .try_get::<Option<String>, _>("txid_masked")
-                .ok()
-                .flatten(),
-            block_hash_masked: row
-                .try_get::<Option<String>, _>("block_hash_masked")
-                .ok()
-                .flatten(),
-            amount_kas: row.try_get::<Option<f64>, _>("amount_kas").ok().flatten(),
-            daa_score: row.try_get::<Option<i64>, _>("daa_score").ok().flatten(),
-        });
-    }
-
-    Ok(messages)
+    .map_err(|e| AppError::DatabaseError(e.to_string()))
 }
 
 pub async fn mark_sent(pool: &PgPool, id: i64) -> Result<(), AppError> {
-    sqlx::query(
+    let result = sqlx::query(
         "UPDATE telegram_delivery_queue
          SET status = 'sent',
              attempts = attempts + 1,
@@ -168,6 +305,12 @@ pub async fn mark_sent(pool: &PgPool, id: i64) -> Result<(), AppError> {
     .execute(pool)
     .await
     .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    if result.rows_affected() != 1 {
+        return Err(AppError::NotFound(format!(
+            "Telegram delivery queue message {id}"
+        )));
+    }
 
     Ok(())
 }
@@ -209,13 +352,14 @@ pub async fn mark_failed(pool: &PgPool, id: i64, error: &str) -> Result<(), AppE
             .fetch_optional(pool)
             .await
             .map_err(|e| AppError::DatabaseError(e.to_string()))?
-            .unwrap_or(0);
+            .ok_or_else(|| AppError::NotFound(format!("Telegram delivery queue message {id}")))?;
 
     let delay = retry_delay_seconds(attempts, error);
+    let max_attempts = max_delivery_attempts();
 
-    sqlx::query(
+    let result = sqlx::query(
         "UPDATE telegram_delivery_queue
-         SET status = CASE WHEN attempts + 1 >= 5 THEN 'failed' ELSE 'pending' END,
+         SET status = CASE WHEN attempts + 1 >= $4 THEN 'failed' ELSE 'pending' END,
              attempts = attempts + 1,
              last_error = $2,
              locked_at = NULL,
@@ -227,9 +371,16 @@ pub async fn mark_failed(pool: &PgPool, id: i64, error: &str) -> Result<(), AppE
     .bind(id)
     .bind(safe_error)
     .bind(delay)
+    .bind(max_attempts)
     .execute(pool)
     .await
     .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+    if result.rows_affected() != 1 {
+        return Err(AppError::NotFound(format!(
+            "Telegram delivery queue message {id}"
+        )));
+    }
 
     Ok(())
 }
@@ -245,32 +396,72 @@ pub async fn pending_count(pool: &PgPool) -> Result<i64, AppError> {
 }
 
 pub async fn queue_stats(pool: &PgPool) -> Result<DeliveryQueueStats, AppError> {
-    let rows = sqlx::query(
-        "SELECT status, COUNT(*)::BIGINT AS count
-         FROM telegram_delivery_queue
-         GROUP BY status",
+    let row = sqlx::query(
+        "SELECT
+            COUNT(*) FILTER (WHERE status = 'pending')::BIGINT AS pending,
+            COUNT(*) FILTER (WHERE status = 'processing')::BIGINT AS processing,
+            COUNT(*) FILTER (WHERE status = 'sent')::BIGINT AS sent,
+            COUNT(*) FILTER (WHERE status = 'failed')::BIGINT AS failed,
+            COUNT(*) FILTER (WHERE status = 'suppressed')::BIGINT AS suppressed,
+            COUNT(*) FILTER (
+                WHERE status IS NULL
+                   OR status NOT IN ('pending', 'processing', 'sent', 'failed', 'suppressed')
+            )::BIGINT AS unexpected_status_count,
+            MIN(COALESCE(status, '<NULL>')) FILTER (
+                WHERE status IS NULL
+                   OR status NOT IN ('pending', 'processing', 'sent', 'failed', 'suppressed')
+            ) AS unexpected_status,
+            COALESCE(
+                EXTRACT(EPOCH FROM (
+                    NOW() - MIN(created_at) FILTER (
+                        WHERE status IN ('pending', 'processing')
+                    )
+                )),
+                0
+            )::BIGINT AS oldest_active_age_seconds
+         FROM telegram_delivery_queue",
     )
-    .fetch_all(pool)
+    .fetch_one(pool)
     .await
     .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
-    let mut stats = DeliveryQueueStats::default();
+    let unexpected_status_count = row
+        .try_get::<i64, _>("unexpected_status_count")
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
-    for row in rows {
-        let status = row.try_get::<String, _>("status").unwrap_or_default();
-        let count = row.try_get::<i64, _>("count").unwrap_or_default();
-
-        match status.as_str() {
-            "pending" => stats.pending = count,
-            "processing" => stats.processing = count,
-            "sent" => stats.sent = count,
-            "failed" => stats.failed = count,
-            "suppressed" => stats.suppressed = count,
-            _ => {}
-        }
+    if unexpected_status_count != 0 {
+        let unexpected_status = row
+            .try_get::<Option<String>, _>("unexpected_status")
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?
+            .unwrap_or_else(|| "<unknown>".to_string());
+        return Err(AppError::DatabaseError(format!(
+            "Unexpected Telegram delivery queue status: {unexpected_status}"
+        )));
     }
 
-    Ok(stats)
+    let oldest_active_age_seconds = row
+        .try_get::<i64, _>("oldest_active_age_seconds")
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?
+        .max(0) as u64;
+
+    Ok(DeliveryQueueStats {
+        pending: row
+            .try_get::<i64, _>("pending")
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?,
+        processing: row
+            .try_get::<i64, _>("processing")
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?,
+        sent: row
+            .try_get::<i64, _>("sent")
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?,
+        failed: row
+            .try_get::<i64, _>("failed")
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?,
+        suppressed: row
+            .try_get::<i64, _>("suppressed")
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?,
+        oldest_active_age_seconds,
+    })
 }
 
 #[cfg(test)]

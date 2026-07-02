@@ -10,7 +10,6 @@ pub static LAST_ALERT_DELIVERED_TS: AtomicU64 = AtomicU64::new(0);
 pub static LAST_ALERT_DETECTED_TS: AtomicU64 = AtomicU64::new(0);
 pub static LAST_UTXO_SCAN_TS: AtomicU64 = AtomicU64::new(0);
 
-#[allow(dead_code)]
 pub fn now_unix_secs() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -31,23 +30,20 @@ pub fn inc_admin_actions_confirmed() {
     ADMIN_ACTIONS_CONFIRMED.fetch_add(1, Ordering::Relaxed);
 }
 
-#[allow(dead_code)]
 pub fn inc_telegram_send_failures() {
     TELEGRAM_SEND_FAILURES.fetch_add(1, Ordering::Relaxed);
 }
 
-#[allow(dead_code)]
 pub fn inc_rpc_timeouts() {
     RPC_TIMEOUTS.fetch_add(1, Ordering::Relaxed);
 }
 
-#[allow(dead_code)]
 pub fn inc_db_errors() {
     DB_ERRORS.fetch_add(1, Ordering::Relaxed);
 }
 
 pub fn render_metrics() -> String {
-    format!(
+    let mut rendered = format!(
         concat!(
             "# HELP kaspa_pulse_alerts_delivered_total Total delivered mining alerts.\n",
             "# TYPE kaspa_pulse_alerts_delivered_total counter\n",
@@ -66,20 +62,30 @@ pub fn render_metrics() -> String {
             "kaspa_pulse_rpc_timeouts_total {}\n",
             "# HELP kaspa_pulse_db_errors_total Database error count.\n",
             "# TYPE kaspa_pulse_db_errors_total counter\n",
-            "kaspa_pulse_db_errors_total {}\n"
+            "kaspa_pulse_db_errors_total {}\n",
+            "# HELP kaspa_pulse_last_alert_delivered_timestamp Last delivered alert unix timestamp.\n",
+            "# TYPE kaspa_pulse_last_alert_delivered_timestamp gauge\n",
+            "kaspa_pulse_last_alert_delivered_timestamp {}\n",
+            "# HELP kaspa_pulse_last_alert_detected_timestamp Last detected alert unix timestamp.\n",
+            "# TYPE kaspa_pulse_last_alert_detected_timestamp gauge\n",
+            "kaspa_pulse_last_alert_detected_timestamp {}\n",
+            "# HELP kaspa_pulse_last_utxo_scan_timestamp Last successful UTXO scan unix timestamp.\n",
+            "# TYPE kaspa_pulse_last_utxo_scan_timestamp gauge\n",
+            "kaspa_pulse_last_utxo_scan_timestamp {}\n"
         ),
         ALERTS_DELIVERED.load(Ordering::Relaxed),
         ALERTS_SUPPRESSED.load(Ordering::Relaxed),
         ADMIN_ACTIONS_CONFIRMED.load(Ordering::Relaxed),
         TELEGRAM_SEND_FAILURES.load(Ordering::Relaxed),
         RPC_TIMEOUTS.load(Ordering::Relaxed),
-        DB_ERRORS.load(Ordering::Relaxed)
-    ) + &format!(
-        "# HELP kaspa_pulse_last_alert_delivered_timestamp Last delivered alert unix timestamp.\n# TYPE kaspa_pulse_last_alert_delivered_timestamp gauge\nkaspa_pulse_last_alert_delivered_timestamp {}\n# HELP kaspa_pulse_last_alert_detected_timestamp Last detected alert unix timestamp.\n# TYPE kaspa_pulse_last_alert_detected_timestamp gauge\nkaspa_pulse_last_alert_detected_timestamp {}\n# HELP kaspa_pulse_last_utxo_scan_timestamp Last UTXO scan unix timestamp.\n# TYPE kaspa_pulse_last_utxo_scan_timestamp gauge\nkaspa_pulse_last_utxo_scan_timestamp {}\n",
+        DB_ERRORS.load(Ordering::Relaxed),
         LAST_ALERT_DELIVERED_TS.load(Ordering::Relaxed),
         LAST_ALERT_DETECTED_TS.load(Ordering::Relaxed),
-        LAST_UTXO_SCAN_TS.load(Ordering::Relaxed)
-    )
+        LAST_UTXO_SCAN_TS.load(Ordering::Relaxed),
+    );
+
+    rendered.push_str(&crate::infrastructure::observability::snapshot().render_prometheus());
+    rendered
 }
 
 pub fn mark_alert_detected() {

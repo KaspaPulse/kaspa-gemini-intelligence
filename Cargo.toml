@@ -12,6 +12,7 @@ teloxide = { version = "0.13", features = ["macros", "webhooks-axum"] }
 axum = "=0.7.9"
 
 async-trait = "0.1.80"
+async-channel = "2.5.0"
 anyhow = "1.0"
 thiserror = "2.0"
 
@@ -32,9 +33,15 @@ reqwest = { version = "0.12", features = ["json", "multipart", "rustls-tls"] }
 sysinfo = "0.30"
 dashmap = "6.1"
 governor = "0.6"
+rand = "0.8.6"
+sha2 = "0.10.9"
 
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
+
 [profile.release]
 lto = true
 codegen-units = 1

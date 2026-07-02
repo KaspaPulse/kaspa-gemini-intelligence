@@ -1,43 +1,18 @@
-use crate::domain::models::AppContext;
+use crate::domain::models::{AppContext, ConfirmationSession, RequestIdentity, SensitiveAction};
+use dashmap::mapref::entry::Entry;
+use dashmap::DashMap;
+use rand::rngs::OsRng;
+use rand::RngCore;
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use teloxide::prelude::*;
 use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, ParseMode};
 
-const ADMIN_CONFIRM_TTL_SECS: u64 = 60;
+const CONFIRM_TTL_SECS: u64 = 60;
+const NONCE_BYTES: usize = 16;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SensitiveAdminAction {
-    Pause,
-    Resume,
-    Restart,
-    CleanupEvents,
-    MuteAlerts,
-    UnmuteAlerts,
-    ClearWallets,
-    ForgetAll,
-    ToggleMemoryCleaner,
-    ToggleLiveSync,
-    ToggleMaintenance,
-}
-
-impl SensitiveAdminAction {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Pause => "pause",
-            Self::Resume => "resume",
-            Self::Restart => "restart",
-            Self::CleanupEvents => "cleanup_events",
-            Self::MuteAlerts => "mute_alerts",
-            Self::UnmuteAlerts => "unmute_alerts",
-            Self::ClearWallets => "clear_wallets",
-            Self::ForgetAll => "forget_all",
-            Self::ToggleMemoryCleaner => "toggle_memory",
-            Self::ToggleLiveSync => "toggle_live_sync",
-            Self::ToggleMaintenance => "toggle_maintenance",
-        }
-    }
-
+impl SensitiveAction {
     pub const fn label(self) -> &'static str {
         match self {
             Self::Pause => "Pause live monitoring",
@@ -51,22 +26,6 @@ impl SensitiveAdminAction {
             Self::ToggleMemoryCleaner => "Toggle memory cleaner",
             Self::ToggleLiveSync => "Toggle live monitoring setting",
             Self::ToggleMaintenance => "Toggle maintenance mode",
-        }
-    }
-
-    pub const fn execute_callback(self) -> &'static str {
-        match self {
-            Self::Pause => "cmd_pause",
-            Self::Resume => "cmd_resume",
-            Self::Restart => "cmd_restart",
-            Self::CleanupEvents => "cmd_cleanup_events",
-            Self::MuteAlerts => "do_mute_alerts",
-            Self::UnmuteAlerts => "do_unmute_alerts",
-            Self::ClearWallets => "do_forget_wallets",
-            Self::ForgetAll => "do_forget_all",
-            Self::ToggleMemoryCleaner => "btn_toggle_ENABLE_MEMORY_CLEANER",
-            Self::ToggleLiveSync => "btn_toggle_ENABLE_LIVE_SYNC",
-            Self::ToggleMaintenance => "btn_toggle_MAINTENANCE_MODE",
         }
     }
 
@@ -84,7 +43,9 @@ impl SensitiveAdminAction {
             Self::ToggleLiveSync => "This will change live monitoring runtime state.",
             Self::ToggleMaintenance => "This will change maintenance mode.",
             Self::MuteAlerts => "This will stop Telegram mining alert delivery only. Block detection, DAG analysis, and database logging will continue.",
-            Self::UnmuteAlerts => "This will resume Telegram mining alert delivery for new alerts.",
+            Self::UnmuteAlerts => {
+                "This will resume Telegram mining alert delivery for new alerts."
+            }
         }
     }
 }
@@ -96,46 +57,81 @@ pub fn now_unix_secs() -> u64 {
         .unwrap_or(0)
 }
 
-fn token_seed(chat_id: i64, action: SensitiveAdminAction, expires_at: u64) -> u128 {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|value| value.as_nanos())
-        .unwrap_or(0);
+fn encode_hex(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut output = String::with_capacity(bytes.len() * 2);
 
-    let chat_component = (chat_id.unsigned_abs() as u128) << 32;
-    let action_component = action.as_str().bytes().fold(0u128, |acc, b| {
-        acc.wrapping_mul(131).wrapping_add(b as u128)
-    });
+    for byte in bytes {
+        output.push(HEX[(byte >> 4) as usize] as char);
+        output.push(HEX[(byte & 0x0f) as usize] as char);
+    }
 
-    nanos
-        ^ chat_component
-        ^ action_component
-        ^ ((expires_at as u128) << 16)
-        ^ (std::process::id() as u128)
+    output
 }
 
-pub fn issue_token(ctx: &Arc<AppContext>, chat_id: i64, action: SensitiveAdminAction) -> String {
+fn nonce_hash(nonce: &str) -> Result<String, String> {
+    if nonce.len() != NONCE_BYTES * 2 || !nonce.bytes().all(|value| value.is_ascii_hexdigit()) {
+        return Err("Invalid confirmation token.".to_string());
+    }
+
+    Ok(encode_hex(&Sha256::digest(nonce.as_bytes())))
+}
+
+fn generate_nonce() -> String {
+    let mut bytes = [0u8; NONCE_BYTES];
+    let mut rng = OsRng;
+    rng.fill_bytes(&mut bytes);
+    encode_hex(&bytes)
+}
+
+fn register_confirmation(
+    ctx: &Arc<AppContext>,
+    identity: RequestIdentity,
+    action: SensitiveAction,
+    nonce: &str,
+) -> Result<(), String> {
     cleanup_expired(ctx);
 
-    let expires_at = now_unix_secs().saturating_add(ADMIN_CONFIRM_TTL_SECS);
-    let token = format!("{:016x}", token_seed(chat_id, action, expires_at));
-    let stored = format!("{}|{}|{}", action.as_str(), token, expires_at);
+    if action.requires_admin() && !identity.is_private_admin(ctx.admin_user_id, ctx.admin_chat_id) {
+        return Err(
+            "Admin actions are allowed only in the configured private admin chat.".to_string(),
+        );
+    }
 
-    ctx.admin_sessions.insert(chat_id, stored);
+    let key = nonce_hash(nonce)?;
 
-    token
+    ctx.admin_confirmations.retain(|_, session| {
+        !(session.actor_user_id == identity.actor_user_id
+            && session.chat_id == identity.chat_id
+            && session.message_id == identity.message_id
+            && session.action == action)
+    });
+
+    match ctx.admin_confirmations.entry(key) {
+        Entry::Vacant(entry) => {
+            entry.insert(ConfirmationSession {
+                actor_user_id: identity.actor_user_id,
+                chat_id: identity.chat_id,
+                message_id: identity.message_id,
+                action,
+                expires_at_unix_secs: now_unix_secs().saturating_add(CONFIRM_TTL_SECS),
+            });
+            Ok(())
+        }
+        Entry::Occupied(_) => Err("Confirmation nonce collision. Please retry.".to_string()),
+    }
 }
 
-pub fn confirmation_callback(action: SensitiveAdminAction, token: &str) -> String {
-    format!("admin_do:{}:{}", action.as_str(), token)
+pub fn confirmation_callback(action: SensitiveAction, nonce: &str) -> String {
+    format!("admin_do:{}:{}", action.as_str(), nonce)
 }
 
-pub fn confirmation_markup(action: SensitiveAdminAction, token: &str) -> InlineKeyboardMarkup {
+pub fn confirmation_markup(action: SensitiveAction, nonce: &str) -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(vec![
         vec![
             InlineKeyboardButton::callback(
                 format!("✅ Confirm {}", action.label()),
-                confirmation_callback(action, token),
+                confirmation_callback(action, nonce),
             ),
             InlineKeyboardButton::callback("❌ Cancel", "cancel_action"),
         ],
@@ -143,27 +139,42 @@ pub fn confirmation_markup(action: SensitiveAdminAction, token: &str) -> InlineK
     ])
 }
 
-pub fn confirmation_text(action: SensitiveAdminAction) -> String {
+pub fn confirmation_text(action: SensitiveAction) -> String {
     format!(
-        "⚠️ <b>Admin Confirmation Required</b>\n━━━━━━━━━━━━━━━━━━\n<b>Action:</b> <code>{}</code>\n<b>Risk:</b> {}\n\nThis confirmation expires in <code>{}</code> seconds.",
+        "⚠️ <b>Confirmation Required</b>\n━━━━━━━━━━━━━━━━━━\n<b>Action:</b> <code>{}</code>\n<b>Risk:</b> {}\n\nThis confirmation expires in <code>{}</code> seconds and can be used only once.",
         action.label(),
         action.risk_text(),
-        ADMIN_CONFIRM_TTL_SECS
+        CONFIRM_TTL_SECS
     )
 }
 
 pub async fn send_command_confirmation(
     bot: &Bot,
-    chat_id: teloxide::types::ChatId,
     ctx: &Arc<AppContext>,
-    action: SensitiveAdminAction,
+    identity: RequestIdentity,
+    action: SensitiveAction,
 ) -> anyhow::Result<()> {
-    let token = issue_token(ctx, chat_id.0, action);
+    if action.requires_admin() && !identity.is_private_admin(ctx.admin_user_id, ctx.admin_chat_id) {
+        anyhow::bail!("Admin actions are allowed only in the configured private admin chat.");
+    }
 
-    bot.send_message(chat_id, confirmation_text(action))
+    let nonce = generate_nonce();
+    let confirmation_message = bot
+        .send_message(
+            teloxide::types::ChatId(identity.chat_id),
+            confirmation_text(action),
+        )
         .parse_mode(ParseMode::Html)
-        .reply_markup(confirmation_markup(action, &token))
+        .reply_markup(confirmation_markup(action, &nonce))
         .await?;
+
+    let confirmation_identity = RequestIdentity {
+        message_id: confirmation_message.id.0,
+        ..identity
+    };
+
+    register_confirmation(ctx, confirmation_identity, action, &nonce)
+        .map_err(anyhow::Error::msg)?;
 
     Ok(())
 }
@@ -172,127 +183,165 @@ pub async fn edit_callback_confirmation(
     bot: &Bot,
     msg: &teloxide::types::MaybeInaccessibleMessage,
     ctx: &Arc<AppContext>,
-    action: SensitiveAdminAction,
+    identity: RequestIdentity,
+    action: SensitiveAction,
 ) -> anyhow::Result<()> {
-    let chat_id = msg.chat().id;
-    let token = issue_token(ctx, chat_id.0, action);
+    let nonce = generate_nonce();
+    register_confirmation(ctx, identity, action, &nonce).map_err(anyhow::Error::msg)?;
 
-    bot.edit_message_text(chat_id, msg.id(), confirmation_text(action))
+    let result = bot
+        .edit_message_text(msg.chat().id, msg.id(), confirmation_text(action))
         .parse_mode(ParseMode::Html)
-        .reply_markup(confirmation_markup(action, &token))
-        .await?;
+        .reply_markup(confirmation_markup(action, &nonce))
+        .await;
+
+    if let Err(error) = result {
+        if let Ok(key) = nonce_hash(&nonce) {
+            ctx.admin_confirmations.remove(&key);
+        }
+        return Err(error.into());
+    }
 
     Ok(())
 }
 
 pub fn cleanup_expired(ctx: &Arc<AppContext>) {
     let now = now_unix_secs();
+    ctx.admin_confirmations
+        .retain(|_, session| session.expires_at_unix_secs > now);
+}
 
-    ctx.admin_sessions.retain(|_, value| {
-        let mut parts = value.split('|');
-        let _action = parts.next();
-        let _token = parts.next();
-        let expires_at = parts
-            .next()
-            .and_then(|value| value.parse::<u64>().ok())
-            .unwrap_or(0);
-
-        expires_at > now
+pub fn cancel_for_identity(ctx: &Arc<AppContext>, identity: RequestIdentity) {
+    ctx.admin_confirmations.retain(|_, session| {
+        !(session.actor_user_id == identity.actor_user_id
+            && session.chat_id == identity.chat_id
+            && session.message_id == identity.message_id)
     });
+
+    ctx.pending_input_sessions
+        .remove(&identity.actor_chat_key());
 }
 
-pub fn sensitive_action_from_toggle_flag(flag: &str) -> Option<SensitiveAdminAction> {
+pub fn sensitive_action_from_toggle_flag(flag: &str) -> Option<SensitiveAction> {
     match flag.trim().to_uppercase().as_str() {
-        "ENABLE_MEMORY_CLEANER" | "MEMORY" | "MEM" => {
-            Some(SensitiveAdminAction::ToggleMemoryCleaner)
-        }
-        "ENABLE_LIVE_SYNC" | "LIVE" | "SYNC" => Some(SensitiveAdminAction::ToggleLiveSync),
-        "MAINTENANCE_MODE" | "MAINTENANCE" => Some(SensitiveAdminAction::ToggleMaintenance),
+        "ENABLE_MEMORY_CLEANER" | "MEMORY" | "MEM" => Some(SensitiveAction::ToggleMemoryCleaner),
+        "ENABLE_LIVE_SYNC" | "LIVE" | "SYNC" => Some(SensitiveAction::ToggleLiveSync),
+        "MAINTENANCE_MODE" | "MAINTENANCE" => Some(SensitiveAction::ToggleMaintenance),
         _ => None,
     }
 }
 
-pub fn sensitive_action_from_callback(data: &str) -> Option<SensitiveAdminAction> {
+pub fn sensitive_action_from_callback(data: &str) -> Option<SensitiveAction> {
     match data {
-        "cmd_pause" => Some(SensitiveAdminAction::Pause),
-        "cmd_resume" => Some(SensitiveAdminAction::Resume),
-        "cmd_restart" => Some(SensitiveAdminAction::Restart),
-        "cmd_cleanup_events" => Some(SensitiveAdminAction::CleanupEvents),
-        "cmd_mute_alerts" => Some(SensitiveAdminAction::MuteAlerts),
-        "cmd_unmute_alerts" => Some(SensitiveAdminAction::UnmuteAlerts),
-        "confirm_forget_wallets" => Some(SensitiveAdminAction::ClearWallets),
-        "confirm_forget_all" => Some(SensitiveAdminAction::ForgetAll),
-        "btn_toggle_ENABLE_MEMORY_CLEANER" => Some(SensitiveAdminAction::ToggleMemoryCleaner),
-        "btn_toggle_ENABLE_LIVE_SYNC" => Some(SensitiveAdminAction::ToggleLiveSync),
-        "btn_toggle_MAINTENANCE_MODE" => Some(SensitiveAdminAction::ToggleMaintenance),
+        "cmd_pause" => Some(SensitiveAction::Pause),
+        "cmd_resume" => Some(SensitiveAction::Resume),
+        "cmd_restart" => Some(SensitiveAction::Restart),
+        "cmd_cleanup_events" => Some(SensitiveAction::CleanupEvents),
+        "cmd_mute_alerts" => Some(SensitiveAction::MuteAlerts),
+        "cmd_unmute_alerts" => Some(SensitiveAction::UnmuteAlerts),
+        "confirm_forget_wallets" => Some(SensitiveAction::ClearWallets),
+        "confirm_forget_all" => Some(SensitiveAction::ForgetAll),
+        "btn_toggle_ENABLE_MEMORY_CLEANER" => Some(SensitiveAction::ToggleMemoryCleaner),
+        "btn_toggle_ENABLE_LIVE_SYNC" => Some(SensitiveAction::ToggleLiveSync),
+        "btn_toggle_MAINTENANCE_MODE" => Some(SensitiveAction::ToggleMaintenance),
         _ => None,
     }
 }
 
-pub fn action_from_admin_do_callback(data: &str) -> Result<SensitiveAdminAction, String> {
-    let parts = data.split(':').collect::<Vec<_>>();
+fn parse_admin_do_callback(data: &str) -> Result<(SensitiveAction, &str), String> {
+    let mut parts = data.split(':');
+    let prefix = parts.next();
+    let action = parts.next();
+    let nonce = parts.next();
 
-    if parts.len() != 3 || parts[0] != "admin_do" {
+    if prefix != Some("admin_do") || parts.next().is_some() {
         return Err("Invalid confirmation callback.".to_string());
     }
 
-    match parts[1] {
-        "pause" => Ok(SensitiveAdminAction::Pause),
-        "resume" => Ok(SensitiveAdminAction::Resume),
-        "restart" => Ok(SensitiveAdminAction::Restart),
-        "cleanup_events" => Ok(SensitiveAdminAction::CleanupEvents),
-        "mute_alerts" => Ok(SensitiveAdminAction::MuteAlerts),
-        "unmute_alerts" => Ok(SensitiveAdminAction::UnmuteAlerts),
-        "clear_wallets" => Ok(SensitiveAdminAction::ClearWallets),
-        "forget_all" => Ok(SensitiveAdminAction::ForgetAll),
-        "toggle_memory" => Ok(SensitiveAdminAction::ToggleMemoryCleaner),
-        "toggle_live_sync" => Ok(SensitiveAdminAction::ToggleLiveSync),
-        "toggle_maintenance" => Ok(SensitiveAdminAction::ToggleMaintenance),
-        _ => Err("Unknown sensitive action.".to_string()),
+    let action = action
+        .and_then(SensitiveAction::parse)
+        .ok_or_else(|| "Unknown sensitive action.".to_string())?;
+    let nonce = nonce.ok_or_else(|| "Invalid confirmation token.".to_string())?;
+
+    nonce_hash(nonce)?;
+    Ok((action, nonce))
+}
+
+pub fn action_from_admin_do_callback(data: &str) -> Result<SensitiveAction, String> {
+    parse_admin_do_callback(data).map(|(action, _)| action)
+}
+
+fn consume_confirmation(
+    confirmations: &DashMap<String, ConfirmationSession>,
+    identity: RequestIdentity,
+    requested_action: SensitiveAction,
+    requested_nonce: &str,
+    now: u64,
+    admin_user_id: u64,
+    admin_chat_id: i64,
+) -> Result<SensitiveAction, String> {
+    let key = nonce_hash(requested_nonce)?;
+
+    match confirmations.entry(key) {
+        Entry::Vacant(_) => Err("Confirmation expired, missing, or already used.".to_string()),
+        Entry::Occupied(entry) => {
+            let stored = entry.get().clone();
+
+            if stored.expires_at_unix_secs <= now {
+                entry.remove();
+                return Err("Confirmation expired. Please try again.".to_string());
+            }
+
+            if stored.actor_user_id != identity.actor_user_id {
+                return Err("Confirmation belongs to a different Telegram user.".to_string());
+            }
+
+            if stored.chat_id != identity.chat_id {
+                return Err("Confirmation belongs to a different chat.".to_string());
+            }
+
+            if stored.message_id != identity.message_id {
+                return Err("Confirmation belongs to a different message.".to_string());
+            }
+
+            if stored.action != requested_action {
+                return Err("Confirmation action mismatch.".to_string());
+            }
+
+            if requested_action.requires_admin()
+                && !identity.is_private_admin(admin_user_id, admin_chat_id)
+            {
+                return Err(
+                    "Admin actions are allowed only in the configured private admin chat."
+                        .to_string(),
+                );
+            }
+
+            entry.remove();
+            Ok(requested_action)
+        }
     }
 }
 
 pub fn validate_admin_do_callback(
     ctx: &Arc<AppContext>,
-    chat_id: i64,
+    identity: RequestIdentity,
     data: &str,
-) -> Result<SensitiveAdminAction, String> {
+) -> Result<SensitiveAction, String> {
     cleanup_expired(ctx);
 
-    let parts = data.split(':').collect::<Vec<_>>();
-
-    if parts.len() != 3 || parts[0] != "admin_do" {
-        return Err("Invalid confirmation callback.".to_string());
-    }
-
     let requested_action = action_from_admin_do_callback(data)?;
-    let requested_token = parts[2];
+    let (_, requested_nonce) = parse_admin_do_callback(data)?;
 
-    let Some((_, stored)) = ctx.admin_sessions.remove(&chat_id) else {
-        return Err("Confirmation expired or missing. Please try again.".to_string());
-    };
-
-    let stored_parts = stored.split('|').collect::<Vec<_>>();
-
-    if stored_parts.len() != 3 {
-        return Err("Invalid confirmation session. Please try again.".to_string());
-    }
-
-    let stored_action = stored_parts[0];
-    let stored_token = stored_parts[1];
-    let expires_at = stored_parts[2]
-        .parse::<u64>()
-        .map_err(|_| "Invalid confirmation expiry. Please try again.".to_string())?;
-
-    if expires_at <= now_unix_secs() {
-        return Err("Confirmation expired. Please try again.".to_string());
-    }
-
-    if stored_action != requested_action.as_str() || stored_token != requested_token {
-        return Err("Confirmation token mismatch. Please try again.".to_string());
-    }
-
-    Ok(requested_action)
+    consume_confirmation(
+        &ctx.admin_confirmations,
+        identity,
+        requested_action,
+        requested_nonce,
+        now_unix_secs(),
+        ctx.admin_user_id,
+        ctx.admin_chat_id,
+    )
 }
 
 #[cfg(test)]
@@ -303,21 +352,164 @@ mod tests {
     fn callback_mapping_for_sensitive_actions_is_stable() {
         assert_eq!(
             sensitive_action_from_callback("cmd_pause"),
-            Some(SensitiveAdminAction::Pause)
+            Some(SensitiveAction::Pause)
         );
         assert_eq!(
             sensitive_action_from_callback("btn_toggle_MAINTENANCE_MODE"),
-            Some(SensitiveAdminAction::ToggleMaintenance)
+            Some(SensitiveAction::ToggleMaintenance)
         );
+        assert_eq!(SensitiveAction::Pause.execute_callback(), "do_pause");
         assert_eq!(
-            SensitiveAdminAction::ForgetAll.execute_callback(),
+            SensitiveAction::ForgetAll.execute_callback(),
             "do_forget_all"
         );
     }
 
     #[test]
+    fn generated_nonce_is_128_bit_lower_hex() {
+        let nonce = generate_nonce();
+        assert_eq!(nonce.len(), 32);
+        assert!(nonce.bytes().all(|value| value.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn callback_data_stays_within_telegram_limit() {
+        let callback = confirmation_callback(
+            SensitiveAction::ToggleMaintenance,
+            "0123456789abcdef0123456789abcdef",
+        );
+        assert!(callback.len() <= 64);
+    }
+
+    #[test]
     fn invalid_admin_do_callback_is_rejected() {
         assert!(action_from_admin_do_callback("bad").is_err());
-        assert!(action_from_admin_do_callback("admin_do:unknown:token").is_err());
+        assert!(
+            action_from_admin_do_callback("admin_do:unknown:0123456789abcdef0123456789abcdef")
+                .is_err()
+        );
+        assert!(action_from_admin_do_callback("admin_do:pause:short").is_err());
+    }
+
+    #[test]
+    fn confirmation_is_bound_to_actor_chat_message_and_is_single_use() {
+        let nonce = "0123456789abcdef0123456789abcdef";
+        let key = nonce_hash(nonce).unwrap();
+        let confirmations = DashMap::new();
+        let identity = RequestIdentity {
+            actor_user_id: 42,
+            chat_id: 42,
+            message_id: 7,
+            is_private: true,
+        };
+
+        confirmations.insert(
+            key,
+            ConfirmationSession {
+                actor_user_id: 42,
+                chat_id: 42,
+                message_id: 7,
+                action: SensitiveAction::Pause,
+                expires_at_unix_secs: 200,
+            },
+        );
+
+        assert_eq!(
+            consume_confirmation(
+                &confirmations,
+                identity,
+                SensitiveAction::Pause,
+                nonce,
+                100,
+                42,
+                42,
+            ),
+            Ok(SensitiveAction::Pause)
+        );
+
+        assert!(consume_confirmation(
+            &confirmations,
+            identity,
+            SensitiveAction::Pause,
+            nonce,
+            100,
+            42,
+            42,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn another_actor_cannot_consume_the_confirmation() {
+        let nonce = "fedcba9876543210fedcba9876543210";
+        let key = nonce_hash(nonce).unwrap();
+        let confirmations = DashMap::new();
+
+        confirmations.insert(
+            key,
+            ConfirmationSession {
+                actor_user_id: 42,
+                chat_id: 42,
+                message_id: 7,
+                action: SensitiveAction::Pause,
+                expires_at_unix_secs: 200,
+            },
+        );
+
+        let attacker = RequestIdentity {
+            actor_user_id: 99,
+            chat_id: 42,
+            message_id: 7,
+            is_private: true,
+        };
+
+        assert!(consume_confirmation(
+            &confirmations,
+            attacker,
+            SensitiveAction::Pause,
+            nonce,
+            100,
+            42,
+            42,
+        )
+        .is_err());
+        assert_eq!(confirmations.len(), 1);
+    }
+
+    #[test]
+    fn admin_confirmation_is_rejected_outside_private_chat() {
+        let nonce = "11111111111111112222222222222222";
+        let key = nonce_hash(nonce).unwrap();
+        let confirmations = DashMap::new();
+
+        confirmations.insert(
+            key,
+            ConfirmationSession {
+                actor_user_id: 42,
+                chat_id: -100,
+                message_id: 7,
+                action: SensitiveAction::Pause,
+                expires_at_unix_secs: 200,
+            },
+        );
+
+        let group_identity = RequestIdentity {
+            actor_user_id: 42,
+            chat_id: -100,
+            message_id: 7,
+            is_private: false,
+        };
+
+        assert!(consume_confirmation(
+            &confirmations,
+            group_identity,
+            SensitiveAction::Pause,
+            nonce,
+            100,
+            42,
+            42,
+        )
+        .is_err());
+        assert_eq!(confirmations.len(), 1);
     }
 }

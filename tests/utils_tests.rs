@@ -1,6 +1,6 @@
 use kaspa_pulse::utils::{
-    format_short_wallet, is_add_wallet_rate_limited, validate_raw_message_size,
-    validate_wallet_address_size,
+    format_short_wallet, is_add_wallet_rate_limited, sanitize_callback_data_for_log,
+    validate_raw_message_size, validate_wallet_address_size,
 };
 
 #[test]
@@ -29,9 +29,31 @@ fn validates_wallet_size() {
 #[test]
 fn add_wallet_rate_limit_blocks_burst() {
     std::env::set_var("RATE_LIMIT_ADD_WALLET_PER_MINUTE", "1");
-    let chat_id = 9988776655_i64;
-    let first = is_add_wallet_rate_limited(chat_id);
-    let second = is_add_wallet_rate_limited(chat_id);
+    let actor_user_id = 9988776655_u64;
+    let first = is_add_wallet_rate_limited(actor_user_id);
+    let second = is_add_wallet_rate_limited(actor_user_id);
     assert!(!first);
     assert!(second);
+}
+
+#[test]
+fn admin_confirmation_nonce_is_redacted_from_callback_logs() {
+    let nonce = "0123456789abcdef0123456789abcdef";
+    let safe = sanitize_callback_data_for_log(&format!("admin_do:resume:{nonce}"));
+
+    assert_eq!(safe, "admin_do:resume:[REDACTED]");
+    assert!(!safe.contains(nonce));
+}
+
+#[test]
+fn malformed_admin_callback_is_still_redacted() {
+    let safe = sanitize_callback_data_for_log("admin_do:RESUME!:sensitive-value");
+
+    assert_eq!(safe, "admin_do:unknown:[REDACTED]");
+    assert!(!safe.contains("sensitive-value"));
+}
+
+#[test]
+fn ordinary_callback_data_is_preserved() {
+    assert_eq!(sanitize_callback_data_for_log("cmd_network"), "cmd_network");
 }

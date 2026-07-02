@@ -113,6 +113,34 @@ pub enum Command {
     Forget,
 }
 
+impl Command {
+    pub fn is_admin_only(&self) -> bool {
+        matches!(
+            self,
+            Self::Health
+                | Self::Stats
+                | Self::Sys
+                | Self::Pause
+                | Self::Resume
+                | Self::MuteAlerts
+                | Self::UnmuteAlerts
+                | Self::AlertsStatus
+                | Self::Restart
+                | Self::Broadcast(_)
+                | Self::Logs
+                | Self::Events
+                | Self::Errors
+                | Self::Delivery
+                | Self::Subscribers(_)
+                | Self::WalletEvents(_)
+                | Self::CleanupEvents
+                | Self::DbDiag
+                | Self::Settings
+                | Self::Toggle(_)
+        )
+    }
+}
+
 pub fn public_bot_commands() -> Vec<teloxide::types::BotCommand> {
     vec![
         teloxide::types::BotCommand::new("start", "Open the main menu"),

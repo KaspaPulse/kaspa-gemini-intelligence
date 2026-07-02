@@ -126,14 +126,27 @@ pub fn spawn_health_endpoint(cancel_token: CancellationToken) {
     let addr = SocketAddr::new(bind_ip, port);
 
     tokio::spawn(async move {
-        use axum::{routing::get, Router};
+        use axum::{http::StatusCode, routing::get, Router};
 
         async fn healthz() -> &'static str {
             "ok\n"
         }
 
-        async fn readyz() -> &'static str {
-            "ready\n"
+        async fn readyz() -> (StatusCode, String) {
+            let snapshot = crate::infrastructure::observability::snapshot();
+            let state = snapshot.readiness(
+                crate::infrastructure::metrics::now_unix_secs(),
+                crate::infrastructure::observability::ReadinessPolicy::from_env(),
+            );
+            let status = match state {
+                crate::infrastructure::observability::ReadinessState::Ready
+                | crate::infrastructure::observability::ReadinessState::Degraded => StatusCode::OK,
+                crate::infrastructure::observability::ReadinessState::NotReady => {
+                    StatusCode::SERVICE_UNAVAILABLE
+                }
+            };
+
+            (status, format!("{}\n", state.as_str()))
         }
 
         async fn metricsz() -> String {
@@ -157,7 +170,10 @@ pub fn spawn_health_endpoint(cancel_token: CancellationToken) {
             }
         };
 
-        tracing::info!("[HEALTH] Listening on {} with /healthz and /readyz", addr);
+        tracing::info!(
+            "[HEALTH] Listening on {} with /healthz, /readyz and /metrics",
+            addr
+        );
 
         let shutdown = cancel_token.cancelled_owned();
 

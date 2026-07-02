@@ -283,17 +283,7 @@ pub async fn handle_logs(bot: Bot, msg: Message) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn handle_broadcast(
-    bot: Bot,
-    msg: Message,
-    admin_id: i64,
-    msg_text: String,
-) -> anyhow::Result<()> {
-    if msg.chat.id.0 != admin_id {
-        crate::send_logged!(bot, msg, "⛔ Unauthorized.");
-        return Ok(());
-    }
-
+pub async fn handle_broadcast(bot: Bot, msg: Message, msg_text: String) -> anyhow::Result<()> {
     if msg_text.trim().is_empty() {
         crate::send_logged!(bot, msg, "⚠️ Usage: /broadcast message");
         return Ok(());

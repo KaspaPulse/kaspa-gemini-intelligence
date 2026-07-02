@@ -7,35 +7,33 @@ use super::postgres_adapter::PostgresRepository;
 
 impl PostgresRepository {
     pub async fn count_user_wallets(&self, chat_id: i64) -> Result<i64, AppError> {
-        let count = sqlx::query_scalar!(
+        let count = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(*)
              FROM user_wallets
              WHERE chat_id = $1",
-            chat_id
         )
+        .bind(chat_id)
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| AppError::DatabaseError(e.to_string()))?
-        .unwrap_or(0);
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
         Ok(count)
     }
 
     pub async fn user_wallet_exists(&self, address: &str, chat_id: i64) -> Result<bool, AppError> {
-        let exists = sqlx::query_scalar!(
+        let exists = sqlx::query_scalar::<_, bool>(
             "SELECT EXISTS(
                 SELECT 1
                 FROM user_wallets
                 WHERE wallet = $1
                 AND chat_id = $2
              )",
-            address,
-            chat_id
         )
+        .bind(address)
+        .bind(chat_id)
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| AppError::DatabaseError(e.to_string()))?
-        .unwrap_or(false);
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
         Ok(exists)
     }
@@ -43,11 +41,10 @@ impl PostgresRepository {
     pub async fn add_tracked_wallet(&self, wallet: TrackedWallet) -> Result<(), AppError> {
         let already_exists = self
             .user_wallet_exists(&wallet.address, wallet.chat_id)
-            .await
-            .unwrap_or(false);
+            .await?;
 
         if !already_exists {
-            let current_count = self.count_user_wallets(wallet.chat_id).await.unwrap_or(0);
+            let current_count = self.count_user_wallets(wallet.chat_id).await?;
             let max_wallets = crate::utils::max_wallets_per_user();
 
             if current_count >= max_wallets {

@@ -1,4 +1,4 @@
-use crate::domain::models::AppContext;
+use crate::domain::models::{AppContext, PendingInputAction};
 use crate::infrastructure::database::postgres_adapter::PostgresRepository;
 use crate::wallet::wallet_use_cases::WalletManagementUseCase;
 use std::sync::atomic::Ordering;
@@ -10,63 +10,24 @@ pub async fn handle_raw_message(
     msg: Message,
     app_context: Arc<AppContext>,
 ) -> anyhow::Result<()> {
-    let cid = msg.chat.id.0;
+    let identity = match crate::presentation::telegram::request_identity::from_message(&msg) {
+        Ok(identity) => identity,
+        Err(_) => return Ok(()),
+    };
 
-    if app_context.maintenance_mode.load(Ordering::Relaxed) && cid != app_context.admin_id {
+    let is_admin = identity.is_private_admin(app_context.admin_user_id, app_context.admin_chat_id);
+
+    if app_context.maintenance_mode.load(Ordering::Relaxed) && !is_admin {
         return Ok(());
     }
 
-    if let Some((_, pending_cmd)) = app_context.admin_sessions.remove(&cid) {
-        let _ = bot.delete_message(msg.chat.id, msg.id).await;
-
-        if cid == app_context.admin_id {
-            if pending_cmd.starts_with("TOGGLE:") {
-                let flag = pending_cmd.split(':').nth(1).unwrap_or("").to_string();
-                let _ = crate::presentation::telegram::handlers::admin::handle_toggle(
-                    bot,
-                    msg,
-                    flag,
-                    app_context,
-                )
-                .await;
-            } else {
-                match pending_cmd.as_str() {
-                    "PAUSE" => {
-                        let _ = crate::presentation::telegram::handlers::admin::handle_pause(
-                            bot,
-                            msg,
-                            app_context,
-                        )
-                        .await;
-                    }
-                    "RESUME" => {
-                        let _ = crate::presentation::telegram::handlers::admin::handle_resume(
-                            bot,
-                            msg,
-                            app_context,
-                        )
-                        .await;
-                    }
-                    "RESTART" => {
-                        let _ = crate::presentation::telegram::handlers::admin::handle_restart(
-                            bot, msg,
-                        )
-                        .await;
-                    }
-                    _ => {}
-                }
-            }
-        } else {
-            let _ = bot
-                .send_message(msg.chat.id, "Access denied. Admin session terminated.")
-                .await;
-        }
-
-        return Ok(());
-    }
+    let pending_input = app_context
+        .pending_input_sessions
+        .remove(&identity.actor_chat_key())
+        .map(|(_, action)| action);
 
     let raw_text = match msg.text() {
-        Some(t) => t,
+        Some(text) => text,
         None => return Ok(()),
     };
 
@@ -90,14 +51,29 @@ pub async fn handle_raw_message(
         }
     };
 
-    if let Some(addr) = wallet_address {
+    if let Some(address) = wallet_address {
         let db = Arc::new(PostgresRepository::new(app_context.pool.clone()));
         let wallet_mgt = Arc::new(WalletManagementUseCase::new(db));
 
         crate::presentation::telegram::handlers::wallet::handle_add(
-            bot, msg, cid, addr, wallet_mgt,
+            bot,
+            msg,
+            identity.chat_id,
+            identity.actor_user_id,
+            address,
+            wallet_mgt,
         )
         .await?;
+
+        return Ok(());
+    }
+
+    if matches!(pending_input, Some(PendingInputAction::AddWallet)) {
+        crate::send_logged!(
+            bot,
+            msg,
+            "⚠️ <b>No Kaspa wallet found.</b>\nSend one <code>kaspa:...</code> address or press Cancel."
+        );
     }
 
     Ok(())

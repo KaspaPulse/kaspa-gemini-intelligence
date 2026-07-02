@@ -10,17 +10,16 @@ pub fn parse_enabled_value(value: &str) -> bool {
     )
 }
 
-pub async fn is_alert_delivery_enabled(pool: &PgPool) -> bool {
+pub async fn is_alert_delivery_enabled(pool: &PgPool) -> Result<bool, AppError> {
     let value = sqlx::query_scalar::<_, String>(
         "SELECT value_data FROM system_settings WHERE key_name = $1",
     )
     .bind(ALERT_DELIVERY_SETTING_KEY)
     .fetch_optional(pool)
     .await
-    .ok()
-    .flatten();
+    .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
-    value.as_deref().map(parse_enabled_value).unwrap_or(true)
+    Ok(value.as_deref().map(parse_enabled_value).unwrap_or(true))
 }
 
 pub async fn set_alert_delivery_enabled(pool: &PgPool, enabled: bool) -> Result<(), AppError> {
@@ -58,7 +57,21 @@ async fn suppressed_count_since_last_change(pool: &PgPool) -> i64 {
 }
 
 pub async fn alert_delivery_status_text(pool: &PgPool) -> String {
-    let enabled = is_alert_delivery_enabled(pool).await;
+    let enabled = match is_alert_delivery_enabled(pool).await {
+        Ok(value) => value,
+        Err(error) => {
+            tracing::error!(
+                "[DATABASE ERROR] Failed to read alert delivery setting: {}",
+                error
+            );
+
+            return "⚠️ <b>Alert Delivery Status</b>
+━━━━━━━━━━━━━━━━━━
+Status: <code>UNAVAILABLE</code>
+
+The database setting could not be read. Mining alerts are not treated as enabled until the database recovers.".to_string();
+        }
+    };
 
     let suppressed_count = suppressed_count_since_last_change(pool).await;
 

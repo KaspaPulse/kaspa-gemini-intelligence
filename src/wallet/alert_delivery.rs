@@ -1,3 +1,7 @@
+// These pure behavior helpers are retained for characterization tests. Runtime
+// delivery state is persisted by the Telegram delivery queue worker.
+#![allow(dead_code)]
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AlertDeliveryAttempt {
     SendSucceeded,

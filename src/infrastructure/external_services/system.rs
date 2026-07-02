@@ -127,7 +127,8 @@ pub fn spawn_node_monitor(ctx: AppContext, bot: Bot, token: CancellationToken) {
         async move {
             let mut failed_attempts = 0;
             let mut is_disconnected = false;
-            let _ = ctx.rpc.connect(None).await;
+            let initial_connected = ctx.rpc.connect(None).await.is_ok();
+            crate::infrastructure::observability::set_node_connected(initial_connected);
 
             tokio::time::sleep(Duration::from_secs(10)).await;
 
@@ -140,47 +141,67 @@ pub fn spawn_node_monitor(ctx: AppContext, bot: Bot, token: CancellationToken) {
                             ctx.rpc.get_server_info()
                         ).await;
 
+                        if health_check.is_err() {
+                            crate::infrastructure::metrics::inc_rpc_timeouts();
+                        }
+
                         if health_check.is_err() || health_check.as_ref().is_ok_and(|inner| inner.is_err()) {
+                            crate::infrastructure::observability::set_node_connected(false);
                             failed_attempts += 1;
                             tracing::error!("[NODE ALERT] RPC Connection Lost! Attempt {}...", failed_attempts);
-                            let _ = sqlx::query(
+                            if let Err(error) = sqlx::query(
                                 "INSERT INTO bot_event_log (event_type, severity, status, error_message, metadata)
-                                 VALUES ('RPC_ERROR', 'error', 'node_unreachable', 'RPC connection lost', $1::jsonb)"
+                                 VALUES ($1, $2, 'node_unreachable', 'RPC connection lost', $3::jsonb)",
                             )
                             .bind(BotEventType::RpcError.as_str())
                             .bind(EventSeverity::Error.as_str())
                             .bind(format!(r#"{{"attempt":{}}}"#, failed_attempts))
                             .execute(&ctx.pool)
-                            .await;
+                            .await
+                            {
+                                crate::infrastructure::metrics::inc_db_errors();
+                                tracing::error!(
+                                    "[DATABASE ERROR] Failed to record RPC outage event: {}",
+                                    error
+                                );
+                            }
 
                             if failed_attempts == 1 {
                                 is_disconnected = true;
                                 // Safe sleep mode
                                 ctx.live_sync_enabled.store(false, Ordering::Relaxed);
-                                if let Err(e) = bot.send_message(ChatId(ctx.admin_id), "⚠️ <b>WARNING:</b> Primary Node connection dropped!\n⏸️ UTXO Monitoring paused safely.\n🔄 Attempting background recovery...")
+                                if let Err(e) = bot.send_message(ChatId(ctx.admin_chat_id), "⚠️ <b>WARNING:</b> Primary Node connection dropped!\n⏸️ UTXO Monitoring paused safely.\n🔄 Attempting background recovery...")
                                     .parse_mode(teloxide::types::ParseMode::Html).await { tracing::error!("[TELEGRAM ERROR] Bot API request failed: {}", e); }
                             }
 
                             if failed_attempts % 10 == 0 {
-                                if let Err(e) = bot.send_message(ChatId(ctx.admin_id), format!("🚨 <b>CRITICAL:</b> Node still unreachable after {} attempts. Continuing to retry quietly...", failed_attempts))
+                                if let Err(e) = bot.send_message(ChatId(ctx.admin_chat_id), format!("🚨 <b>CRITICAL:</b> Node still unreachable after {} attempts. Continuing to retry quietly...", failed_attempts))
                                     .parse_mode(teloxide::types::ParseMode::Html).await { tracing::error!("[TELEGRAM ERROR] Bot API request failed: {}", e); }
                             }
 
                             let _ = ctx.rpc.connect(None).await;
                         } else {
+                            crate::infrastructure::observability::set_node_connected(true);
                             if is_disconnected {
                                 tracing::info!("[NODE RECOVERED] RPC Tunnel stabilized.");
-                                let _ = sqlx::query(
+                                if let Err(error) = sqlx::query(
                                     "INSERT INTO bot_event_log (event_type, severity, status, metadata)
-                                     VALUES ('RPC_RECOVERED', 'info', 'recovered', $1::jsonb)"
+                                     VALUES ($1, $2, 'recovered', $3::jsonb)",
                                 )
                                 .bind(BotEventType::RpcRecovered.as_str())
-                                    .bind(EventSeverity::Info.as_str())
-                                    .bind(format!(r#"{{"failed_attempts":{}}}"#, failed_attempts))
-                                    .execute(&ctx.pool)
-                                .await;
+                                .bind(EventSeverity::Info.as_str())
+                                .bind(format!(r#"{{"failed_attempts":{}}}"#, failed_attempts))
+                                .execute(&ctx.pool)
+                                .await
+                                {
+                                    crate::infrastructure::metrics::inc_db_errors();
+                                    tracing::error!(
+                                        "[DATABASE ERROR] Failed to record RPC recovery event: {}",
+                                        error
+                                    );
+                                }
                                 ctx.live_sync_enabled.store(true, Ordering::Relaxed);
-                                if let Err(e) = bot.send_message(ChatId(ctx.admin_id), "✅ <b>RECOVERED:</b> Node connection stabilized.\n▶️ UTXO Monitoring resumed smoothly.")
+                                if let Err(e) = bot.send_message(ChatId(ctx.admin_chat_id), "✅ <b>RECOVERED:</b> Node connection stabilized.\n▶️ UTXO Monitoring resumed smoothly.")
                                     .parse_mode(teloxide::types::ParseMode::Html).await { tracing::error!("[TELEGRAM ERROR] Bot API request failed: {}", e); }
 
                                 failed_attempts = 0;

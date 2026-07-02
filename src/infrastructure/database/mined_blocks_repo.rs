@@ -155,6 +155,9 @@ impl PostgresRepository {
         Ok(count)
     }
 
+    // Retained for database characterization tests while production alert claims
+    // are committed through the transactional outbox.
+    #[allow(dead_code)]
     pub async fn try_claim_alert_key(
         &self,
         wallet: &str,

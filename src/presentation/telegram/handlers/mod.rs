@@ -5,6 +5,7 @@ pub mod network;
 pub mod raw_message;
 pub mod wallet;
 
+use crate::domain::models::{PendingInputAction, SensitiveAction};
 use crate::infrastructure::database::postgres_adapter::PostgresRepository;
 use crate::network::stats_use_cases::{
     GetMarketStatsUseCase, GetMinerStatsUseCase, NetworkStatsUseCase,
@@ -27,6 +28,173 @@ pub struct BotUseCases {
     pub dag_uc: Arc<crate::network::analyze_dag::AnalyzeDagUseCase>,
 }
 
+fn callback_disables_keyboard(data: &str) -> bool {
+    data.starts_with("admin_do:")
+        || data.starts_with("rm_wallet_")
+        || data.starts_with("wallet_remove_do_")
+        || data.starts_with("btn_toggle_")
+        || matches!(
+            data,
+            "do_pause"
+                | "do_resume"
+                | "do_restart"
+                | "do_cleanup_events"
+                | "do_mute_alerts"
+                | "do_unmute_alerts"
+                | "do_forget_wallets"
+                | "do_forget_all"
+        )
+}
+
+async fn disable_callback_keyboard(
+    bot: &Bot,
+    q: &teloxide::types::CallbackQuery,
+) -> anyhow::Result<()> {
+    if let Some(message) = q.message.as_ref() {
+        bot.edit_message_reply_markup(message.chat().id, message.id())
+            .await?;
+    }
+
+    Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CallbackRecoveryMenu {
+    Admin,
+    Main,
+    Wallet,
+}
+
+fn callback_recovery_menu(data: &str, callback_is_admin: bool) -> CallbackRecoveryMenu {
+    let action = match data {
+        "do_forget_wallets" => Some(SensitiveAction::ClearWallets),
+        "do_forget_all" => Some(SensitiveAction::ForgetAll),
+        _ => data
+            .strip_prefix("admin_do:")
+            .and_then(|remainder| remainder.split(':').next())
+            .and_then(SensitiveAction::parse),
+    };
+
+    match action {
+        Some(SensitiveAction::ClearWallets) => CallbackRecoveryMenu::Wallet,
+        Some(SensitiveAction::ForgetAll) => CallbackRecoveryMenu::Main,
+        Some(action) if action.requires_admin() => {
+            if callback_is_admin {
+                CallbackRecoveryMenu::Admin
+            } else {
+                CallbackRecoveryMenu::Main
+            }
+        }
+        Some(_) => CallbackRecoveryMenu::Main,
+        None if callback_is_admin => CallbackRecoveryMenu::Admin,
+        None => CallbackRecoveryMenu::Main,
+    }
+}
+
+fn callback_recovery_markup(menu: CallbackRecoveryMenu) -> InlineKeyboardMarkup {
+    match menu {
+        CallbackRecoveryMenu::Admin => {
+            crate::presentation::telegram::menus::TelegramMenus::admin_menu_markup()
+        }
+        CallbackRecoveryMenu::Main => {
+            crate::presentation::telegram::menus::TelegramMenus::main_menu_markup()
+        }
+        CallbackRecoveryMenu::Wallet => {
+            crate::presentation::telegram::menus::TelegramMenus::wallet_menu_markup()
+        }
+    }
+}
+
+fn safe_callback_menu(callback_is_admin: bool) -> InlineKeyboardMarkup {
+    callback_recovery_markup(if callback_is_admin {
+        CallbackRecoveryMenu::Admin
+    } else {
+        CallbackRecoveryMenu::Main
+    })
+}
+
+async fn edit_callback_state(
+    bot: &Bot,
+    q: &teloxide::types::CallbackQuery,
+    text: impl Into<String>,
+    markup: InlineKeyboardMarkup,
+) {
+    let Some(message) = q.message.as_ref() else {
+        return;
+    };
+
+    let chat_id = message.chat().id;
+    let message_id = message.id();
+    let text = text.into();
+    let fallback_markup = markup.clone();
+
+    if let Err(edit_error) = bot
+        .edit_message_text(chat_id, message_id, text.clone())
+        .parse_mode(ParseMode::Html)
+        .reply_markup(markup)
+        .await
+    {
+        tracing::warn!(
+            "[CALLBACK UI] Failed to restore message {} in chat {}: {}",
+            message_id.0,
+            chat_id.0,
+            edit_error
+        );
+
+        if let Err(send_error) = bot
+            .send_message(chat_id, text)
+            .parse_mode(ParseMode::Html)
+            .reply_markup(fallback_markup)
+            .await
+        {
+            tracing::error!(
+                "[CALLBACK UI] Failed to send a replacement action panel in chat {} after edit failure: {}",
+                chat_id.0,
+                send_error
+            );
+        }
+    }
+}
+
+async fn restore_safe_callback_menu(
+    bot: &Bot,
+    q: &teloxide::types::CallbackQuery,
+    callback_is_admin: bool,
+    text: impl Into<String>,
+) {
+    edit_callback_state(bot, q, text, safe_callback_menu(callback_is_admin)).await;
+}
+
+async fn restore_wallet_callback_menu(
+    bot: &Bot,
+    q: &teloxide::types::CallbackQuery,
+    text: impl Into<String>,
+) {
+    edit_callback_state(
+        bot,
+        q,
+        text,
+        callback_recovery_markup(CallbackRecoveryMenu::Wallet),
+    )
+    .await;
+}
+
+async fn restore_contextual_callback_menu(
+    bot: &Bot,
+    q: &teloxide::types::CallbackQuery,
+    data: &str,
+    callback_is_admin: bool,
+    text: impl Into<String>,
+) {
+    edit_callback_state(
+        bot,
+        q,
+        text,
+        callback_recovery_markup(callback_recovery_menu(data, callback_is_admin)),
+    )
+    .await;
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn handle_command(
     bot: Bot,
@@ -36,13 +204,24 @@ pub fn handle_command(
     app_context: Arc<crate::domain::models::AppContext>,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send>> {
     Box::pin(async move {
+        let identity = match crate::presentation::telegram::request_identity::from_message(&msg) {
+            Ok(identity) => identity,
+            Err(reason) => {
+                let _ = bot.send_message(msg.chat.id, reason).await;
+                return Ok(());
+            }
+        };
+
         let chat_id = msg.chat.id;
-        let cid = chat_id.0;
-        let is_admin = cid == app_context.admin_id;
+        let cid = identity.chat_id;
+        let actor_user_id = identity.actor_user_id;
+        let is_admin =
+            identity.is_private_admin(app_context.admin_user_id, app_context.admin_chat_id);
 
         crate::utils::log_multiline(
             &format!(
-                "BOT IN | Chat: {} | User: {}",
+                "BOT IN | Actor: {} | Chat: {} | User: {}",
+                actor_user_id,
                 cid,
                 msg.from
                     .as_ref()
@@ -52,6 +231,15 @@ pub fn handle_command(
             msg.text().unwrap_or("Callback/System"),
             false,
         );
+
+        if cmd.is_admin_only() && !is_admin {
+            crate::send_logged!(
+                bot,
+                msg,
+                "⛔ <b>Admin commands are available only to the configured admin user in the private admin chat.</b>"
+            );
+            return Ok(());
+        }
 
         if app_context.maintenance_mode.load(Ordering::Relaxed) && !is_admin {
             let _ = bot
@@ -64,17 +252,29 @@ pub fn handle_command(
             return Ok(());
         }
 
-        if !is_admin && crate::utils::is_command_rate_limited(cid) {
+        if !is_admin && crate::utils::is_command_rate_limited(actor_user_id) {
             crate::send_logged!(bot, msg, crate::utils::rate_limit_message());
             return Ok(());
         }
         match cmd {
             Command::Forget | Command::ForgetAll => {
-                send_confirm_delete_all(bot, msg).await?;
+                admin_confirm::send_command_confirmation(
+                    &bot,
+                    &app_context,
+                    identity,
+                    SensitiveAction::ForgetAll,
+                )
+                .await?;
             }
 
             Command::ForgetWallets => {
-                send_confirm_clear_wallets(bot, msg).await?;
+                admin_confirm::send_command_confirmation(
+                    &bot,
+                    &app_context,
+                    identity,
+                    SensitiveAction::ClearWallets,
+                )
+                .await?;
             }
 
             Command::HideMenu => {
@@ -239,7 +439,7 @@ For mining alerts, wait for the configured confirmations before expecting Telegr
             }
 
             Command::Add(wallet) => {
-                wallet::handle_add(bot, msg, cid, wallet, ucs.wallet_mgt).await?
+                wallet::handle_add(bot, msg, cid, actor_user_id, wallet, ucs.wallet_mgt).await?
             }
             Command::Remove(wallet) => {
                 wallet::handle_remove(bot, msg, cid, wallet, ucs.wallet_mgt).await?
@@ -287,9 +487,9 @@ For mining alerts, wait for the configured confirmations before expecting Telegr
 
                 crate::presentation::telegram::handlers::admin_confirm::send_command_confirmation(
                     &bot,
-                    msg.chat.id,
                     &app_context,
-                    crate::presentation::telegram::handlers::admin_confirm::SensitiveAdminAction::Pause,
+                    identity,
+                    SensitiveAction::Pause,
                 )
                 .await?;
             }
@@ -301,9 +501,9 @@ For mining alerts, wait for the configured confirmations before expecting Telegr
 
                 crate::presentation::telegram::handlers::admin_confirm::send_command_confirmation(
                     &bot,
-                    msg.chat.id,
                     &app_context,
-                    crate::presentation::telegram::handlers::admin_confirm::SensitiveAdminAction::Resume,
+                    identity,
+                    SensitiveAction::Resume,
                 )
                 .await?;
             }
@@ -315,9 +515,9 @@ For mining alerts, wait for the configured confirmations before expecting Telegr
 
                 crate::presentation::telegram::handlers::admin_confirm::send_command_confirmation(
                     &bot,
-                    msg.chat.id,
                     &app_context,
-                    crate::presentation::telegram::handlers::admin_confirm::SensitiveAdminAction::MuteAlerts,
+                    identity,
+                    SensitiveAction::MuteAlerts,
                 )
                 .await?;
             }
@@ -329,9 +529,9 @@ For mining alerts, wait for the configured confirmations before expecting Telegr
 
                 crate::presentation::telegram::handlers::admin_confirm::send_command_confirmation(
                     &bot,
-                    msg.chat.id,
                     &app_context,
-                    crate::presentation::telegram::handlers::admin_confirm::SensitiveAdminAction::UnmuteAlerts,
+                    identity,
+                    SensitiveAction::UnmuteAlerts,
                 )
                 .await?;
             }
@@ -351,9 +551,9 @@ For mining alerts, wait for the configured confirmations before expecting Telegr
 
                 crate::presentation::telegram::handlers::admin_confirm::send_command_confirmation(
                     &bot,
-                    msg.chat.id,
                     &app_context,
-                    crate::presentation::telegram::handlers::admin_confirm::SensitiveAdminAction::Restart,
+                    identity,
+                    SensitiveAction::Restart,
                 )
                 .await?;
             }
@@ -375,8 +575,8 @@ For mining alerts, wait for the configured confirmations before expecting Telegr
                 {
                     crate::presentation::telegram::handlers::admin_confirm::send_command_confirmation(
                         &bot,
-                        msg.chat.id,
                         &app_context,
+                        identity,
                         action,
                     )
                     .await?;
@@ -432,9 +632,9 @@ For mining alerts, wait for the configured confirmations before expecting Telegr
 
                 crate::presentation::telegram::handlers::admin_confirm::send_command_confirmation(
                     &bot,
-                    msg.chat.id,
                     &app_context,
-                    crate::presentation::telegram::handlers::admin_confirm::SensitiveAdminAction::CleanupEvents,
+                    identity,
+                    SensitiveAction::CleanupEvents,
                 )
                 .await?;
             }
@@ -459,7 +659,7 @@ For mining alerts, wait for the configured confirmations before expecting Telegr
                     crate::send_logged!(bot, msg, "⛔ Unauthorized.");
                     return Ok(());
                 }
-                admin::handle_broadcast(bot, msg, app_context.admin_id, msg_text).await?;
+                admin::handle_broadcast(bot, msg, msg_text).await?;
             }
             Command::Settings => {
                 if !is_admin {
@@ -494,33 +694,43 @@ pub async fn handle_callback(
     q: teloxide::types::CallbackQuery,
     ucs: BotUseCases,
     app_context: Arc<crate::domain::models::AppContext>,
+    callback_execution_registry: Arc<
+        crate::presentation::telegram::callback_inflight::CallbackExecutionRegistry,
+    >,
 ) -> anyhow::Result<()> {
     let Some(mut data) = q.data.clone() else {
         let _ = bot.answer_callback_query(q.id).await;
         return Ok(());
     };
 
+    let identity = match crate::presentation::telegram::request_identity::from_callback(&q) {
+        Ok(identity) => identity,
+        Err(reason) => {
+            let _ = bot.answer_callback_query(q.id).text(reason).await;
+            return Ok(());
+        }
+    };
+
+    let callback_data_for_log = crate::utils::sanitize_callback_data_for_log(&data);
+
     crate::utils::log_multiline(
         &format!(
-            "BOT CALLBACK IN | User: {} | Data:",
+            "BOT CALLBACK IN | Actor: {} | Chat: {} | User: {} | Data:",
+            identity.actor_user_id,
+            identity.chat_id,
             q.from
                 .username
                 .clone()
                 .unwrap_or_else(|| "Unknown".to_string())
         ),
-        &data,
+        &callback_data_for_log,
         false,
     );
 
-    let callback_chat_id = q
-        .message
-        .as_ref()
-        .map(|m| m.chat().id.0)
-        .unwrap_or(q.from.id.0 as i64);
+    let callback_is_admin =
+        identity.is_private_admin(app_context.admin_user_id, app_context.admin_chat_id);
 
-    let callback_is_admin = callback_chat_id == app_context.admin_id;
-
-    if !callback_is_admin && crate::utils::is_callback_rate_limited(callback_chat_id) {
+    if !callback_is_admin && crate::utils::is_callback_rate_limited(identity.actor_user_id) {
         let _ = bot
             .answer_callback_query(q.id)
             .text("Too many requests. Please slow down.")
@@ -532,6 +742,49 @@ pub async fn handle_callback(
         return Ok(());
     }
 
+    if callback_disables_keyboard(&data) && q.message.is_none() {
+        let _ = bot
+            .answer_callback_query(q.id)
+            .text("This action message is no longer available.")
+            .await;
+        return Ok(());
+    }
+
+    let _callback_execution_guard = if let Some(message) = q.message.as_ref() {
+        let key = crate::presentation::telegram::callback_inflight::CallbackExecutionKey::new(
+            message.chat().id.0,
+            message.id().0,
+        );
+
+        match callback_execution_registry.try_acquire(key) {
+            Some(guard) => Some(guard),
+            None => {
+                crate::infrastructure::observability::increment_callbacks_rejected_inflight();
+                let _ = bot
+                    .answer_callback_query(q.id)
+                    .text("This action is already running.")
+                    .await;
+                return Ok(());
+            }
+        }
+    } else {
+        None
+    };
+
+    if callback_disables_keyboard(&data) {
+        if let Err(error) = disable_callback_keyboard(&bot, &q).await {
+            let _ = bot
+                .answer_callback_query(q.id.clone())
+                .text("Unable to lock this action panel. Please try again.")
+                .await;
+            tracing::warn!(
+                "[CALLBACK UI] Effectful callback refused because the keyboard could not be disabled: {}",
+                error
+            );
+            return Err(error);
+        }
+    }
+
     crate::presentation::telegram::handlers::admin_confirm::cleanup_expired(&app_context);
 
     let mut confirmed_sensitive_action = false;
@@ -539,23 +792,26 @@ pub async fn handle_callback(
     if data.starts_with("admin_do:") {
         match crate::presentation::telegram::handlers::admin_confirm::validate_admin_do_callback(
             &app_context,
-            callback_chat_id,
+            identity,
             &data,
         ) {
             Ok(action) => {
                 data = action.execute_callback().to_string();
                 confirmed_sensitive_action = true;
-                crate::infrastructure::metrics::inc_admin_actions_confirmed();
+                if action.requires_admin() {
+                    crate::infrastructure::metrics::inc_admin_actions_confirmed();
 
-                let _ = crate::infrastructure::admin_audit::record_admin_action(
-                    &app_context.pool,
-                    callback_chat_id,
-                    action.as_str(),
-                    None,
-                    Some("confirmed"),
-                    "confirmed",
-                )
-                .await;
+                    let _ = crate::infrastructure::admin_audit::record_admin_action(
+                        &app_context.pool,
+                        identity.actor_user_id,
+                        identity.chat_id,
+                        action.as_str(),
+                        None,
+                        Some("confirmed"),
+                        "confirmed",
+                    )
+                    .await;
+                }
 
                 let _ = bot
                     .answer_callback_query(q.id.clone())
@@ -568,24 +824,17 @@ pub async fn handle_callback(
                     .text(reason.clone())
                     .await;
 
-                if let Some(msg) = q.message {
-                    let _ = bot
-                        .edit_message_text(
-                            msg.chat().id,
-                            msg.id(),
-                            format!(
-                                "⏳ <b>Confirmation failed.</b>\n{}",
-                                crate::utils::html_escape(&reason)
-                            ),
-                        )
-                        .parse_mode(ParseMode::Html)
-                        .reply_markup(if msg.chat().id.0 == app_context.admin_id {
-                            crate::presentation::telegram::menus::TelegramMenus::admin_menu_markup()
-                        } else {
-                            crate::presentation::telegram::menus::TelegramMenus::main_menu_markup()
-                        })
-                        .await;
-                }
+                restore_contextual_callback_menu(
+                    &bot,
+                    &q,
+                    &data,
+                    callback_is_admin,
+                    format!(
+                        "⏳ <b>Confirmation failed.</b>\n{}",
+                        crate::utils::html_escape(&reason)
+                    ),
+                )
+                .await;
 
                 return Ok(());
             }
@@ -598,34 +847,43 @@ pub async fn handle_callback(
                 &data,
             )
         {
-            if matches!(
-                action,
-                crate::presentation::telegram::handlers::admin_confirm::SensitiveAdminAction::Pause
-                    | crate::presentation::telegram::handlers::admin_confirm::SensitiveAdminAction::Resume
-                    | crate::presentation::telegram::handlers::admin_confirm::SensitiveAdminAction::Restart
-                    | crate::presentation::telegram::handlers::admin_confirm::SensitiveAdminAction::CleanupEvents
-                    | crate::presentation::telegram::handlers::admin_confirm::SensitiveAdminAction::ToggleMemoryCleaner
-                    | crate::presentation::telegram::handlers::admin_confirm::SensitiveAdminAction::ToggleLiveSync
-                    | crate::presentation::telegram::handlers::admin_confirm::SensitiveAdminAction::ToggleMaintenance
-            ) && !callback_is_admin
-            {
+            if action.requires_admin() && !callback_is_admin {
                 let _ = bot
                     .answer_callback_query(q.id.clone())
                     .text("Unauthorized.")
                     .await;
+                restore_safe_callback_menu(
+                    &bot,
+                    &q,
+                    callback_is_admin,
+                    "⛔ <b>Unauthorized action.</b>",
+                )
+                .await;
                 return Ok(());
             }
 
             let _ = bot.answer_callback_query(q.id.clone()).await;
 
-            if let Some(msg) = q.message {
-                crate::presentation::telegram::handlers::admin_confirm::edit_callback_confirmation(
-                    &bot,
-                    &msg,
-                    &app_context,
-                    action,
-                )
-                .await?;
+            if let Some(message) = q.message.as_ref() {
+                if let Err(error) =
+                    crate::presentation::telegram::handlers::admin_confirm::edit_callback_confirmation(
+                        &bot,
+                        message,
+                        &app_context,
+                        identity,
+                        action,
+                    )
+                    .await
+                {
+                    restore_safe_callback_menu(
+                        &bot,
+                        &q,
+                        callback_is_admin,
+                        "❌ <b>Confirmation could not be opened.</b>\nThe menu has been restored.",
+                    )
+                    .await;
+                    return Err(error);
+                }
             }
 
             return Ok(());
@@ -637,33 +895,126 @@ pub async fn handle_callback(
                 .text("Confirmation expired. Please try again.")
                 .await;
 
-            if let Some(msg) = q.message {
-                let _ = bot
-                    .edit_message_text(
-                        msg.chat().id,
-                        msg.id(),
-                        "⏳ <b>Confirmation expired.</b>\nPlease start the action again.",
-                    )
-                    .parse_mode(ParseMode::Html)
-                    .reply_markup(if msg.chat().id.0 == app_context.admin_id {
-                        crate::presentation::telegram::menus::TelegramMenus::admin_menu_markup()
-                    } else {
-                        crate::presentation::telegram::menus::TelegramMenus::main_menu_markup()
-                    })
-                    .await;
-            }
+            restore_contextual_callback_menu(
+                &bot,
+                &q,
+                &data,
+                callback_is_admin,
+                "⏳ <b>Confirmation expired.</b>\nPlease start the action again.",
+            )
+            .await;
 
             return Ok(());
         }
     }
 
+    if matches!(
+        data.as_str(),
+        "do_pause" | "do_resume" | "do_restart" | "do_cleanup_events"
+    ) {
+        if !confirmed_sensitive_action {
+            let _ = bot
+                .answer_callback_query(q.id.clone())
+                .text("Confirmation expired. Please try again.")
+                .await;
+            restore_safe_callback_menu(
+                &bot,
+                &q,
+                callback_is_admin,
+                "⏳ <b>Confirmation expired.</b>\nPlease start the action again.",
+            )
+            .await;
+            return Ok(());
+        }
+
+        if !callback_is_admin {
+            let _ = bot
+                .answer_callback_query(q.id.clone())
+                .text("Unauthorized.")
+                .await;
+            restore_safe_callback_menu(
+                &bot,
+                &q,
+                callback_is_admin,
+                "⛔ <b>Unauthorized action.</b>",
+            )
+            .await;
+            return Ok(());
+        }
+
+        let action_result =
+            if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) =
+                q.message.as_ref()
+            {
+                let mut message = message.clone();
+                message.from = Some(q.from.clone());
+
+                match data.as_str() {
+                    "do_pause" => {
+                        admin::handle_pause(bot.clone(), message, app_context.clone()).await
+                    }
+                    "do_resume" => {
+                        admin::handle_resume(bot.clone(), message, app_context.clone()).await
+                    }
+                    "do_restart" => admin::handle_restart(bot.clone(), message).await,
+                    "do_cleanup_events" => {
+                        admin::handle_cleanup_events(bot.clone(), message, app_context.clone())
+                            .await
+                    }
+                    _ => unreachable!("confirmed sensitive action was prevalidated"),
+                }
+            } else {
+                let _ = bot
+                    .answer_callback_query(q.id.clone())
+                    .text("This confirmation message is no longer accessible.")
+                    .await;
+                restore_safe_callback_menu(
+                    &bot,
+                    &q,
+                    callback_is_admin,
+                    "⚠️ <b>The confirmation message is no longer accessible.</b>",
+                )
+                .await;
+                return Ok(());
+            };
+
+        match action_result {
+            Ok(()) => {
+                restore_safe_callback_menu(
+                    &bot,
+                    &q,
+                    true,
+                    "✅ <b>Action completed.</b>\nThe admin menu is available again.",
+                )
+                .await;
+            }
+            Err(error) => {
+                restore_safe_callback_menu(
+                    &bot,
+                    &q,
+                    true,
+                    "❌ <b>Action failed.</b>\nThe admin menu has been restored.",
+                )
+                .await;
+                return Err(error);
+            }
+        }
+
+        return Ok(());
+    }
+
     if data == "cancel_action" {
+        crate::presentation::telegram::handlers::admin_confirm::cancel_for_identity(
+            &app_context,
+            identity,
+        );
+
         let _ = bot
             .answer_callback_query(q.id.clone())
             .text("Cancelled.")
             .await;
         if let Some(msg) = q.message {
-            let markup = if msg.chat().id.0 == app_context.admin_id {
+            let markup = if callback_is_admin {
                 crate::presentation::telegram::menus::TelegramMenus::admin_menu_markup()
             } else {
                 crate::presentation::telegram::menus::TelegramMenus::main_menu_markup()
@@ -715,6 +1066,13 @@ pub async fn handle_callback(
                 .answer_callback_query(q.id.clone())
                 .text("Confirmation expired. Please try again.")
                 .await;
+            restore_safe_callback_menu(
+                &bot,
+                &q,
+                callback_is_admin,
+                "⏳ <b>Confirmation expired.</b>\nPlease start the action again.",
+            )
+            .await;
             return Ok(());
         }
 
@@ -723,12 +1081,32 @@ pub async fn handle_callback(
                 .answer_callback_query(q.id.clone())
                 .text("Unauthorized.")
                 .await;
+            restore_safe_callback_menu(
+                &bot,
+                &q,
+                callback_is_admin,
+                "⛔ <b>Unauthorized action.</b>",
+            )
+            .await;
             return Ok(());
         }
 
         let enabled = data == "do_unmute_alerts";
-        crate::wallet::alert_delivery_gate::set_alert_delivery_enabled(&app_context.pool, enabled)
-            .await?;
+        if let Err(error) = crate::wallet::alert_delivery_gate::set_alert_delivery_enabled(
+            &app_context.pool,
+            enabled,
+        )
+        .await
+        {
+            restore_safe_callback_menu(
+                &bot,
+                &q,
+                true,
+                "❌ <b>Alert delivery setting was not changed.</b>\nThe admin menu has been restored.",
+            )
+            .await;
+            return Err(error.into());
+        }
 
         let status_text =
             crate::wallet::alert_delivery_gate::alert_delivery_status_text(&app_context.pool).await;
@@ -742,43 +1120,39 @@ pub async fn handle_callback(
             })
             .await;
 
-        if let Some(msg) = q.message {
-            let _ = bot
-                .edit_message_text(msg.chat().id, msg.id(), status_text)
-                .parse_mode(ParseMode::Html)
-                .reply_markup(
-                    crate::presentation::telegram::menus::TelegramMenus::admin_menu_markup(),
-                )
-                .await;
-        }
+        edit_callback_state(
+            &bot,
+            &q,
+            status_text,
+            crate::presentation::telegram::menus::TelegramMenus::admin_menu_markup(),
+        )
+        .await;
 
         return Ok(());
     }
+
     if data == "do_forget_wallets" {
         let _ = bot
             .answer_callback_query(q.id.clone())
             .text("Clearing wallets...")
             .await;
 
-        if let Some(msg) = q.message {
+        if let Some(message) = q.message.as_ref() {
             let db = PostgresRepository::new(app_context.pool.clone());
-            let chat_id = msg.chat().id.0;
+            let chat_id = message.chat().id.0;
 
-            if let Err(e) = db.remove_all_user_wallets(chat_id).await {
-                tracing::error!("[DATABASE ERROR] Failed to clear wallets: {}", e);
-            }
-
-            let _ = bot
-                .edit_message_text(
-                    msg.chat().id,
-                    msg.id(),
-                    "🗑️ <b>All tracked wallets deleted.</b>",
-                )
-                .parse_mode(ParseMode::Html)
-                .reply_markup(
-                    crate::presentation::telegram::menus::TelegramMenus::wallet_menu_markup(),
+            if let Err(error) = db.remove_all_user_wallets(chat_id).await {
+                tracing::error!("[DATABASE ERROR] Failed to clear wallets: {}", error);
+                restore_wallet_callback_menu(
+                    &bot,
+                    &q,
+                    "❌ <b>Wallets were not deleted.</b>\nPlease try again.",
                 )
                 .await;
+                return Err(error.into());
+            }
+
+            restore_wallet_callback_menu(&bot, &q, "🗑️ <b>All tracked wallets deleted.</b>").await;
         }
 
         return Ok(());
@@ -790,25 +1164,30 @@ pub async fn handle_callback(
             .text("Deleting data...")
             .await;
 
-        if let Some(msg) = q.message {
+        if let Some(message) = q.message.as_ref() {
             let db = PostgresRepository::new(app_context.pool.clone());
-            let chat_id = msg.chat().id.0;
+            let chat_id = message.chat().id.0;
 
-            if let Err(e) = db.remove_all_user_data(chat_id).await {
-                tracing::error!("[DATABASE ERROR] Failed to delete user data: {}", e);
-            }
-
-            let _ = bot
-                .edit_message_text(
-                    msg.chat().id,
-                    msg.id(),
-                    "🗑️ <b>All your tracking data has been deleted.</b>",
-                )
-                .parse_mode(ParseMode::Html)
-                .reply_markup(
-                    crate::presentation::telegram::menus::TelegramMenus::wallet_menu_markup(),
+            if let Err(error) = db.remove_all_user_data(chat_id).await {
+                tracing::error!("[DATABASE ERROR] Failed to delete user data: {}", error);
+                restore_contextual_callback_menu(
+                    &bot,
+                    &q,
+                    &data,
+                    callback_is_admin,
+                    "❌ <b>Your data was not deleted.</b>\nPlease try again.",
                 )
                 .await;
+                return Err(error.into());
+            }
+
+            restore_safe_callback_menu(
+                &bot,
+                &q,
+                false,
+                "🗑️ <b>All your tracking data has been deleted.</b>",
+            )
+            .await;
         }
 
         return Ok(());
@@ -822,8 +1201,8 @@ pub async fn handle_callback(
 
         if let Some(msg) = q.message {
             app_context
-                .admin_sessions
-                .insert(msg.chat().id.0, "ADD_WALLET".to_string());
+                .pending_input_sessions
+                .insert(identity.actor_chat_key(), PendingInputAction::AddWallet);
 
             let text = "➕ <b>Add Wallet</b>\nPlease send your Kaspa wallet address now.\n\nExample:\n<code>kaspa:qq...</code>";
 
@@ -872,25 +1251,47 @@ pub async fn handle_callback(
             .text("Removing wallet...")
             .await;
 
-        if let Some(msg) = q.message {
-            let chat_id = msg.chat().id.0;
+        if let Some(message) = q.message.as_ref() {
+            let chat_id = message.chat().id.0;
             let index: usize = index_text.parse().unwrap_or(usize::MAX);
-            let wallets = ucs.wallet_query.get_list(chat_id).await.unwrap_or_default();
-
-            if let Some(wallet_address) = wallets.get(index) {
-                if let Err(e) = ucs.wallet_mgt.remove_wallet(wallet_address, chat_id).await {
-                    tracing::error!("[DATABASE ERROR] Failed to remove wallet: {}", e);
-                }
-
-                render_wallet_panel(&bot, msg.chat().id, msg.id(), &ucs, chat_id).await?;
-            } else {
-                let _ = bot
-                    .edit_message_text(msg.chat().id, msg.id(), "⚠️ Wallet not found.")
-                    .parse_mode(ParseMode::Html)
-                    .reply_markup(
-                        crate::presentation::telegram::menus::TelegramMenus::wallet_menu_markup(),
+            let wallets = match ucs.wallet_query.get_list(chat_id).await {
+                Ok(wallets) => wallets,
+                Err(error) => {
+                    restore_wallet_callback_menu(
+                        &bot,
+                        &q,
+                        "❌ <b>Wallet list could not be loaded.</b>\nPlease try again.",
                     )
                     .await;
+                    return Err(error.into());
+                }
+            };
+
+            if let Some(wallet_address) = wallets.get(index) {
+                if let Err(error) = ucs.wallet_mgt.remove_wallet(wallet_address, chat_id).await {
+                    tracing::error!("[DATABASE ERROR] Failed to remove wallet: {}", error);
+                    restore_wallet_callback_menu(
+                        &bot,
+                        &q,
+                        "❌ <b>Wallet was not removed.</b>\nPlease try again.",
+                    )
+                    .await;
+                    return Err(error.into());
+                }
+
+                if let Err(error) =
+                    render_wallet_panel(&bot, message.chat().id, message.id(), &ucs, chat_id).await
+                {
+                    restore_wallet_callback_menu(
+                        &bot,
+                        &q,
+                        "✅ <b>Wallet removed.</b>\nThe wallet menu has been restored.",
+                    )
+                    .await;
+                    return Err(error);
+                }
+            } else {
+                restore_wallet_callback_menu(&bot, &q, "⚠️ Wallet not found.").await;
             }
         }
 
@@ -1017,55 +1418,106 @@ pub async fn handle_callback(
             .text("Removing wallet")
             .await;
 
-        if let Some(msg) = q.message {
+        if let Some(message) = q.message.as_ref() {
             let index: usize = index_text.parse().unwrap_or(usize::MAX);
-            wallet::handle_wallet_remove_do(
-                bot,
-                msg.chat().id,
-                msg.id(),
-                msg.chat().id.0,
+            if let Err(error) = wallet::handle_wallet_remove_do(
+                bot.clone(),
+                message.chat().id,
+                message.id(),
+                message.chat().id.0,
                 index,
                 ucs.wallet_query.clone(),
                 ucs.wallet_mgt.clone(),
             )
-            .await?;
+            .await
+            {
+                restore_wallet_callback_menu(
+                    &bot,
+                    &q,
+                    "❌ <b>Wallet was not removed.</b>\nPlease try again.",
+                )
+                .await;
+                return Err(error);
+            }
         }
 
         return Ok(());
     }
+
     if data.starts_with("btn_toggle_") {
         let flag = data.replace("btn_toggle_", "");
         let db = PostgresRepository::new(app_context.pool.clone());
 
-        match flag.as_str() {
+        let update_result = match flag.as_str() {
             "ENABLE_MEMORY_CLEANER" => {
                 let current = app_context.memory_cleaner_enabled.load(Ordering::Relaxed);
                 let new_state = !current;
-                app_context
-                    .memory_cleaner_enabled
-                    .store(new_state, Ordering::Relaxed);
-                db.update_setting(&flag, if new_state { "true" } else { "false" })
-                    .await?;
+                match db
+                    .update_setting(&flag, if new_state { "true" } else { "false" })
+                    .await
+                {
+                    Ok(()) => {
+                        app_context
+                            .memory_cleaner_enabled
+                            .store(new_state, Ordering::Relaxed);
+                        Ok(())
+                    }
+                    Err(error) => Err(error),
+                }
             }
             "ENABLE_LIVE_SYNC" => {
                 let current = app_context.live_sync_enabled.load(Ordering::Relaxed);
                 let new_state = !current;
-                app_context
-                    .live_sync_enabled
-                    .store(new_state, Ordering::Relaxed);
-                db.update_setting(&flag, if new_state { "true" } else { "false" })
-                    .await?;
+                match db
+                    .update_setting(&flag, if new_state { "true" } else { "false" })
+                    .await
+                {
+                    Ok(()) => {
+                        app_context
+                            .live_sync_enabled
+                            .store(new_state, Ordering::Relaxed);
+                        Ok(())
+                    }
+                    Err(error) => Err(error),
+                }
             }
             "MAINTENANCE_MODE" => {
                 let current = app_context.maintenance_mode.load(Ordering::Relaxed);
                 let new_state = !current;
-                app_context
-                    .maintenance_mode
-                    .store(new_state, Ordering::Relaxed);
-                db.update_setting(&flag, if new_state { "true" } else { "false" })
-                    .await?;
+                match db
+                    .update_setting(&flag, if new_state { "true" } else { "false" })
+                    .await
+                {
+                    Ok(()) => {
+                        app_context
+                            .maintenance_mode
+                            .store(new_state, Ordering::Relaxed);
+                        Ok(())
+                    }
+                    Err(error) => Err(error),
+                }
             }
-            _ => {}
+            _ => {
+                restore_safe_callback_menu(
+                    &bot,
+                    &q,
+                    callback_is_admin,
+                    "⚠️ <b>Unknown setting.</b>",
+                )
+                .await;
+                return Ok(());
+            }
+        };
+
+        if let Err(error) = update_result {
+            restore_safe_callback_menu(
+                &bot,
+                &q,
+                true,
+                "❌ <b>Setting was not changed.</b>\nThe admin menu has been restored.",
+            )
+            .await;
+            return Err(error.into());
         }
 
         let _ = bot
@@ -1073,14 +1525,24 @@ pub async fn handle_callback(
             .text("Setting updated.")
             .await;
 
-        if let Some(msg) = q.message {
-            let _ = admin::handle_interactive_settings(
+        if let Some(message) = q.message.as_ref() {
+            if let Err(error) = admin::handle_interactive_settings(
                 bot.clone(),
-                msg.chat().id,
-                Some(msg.id()),
+                message.chat().id,
+                Some(message.id()),
                 app_context.clone(),
             )
-            .await;
+            .await
+            {
+                restore_safe_callback_menu(
+                    &bot,
+                    &q,
+                    true,
+                    "✅ <b>Setting updated.</b>\nThe admin menu has been restored.",
+                )
+                .await;
+                return Err(error);
+            }
         }
 
         return Ok(());
@@ -1232,34 +1694,6 @@ async fn render_remove_wallet_panel(
     Ok(())
 }
 
-async fn send_confirm_clear_wallets(bot: Bot, msg: Message) -> anyhow::Result<()> {
-    let text = "⚠️ <b>Confirm Clear Wallets</b>\nThis will remove all tracked wallets from your account.\n\nAre you sure?";
-
-    let _ = bot
-        .send_message(msg.chat.id, text)
-        .parse_mode(ParseMode::Html)
-        .reply_markup(
-            crate::presentation::telegram::menus::TelegramMenus::confirm_wallet_clear_markup(),
-        )
-        .await?;
-
-    Ok(())
-}
-
-async fn send_confirm_delete_all(bot: Bot, msg: Message) -> anyhow::Result<()> {
-    let text = "🚨 <b>Confirm Delete My Data</b>\nThis will remove all tracked wallets and user data linked to this chat.\n\nAre you sure?";
-
-    let _ = bot
-        .send_message(msg.chat.id, text)
-        .parse_mode(ParseMode::Html)
-        .reply_markup(
-            crate::presentation::telegram::menus::TelegramMenus::confirm_full_delete_markup(),
-        )
-        .await?;
-
-    Ok(())
-}
-
 pub async fn handle_raw_message(
     bot: Bot,
     msg: Message,
@@ -1273,4 +1707,51 @@ pub async fn handle_block_user(
     _msg: teloxide::types::ChatMemberUpdated,
 ) -> anyhow::Result<()> {
     Ok(())
+}
+
+#[cfg(test)]
+mod callback_execution_tests {
+    use super::{callback_disables_keyboard, callback_recovery_menu, CallbackRecoveryMenu};
+
+    #[test]
+    fn state_changing_callbacks_disable_the_keyboard() {
+        assert!(callback_disables_keyboard("admin_do:restart:redacted"));
+        assert!(callback_disables_keyboard("do_forget_wallets"));
+        assert!(callback_disables_keyboard("wallet_remove_do_2"));
+        assert!(callback_disables_keyboard("btn_toggle_ENABLE_LIVE_SYNC"));
+    }
+
+    #[test]
+    fn navigation_callbacks_keep_their_keyboard_until_rendered() {
+        assert!(!callback_disables_keyboard("cmd_wallets"));
+        assert!(!callback_disables_keyboard("wallet_panel_0"));
+    }
+
+    #[test]
+    fn confirmation_recovery_restores_the_action_context() {
+        assert_eq!(
+            callback_recovery_menu("admin_do:clear_wallets:invalid-or-expired-token", false,),
+            CallbackRecoveryMenu::Wallet
+        );
+        assert_eq!(
+            callback_recovery_menu("do_forget_wallets", false),
+            CallbackRecoveryMenu::Wallet
+        );
+        assert_eq!(
+            callback_recovery_menu("admin_do:forget_all:invalid-or-expired-token", false),
+            CallbackRecoveryMenu::Main
+        );
+        assert_eq!(
+            callback_recovery_menu("do_forget_all", false),
+            CallbackRecoveryMenu::Main
+        );
+        assert_eq!(
+            callback_recovery_menu("admin_do:pause:invalid-or-expired-token", true),
+            CallbackRecoveryMenu::Admin
+        );
+        assert_eq!(
+            callback_recovery_menu("admin_do:pause:invalid-or-expired-token", false),
+            CallbackRecoveryMenu::Main
+        );
+    }
 }

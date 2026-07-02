@@ -394,29 +394,40 @@ fn reward_confirmation_behavior_tests_must_exist() {
 
 #[test]
 fn alert_dedup_behavior_tests_must_exist() {
-    let source = read_source("tests/alert_dedup_behavior_tests.rs");
+    let behavior_source = read_source("tests/alert_dedup_behavior_tests.rs");
+    let outbox_tests = read_source("tests/transactional_alert_outbox_tests.rs");
     let wallet_source = read_source("src/wallet/wallet_use_cases.rs");
+    let queue_source = read_source("src/infrastructure/telegram_delivery_queue.rs");
+    let monitor_source = read_source("src/presentation/telegram/workers/utxo_monitor.rs");
 
     assert!(
-        source.contains("alert_key_prefers_mined_block_hash_when_available"),
+        behavior_source.contains("alert_key_prefers_mined_block_hash_when_available"),
         "behavior tests must verify mined block hash is preferred"
     );
 
     assert!(
-        source.contains(
+        behavior_source.contains(
             "different_wallet_and_same_alert_key_is_not_duplicate_for_wallet_scoped_dedup"
         ),
         "behavior tests must verify dedup is wallet scoped"
     );
 
     assert!(
-        wallet_source.contains("build_alert_identity"),
-        "wallet flow must use alert identity dedup helper"
+        outbox_tests.contains("repeated_commit_does_not_duplicate_queue_rows")
+            && outbox_tests.contains("existing_dedup_without_queue_is_reconciled"),
+        "transactional outbox tests must verify idempotency and reconciliation"
     );
 
     assert!(
-        wallet_source.contains("try_claim_alert_key"),
-        "wallet flow must claim alert key before delivery"
+        wallet_source.contains("build_alert_key"),
+        "wallet flow must create a stable alert key"
+    );
+
+    assert!(
+        queue_source.contains("INSERT INTO wallet_alert_dedup")
+            && queue_source.contains("ON CONFLICT (wallet, alert_key) DO NOTHING")
+            && monitor_source.contains("commit_alert_outbox"),
+        "wallet-scoped dedup must be committed by the transactional outbox"
     );
 }
 
@@ -424,6 +435,7 @@ fn alert_dedup_behavior_tests_must_exist() {
 fn alert_delivery_behavior_tests_must_exist() {
     let behavior_source = read_source("tests/alert_delivery_behavior_tests.rs");
     let monitor_source = read_source("src/presentation/telegram/workers/utxo_monitor.rs");
+    let worker_source = read_source("src/presentation/telegram/workers/telegram_delivery.rs");
 
     assert!(
         behavior_source.contains("successful_send_records_delivered"),
@@ -436,20 +448,21 @@ fn alert_delivery_behavior_tests_must_exist() {
     );
 
     assert!(
-        monitor_source.contains("BotEventType::AlertDelivered")
-            && monitor_source.contains("AlertDeliveryAttempt::SendSucceeded"),
-        "UTXO monitor must record delivered alerts"
+        monitor_source.contains("commit_alert_outbox")
+            && !monitor_source.contains(".send_message("),
+        "UTXO monitor must persist alerts without sending directly"
     );
 
     assert!(
-        monitor_source.contains("BotEventType::AlertDeliveryFailed")
-            && monitor_source.contains("AlertDeliveryAttempt::SendFailed"),
-        "UTXO monitor must record failed deliveries"
+        worker_source.contains(".send_message(")
+            && worker_source.contains("mark_sent")
+            && worker_source.contains("QUEUED ALERT DELIVERED"),
+        "delivery worker must send queued messages and persist successful delivery"
     );
 
     assert!(
-        monitor_source.contains(".send_message("),
-        "UTXO monitor must attempt Telegram delivery"
+        worker_source.contains("mark_failed") && worker_source.contains("Queued alert send failed"),
+        "delivery worker must persist delivery failures for retry"
     );
 }
 
