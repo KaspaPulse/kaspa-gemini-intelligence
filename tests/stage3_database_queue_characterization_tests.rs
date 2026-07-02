@@ -43,8 +43,7 @@ async fn reset_characterization_tables(pool: &PgPool) {
         "TRUNCATE TABLE
             telegram_delivery_queue,
             wallet_alert_dedup,
-            user_wallets
-         RESTART IDENTITY",
+            user_wallets",
     )
     .execute(pool)
     .await
