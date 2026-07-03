@@ -29,12 +29,37 @@ async fn test_pool() -> PgPool {
         .acquire_timeout(Duration::from_secs(5))
         .connect(&database_url)
         .await
-        .expect("test PostgreSQL must be reachable")
+        .expect("runtime test PostgreSQL must be reachable")
 }
 
-async fn reset_tables(pool: &PgPool) {
+async fn admin_pool() -> PgPool {
+    let database_admin_url = std::env::var("DATABASE_ADMIN_URL")
+        .expect("DATABASE_ADMIN_URL is required for outbox test setup");
+
+    PgPoolOptions::new()
+        .max_connections(2)
+        .acquire_timeout(Duration::from_secs(5))
+        .connect(&database_admin_url)
+        .await
+        .expect("administrative test PostgreSQL must be reachable")
+}
+
+async fn reset_tables(admin_pool: &PgPool) {
+    sqlx::query(
+        "DROP TRIGGER IF EXISTS stage3b2_reject_queue_insert_trigger
+         ON telegram_delivery_queue",
+    )
+    .execute(admin_pool)
+    .await
+    .expect("failed to remove a stale queue failure trigger");
+
+    sqlx::query("DROP FUNCTION IF EXISTS stage3b2_reject_queue_insert()")
+        .execute(admin_pool)
+        .await
+        .expect("failed to remove a stale queue failure function");
+
     sqlx::query("TRUNCATE TABLE telegram_delivery_queue, wallet_alert_dedup, wallet_seen_utxos")
-        .execute(pool)
+        .execute(admin_pool)
         .await
         .expect("failed to reset outbox tables");
 
@@ -44,7 +69,7 @@ async fn reset_tables(pool: &PgPool) {
          ON CONFLICT (key_name)
          DO UPDATE SET value_data = EXCLUDED.value_data, updated_at = NOW()",
     )
-    .execute(pool)
+    .execute(admin_pool)
     .await
     .expect("failed to enable alert delivery");
 }
@@ -74,7 +99,8 @@ fn request<'a>(
 async fn commits_dedup_seen_and_recipient_queue_rows_atomically() {
     let _guard: MutexGuard<'static, ()> = database_test_lock().lock().await;
     let pool = test_pool().await;
-    reset_tables(&pool).await;
+    let privileged_pool = admin_pool().await;
+    reset_tables(&privileged_pool).await;
 
     let id = next_id();
     let wallet = format!("kaspa:stage3b2-wallet-{id}");
@@ -126,7 +152,8 @@ async fn commits_dedup_seen_and_recipient_queue_rows_atomically() {
 async fn repeated_commit_does_not_duplicate_queue_rows() {
     let _guard: MutexGuard<'static, ()> = database_test_lock().lock().await;
     let pool = test_pool().await;
-    reset_tables(&pool).await;
+    let privileged_pool = admin_pool().await;
+    reset_tables(&privileged_pool).await;
 
     let id = next_id();
     let wallet = format!("kaspa:stage3b2-wallet-{id}");
@@ -165,7 +192,8 @@ async fn repeated_commit_does_not_duplicate_queue_rows() {
 async fn queue_insert_failure_rolls_back_dedup_and_seen() {
     let _guard: MutexGuard<'static, ()> = database_test_lock().lock().await;
     let pool = test_pool().await;
-    reset_tables(&pool).await;
+    let privileged_pool = admin_pool().await;
+    reset_tables(&privileged_pool).await;
 
     sqlx::query(
         "CREATE OR REPLACE FUNCTION stage3b2_reject_queue_insert()
@@ -177,7 +205,7 @@ async fn queue_insert_failure_rolls_back_dedup_and_seen() {
          END;
          $$",
     )
-    .execute(&pool)
+    .execute(&privileged_pool)
     .await
     .expect("failed to create queue failure function");
 
@@ -187,7 +215,7 @@ async fn queue_insert_failure_rolls_back_dedup_and_seen() {
          FOR EACH ROW
          EXECUTE FUNCTION stage3b2_reject_queue_insert()",
     )
-    .execute(&pool)
+    .execute(&privileged_pool)
     .await
     .expect("failed to create queue failure trigger");
 
@@ -213,12 +241,12 @@ async fn queue_insert_failure_rolls_back_dedup_and_seen() {
         "DROP TRIGGER IF EXISTS stage3b2_reject_queue_insert_trigger
          ON telegram_delivery_queue",
     )
-    .execute(&pool)
+    .execute(&privileged_pool)
     .await
     .expect("failed to drop queue failure trigger");
 
     sqlx::query("DROP FUNCTION IF EXISTS stage3b2_reject_queue_insert()")
-        .execute(&pool)
+        .execute(&privileged_pool)
         .await
         .expect("failed to drop queue failure function");
 
@@ -250,7 +278,8 @@ async fn queue_insert_failure_rolls_back_dedup_and_seen() {
 async fn existing_dedup_without_queue_is_reconciled() {
     let _guard: MutexGuard<'static, ()> = database_test_lock().lock().await;
     let pool = test_pool().await;
-    reset_tables(&pool).await;
+    let privileged_pool = admin_pool().await;
+    reset_tables(&privileged_pool).await;
 
     let id = next_id();
     let wallet = format!("kaspa:stage3b2-wallet-{id}");
@@ -261,7 +290,7 @@ async fn existing_dedup_without_queue_is_reconciled() {
     sqlx::query("INSERT INTO wallet_alert_dedup (wallet, alert_key) VALUES ($1, $2)")
         .bind(&wallet)
         .bind(&alert_key)
-        .execute(&pool)
+        .execute(&privileged_pool)
         .await
         .expect("dedup fixture should insert");
 
@@ -299,14 +328,15 @@ async fn existing_dedup_without_queue_is_reconciled() {
 async fn disabled_delivery_commits_dedup_and_seen_without_queue_rows() {
     let _guard: MutexGuard<'static, ()> = database_test_lock().lock().await;
     let pool = test_pool().await;
-    reset_tables(&pool).await;
+    let privileged_pool = admin_pool().await;
+    reset_tables(&privileged_pool).await;
 
     sqlx::query(
         "UPDATE system_settings
          SET value_data = 'false', updated_at = NOW()
          WHERE key_name = 'ENABLE_ALERT_DELIVERY'",
     )
-    .execute(&pool)
+    .execute(&privileged_pool)
     .await
     .expect("failed to disable alert delivery");
 

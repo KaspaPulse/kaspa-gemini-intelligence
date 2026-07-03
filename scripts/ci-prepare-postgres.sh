@@ -58,7 +58,7 @@ done < <(
     sort
 )
 
-echo "Granting CI-only privileges for characterization tests..."
+echo "Granting runtime DML and CI-only reset privileges..."
 psql "$DATABASE_ADMIN_URL" \
     -v ON_ERROR_STOP=1 <<'SQL'
 GRANT TRUNCATE ON TABLE
@@ -71,31 +71,144 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
     user_wallets
 TO kaspa_pulse_app;
 
-GRANT SELECT, INSERT ON TABLE
+GRANT SELECT, INSERT, DELETE ON TABLE
     wallet_alert_dedup
+TO kaspa_pulse_app;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
+    wallet_seen_utxos
+TO kaspa_pulse_app;
+
+GRANT SELECT, INSERT, UPDATE ON TABLE
+    system_settings
 TO kaspa_pulse_app;
 SQL
 
-echo "Verifying the runtime role can access the delivery queue..."
+echo "Verifying the complete CI runtime privilege matrix..."
 psql "$DATABASE_URL" \
     -v ON_ERROR_STOP=1 \
     -Atqc "
         SELECT
             to_regclass('public.telegram_delivery_queue') IS NOT NULL
+            AND to_regclass('public.wallet_alert_dedup') IS NOT NULL
+            AND to_regclass('public.user_wallets') IS NOT NULL
+            AND to_regclass('public.wallet_seen_utxos') IS NOT NULL
+            AND to_regclass('public.system_settings') IS NOT NULL
+            AND to_regclass('public.telegram_delivery_queue_id_seq') IS NOT NULL
+
             AND has_table_privilege(
                 current_user,
                 'public.telegram_delivery_queue',
-                'SELECT,UPDATE,TRUNCATE'
+                'SELECT'
+            )
+            AND has_table_privilege(
+                current_user,
+                'public.telegram_delivery_queue',
+                'INSERT'
+            )
+            AND has_table_privilege(
+                current_user,
+                'public.telegram_delivery_queue',
+                'UPDATE'
+            )
+            AND has_table_privilege(
+                current_user,
+                'public.telegram_delivery_queue',
+                'DELETE'
+            )
+            AND has_table_privilege(
+                current_user,
+                'public.telegram_delivery_queue',
+                'TRUNCATE'
+            )
+            AND has_sequence_privilege(
+                current_user,
+                'public.telegram_delivery_queue_id_seq',
+                'USAGE'
+            )
+
+            AND has_table_privilege(
+                current_user,
+                'public.wallet_alert_dedup',
+                'SELECT'
             )
             AND has_table_privilege(
                 current_user,
                 'public.wallet_alert_dedup',
-                'SELECT,INSERT,TRUNCATE'
+                'INSERT'
+            )
+            AND has_table_privilege(
+                current_user,
+                'public.wallet_alert_dedup',
+                'DELETE'
+            )
+            AND has_table_privilege(
+                current_user,
+                'public.wallet_alert_dedup',
+                'TRUNCATE'
+            )
+
+            AND has_table_privilege(
+                current_user,
+                'public.user_wallets',
+                'SELECT'
             )
             AND has_table_privilege(
                 current_user,
                 'public.user_wallets',
-                'SELECT,INSERT,UPDATE,DELETE,TRUNCATE'
+                'INSERT'
+            )
+            AND has_table_privilege(
+                current_user,
+                'public.user_wallets',
+                'UPDATE'
+            )
+            AND has_table_privilege(
+                current_user,
+                'public.user_wallets',
+                'DELETE'
+            )
+            AND has_table_privilege(
+                current_user,
+                'public.user_wallets',
+                'TRUNCATE'
+            )
+
+            AND has_table_privilege(
+                current_user,
+                'public.wallet_seen_utxos',
+                'SELECT'
+            )
+            AND has_table_privilege(
+                current_user,
+                'public.wallet_seen_utxos',
+                'INSERT'
+            )
+            AND has_table_privilege(
+                current_user,
+                'public.wallet_seen_utxos',
+                'UPDATE'
+            )
+            AND has_table_privilege(
+                current_user,
+                'public.wallet_seen_utxos',
+                'DELETE'
+            )
+
+            AND has_table_privilege(
+                current_user,
+                'public.system_settings',
+                'SELECT'
+            )
+            AND has_table_privilege(
+                current_user,
+                'public.system_settings',
+                'INSERT'
+            )
+            AND has_table_privilege(
+                current_user,
+                'public.system_settings',
+                'UPDATE'
             );
     " |
 grep -qx 't'
