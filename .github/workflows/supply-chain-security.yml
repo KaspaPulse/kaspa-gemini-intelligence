@@ -16,6 +16,23 @@ jobs:
     runs-on: ubuntu-latest
     env:
       SQLX_OFFLINE: "true"
+      DATABASE_URL: "postgres://kaspa_pulse_app:TEST_PASSWORD@127.0.0.1:5432/kaspa_dev?sslmode=disable"
+      DATABASE_ADMIN_URL: "postgres://postgres:POSTGRES_TEST_PASSWORD@127.0.0.1:5432/kaspa_dev?sslmode=disable"
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: kaspa_dev
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: POSTGRES_TEST_PASSWORD
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d kaspa_dev"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
 
     steps:
       - name: Checkout repository
@@ -28,6 +45,14 @@ jobs:
 
       - name: Cache cargo registry and target
         uses: Swatinem/rust-cache@v2
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+
+      - name: Prepare PostgreSQL test schema
+        run: bash scripts/ci-prepare-postgres.sh
 
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
