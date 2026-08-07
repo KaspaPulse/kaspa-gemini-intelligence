@@ -62,9 +62,11 @@ pub fn validate_webhook_secret(secret: &str) -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-pub fn validate_webhook_bind_policy(app_env: &str, bind_ip: IpAddr) -> Result<(), anyhow::Error> {
-    let allow_public_bind = env_bool_local("WEBHOOK_ALLOW_PUBLIC_BIND", false);
-
+pub fn validate_webhook_bind_policy_value(
+    app_env: &str,
+    bind_ip: IpAddr,
+    allow_public_bind: bool,
+) -> Result<(), anyhow::Error> {
     if app_env.eq_ignore_ascii_case("production") && !bind_ip.is_loopback() && !allow_public_bind {
         return Err(anyhow::anyhow!(
             "WEBHOOK_BIND must stay on 127.0.0.1/loopback in production unless WEBHOOK_ALLOW_PUBLIC_BIND=true"
@@ -72,6 +74,14 @@ pub fn validate_webhook_bind_policy(app_env: &str, bind_ip: IpAddr) -> Result<()
     }
 
     Ok(())
+}
+
+pub fn validate_webhook_bind_policy(app_env: &str, bind_ip: IpAddr) -> Result<(), anyhow::Error> {
+    validate_webhook_bind_policy_value(
+        app_env,
+        bind_ip,
+        env_bool_local("WEBHOOK_ALLOW_PUBLIC_BIND", false),
+    )
 }
 
 pub fn webhook_max_connections() -> u8 {
