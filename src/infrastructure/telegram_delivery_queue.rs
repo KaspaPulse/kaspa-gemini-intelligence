@@ -48,14 +48,19 @@ pub struct AlertOutboxRequest<'a> {
     pub daa_score: Option<i64>,
 }
 
-pub fn delivery_queue_enabled() -> bool {
-    match std::env::var("ENABLE_TELEGRAM_DELIVERY_QUEUE") {
-        Ok(value) => {
+fn parse_delivery_queue_enabled(value: Option<&str>) -> bool {
+    match value {
+        Some(value) => {
             let value = value.trim().to_ascii_lowercase();
             matches!(value.as_str(), "true" | "1" | "yes" | "on" | "enabled")
         }
-        Err(_) => true,
+        None => true,
     }
+}
+
+pub fn delivery_queue_enabled() -> bool {
+    let value = std::env::var("ENABLE_TELEGRAM_DELIVERY_QUEUE").ok();
+    parse_delivery_queue_enabled(value.as_deref())
 }
 
 pub fn max_delivery_attempts() -> i32 {
@@ -467,24 +472,23 @@ pub async fn queue_stats(pool: &PgPool) -> Result<DeliveryQueueStats, AppError> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
-
-    static ENV_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn delivery_queue_is_enabled_by_default() {
-        let _guard = ENV_TEST_LOCK.lock().expect("env test lock poisoned");
-        std::env::remove_var("ENABLE_TELEGRAM_DELIVERY_QUEUE");
-        assert!(delivery_queue_enabled());
+        assert!(parse_delivery_queue_enabled(None));
     }
 
     #[test]
-    fn delivery_queue_can_be_disabled_by_env() {
-        let _guard = ENV_TEST_LOCK.lock().expect("env test lock poisoned");
-        std::env::remove_var("ENABLE_TELEGRAM_DELIVERY_QUEUE");
-        std::env::set_var("ENABLE_TELEGRAM_DELIVERY_QUEUE", "false");
-        assert!(!delivery_queue_enabled());
-        std::env::remove_var("ENABLE_TELEGRAM_DELIVERY_QUEUE");
+    fn delivery_queue_can_be_disabled_by_env_value() {
+        assert!(!parse_delivery_queue_enabled(Some("false")));
+        assert!(!parse_delivery_queue_enabled(Some("off")));
+    }
+
+    #[test]
+    fn delivery_queue_accepts_enabled_env_values() {
+        for value in ["true", "1", "yes", "on", "enabled", " YES "] {
+            assert!(parse_delivery_queue_enabled(Some(value)), "value={value}");
+        }
     }
 
     #[test]
