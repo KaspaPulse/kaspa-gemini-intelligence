@@ -23,7 +23,7 @@ kaspa-addresses = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v2.0
 kaspa-consensus-core = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v2.0.1" }
 kaspa-hashes = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v2.0.1" }
 
-sqlx = { version = "0.8", features = ["postgres", "runtime-tokio-rustls", "macros", "chrono", "json"] }
+sqlx = { version = "0.9", features = ["postgres", "runtime-tokio", "tls-rustls", "macros", "chrono", "json"] }
 
 chrono = "0.4"
 dotenvy = "0.15"
