@@ -1,8 +1,8 @@
 use crate::domain::models::{AppContext, ConfirmationSession, RequestIdentity, SensitiveAction};
-use dashmap::mapref::entry::Entry;
 use dashmap::DashMap;
-use rand::rngs::OsRng;
+use dashmap::mapref::entry::Entry;
 use rand::RngCore;
+use rand::rngs::OsRng;
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -42,10 +42,10 @@ impl SensitiveAction {
             Self::ToggleMemoryCleaner => "This will change the memory cleaner runtime state.",
             Self::ToggleLiveSync => "This will change live monitoring runtime state.",
             Self::ToggleMaintenance => "This will change maintenance mode.",
-            Self::MuteAlerts => "This will stop Telegram mining alert delivery only. Block detection, DAG analysis, and database logging will continue.",
-            Self::UnmuteAlerts => {
-                "This will resume Telegram mining alert delivery for new alerts."
+            Self::MuteAlerts => {
+                "This will stop Telegram mining alert delivery only. Block detection, DAG analysis, and database logging will continue."
             }
+            Self::UnmuteAlerts => "This will resume Telegram mining alert delivery for new alerts.",
         }
     }
 }
@@ -427,16 +427,18 @@ mod tests {
             Ok(SensitiveAction::Pause)
         );
 
-        assert!(consume_confirmation(
-            &confirmations,
-            identity,
-            SensitiveAction::Pause,
-            nonce,
-            100,
-            42,
-            42,
-        )
-        .is_err());
+        assert!(
+            consume_confirmation(
+                &confirmations,
+                identity,
+                SensitiveAction::Pause,
+                nonce,
+                100,
+                42,
+                42,
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -463,16 +465,18 @@ mod tests {
             is_private: true,
         };
 
-        assert!(consume_confirmation(
-            &confirmations,
-            attacker,
-            SensitiveAction::Pause,
-            nonce,
-            100,
-            42,
-            42,
-        )
-        .is_err());
+        assert!(
+            consume_confirmation(
+                &confirmations,
+                attacker,
+                SensitiveAction::Pause,
+                nonce,
+                100,
+                42,
+                42,
+            )
+            .is_err()
+        );
         assert_eq!(confirmations.len(), 1);
     }
 
@@ -500,16 +504,18 @@ mod tests {
             is_private: false,
         };
 
-        assert!(consume_confirmation(
-            &confirmations,
-            group_identity,
-            SensitiveAction::Pause,
-            nonce,
-            100,
-            42,
-            42,
-        )
-        .is_err());
+        assert!(
+            consume_confirmation(
+                &confirmations,
+                group_identity,
+                SensitiveAction::Pause,
+                nonce,
+                100,
+                42,
+                42,
+            )
+            .is_err()
+        );
         assert_eq!(confirmations.len(), 1);
     }
 }

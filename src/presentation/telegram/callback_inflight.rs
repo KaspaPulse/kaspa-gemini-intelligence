@@ -89,9 +89,11 @@ mod tests {
         let _first = registry
             .try_acquire(CallbackExecutionKey::new(-100, 55))
             .expect("first acquisition must succeed");
-        assert!(registry
-            .try_acquire(CallbackExecutionKey::new(-100, 55))
-            .is_none());
+        assert!(
+            registry
+                .try_acquire(CallbackExecutionKey::new(-100, 55))
+                .is_none()
+        );
     }
 
     #[test]
@@ -100,8 +102,10 @@ mod tests {
         let _first = registry
             .try_acquire(CallbackExecutionKey::new(-100, 55))
             .expect("first acquisition must succeed");
-        assert!(registry
-            .try_acquire(CallbackExecutionKey::new(-100, 56))
-            .is_some());
+        assert!(
+            registry
+                .try_acquire(CallbackExecutionKey::new(-100, 56))
+                .is_some()
+        );
     }
 }

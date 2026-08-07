@@ -2,8 +2,8 @@ use kaspa_pulse::domain::errors::AppError;
 use kaspa_pulse::infrastructure::telegram_delivery_queue::{
     mark_failed, mark_sent, max_delivery_attempts,
 };
-use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
+use sqlx::postgres::PgPoolOptions;
 use std::sync::Mutex;
 use std::time::Duration;
 

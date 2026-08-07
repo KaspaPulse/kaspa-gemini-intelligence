@@ -126,7 +126,7 @@ pub fn spawn_health_endpoint(cancel_token: CancellationToken) {
     let addr = SocketAddr::new(bind_ip, port);
 
     tokio::spawn(async move {
-        use axum::{http::StatusCode, routing::get, Router};
+        use axum::{Router, http::StatusCode, routing::get};
 
         async fn healthz() -> &'static str {
             "ok\n"

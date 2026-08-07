@@ -1,11 +1,11 @@
 use kaspa_pulse::domain::errors::AppError;
 use kaspa_pulse::infrastructure::telegram_delivery_queue::{
-    commit_alert_outbox, AlertOutboxOutcome, AlertOutboxRequest,
+    AlertOutboxOutcome, AlertOutboxRequest, commit_alert_outbox,
 };
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Row};
-use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Duration;
 use tokio::sync::{Mutex, MutexGuard};
 

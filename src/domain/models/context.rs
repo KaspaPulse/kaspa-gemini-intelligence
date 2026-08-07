@@ -3,8 +3,8 @@ use dashmap::DashMap;
 use kaspa_wrpc_client::KaspaRpcClient;
 use sqlx::PgPool;
 use std::collections::HashSet;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use tokio::sync::RwLock;
 
 #[derive(Clone)]

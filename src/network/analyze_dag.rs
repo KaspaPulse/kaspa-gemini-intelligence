@@ -6,7 +6,7 @@ use kaspa_rpc_core::api::rpc::RpcApi;
 
 use std::collections::HashSet;
 use std::sync::Arc;
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 
 pub struct AnalyzeDagUseCase {
     pub node: Arc<KaspaRpcAdapter>,

@@ -1,4 +1,4 @@
-use kaspa_pulse::wallet::alert_dedup::{build_alert_identity, build_alert_key, AlertIdentity};
+use kaspa_pulse::wallet::alert_dedup::{AlertIdentity, build_alert_identity, build_alert_key};
 
 fn is_same_alert_for_test(first: &AlertIdentity, second: &AlertIdentity) -> bool {
     first.wallet == second.wallet && first.alert_key == second.alert_key

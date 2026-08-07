@@ -12,8 +12,8 @@ use crate::network::stats_use_cases::{
 };
 use crate::presentation::telegram::commands::Command;
 use crate::wallet::wallet_use_cases::{WalletManagementUseCase, WalletQueriesUseCase};
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use teloxide::prelude::*;
 use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, ParseMode};
 
@@ -1711,7 +1711,7 @@ pub async fn handle_block_user(
 
 #[cfg(test)]
 mod callback_execution_tests {
-    use super::{callback_disables_keyboard, callback_recovery_menu, CallbackRecoveryMenu};
+    use super::{CallbackRecoveryMenu, callback_disables_keyboard, callback_recovery_menu};
 
     #[test]
     fn state_changing_callbacks_disable_the_keyboard() {

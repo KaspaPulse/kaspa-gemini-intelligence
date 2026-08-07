@@ -1,4 +1,4 @@
-use kaspa_pulse::wallet::alert_delivery_gate::{parse_enabled_value, ALERT_DELIVERY_SETTING_KEY};
+use kaspa_pulse::wallet::alert_delivery_gate::{ALERT_DELIVERY_SETTING_KEY, parse_enabled_value};
 
 #[test]
 fn alert_delivery_setting_key_is_stable() {
