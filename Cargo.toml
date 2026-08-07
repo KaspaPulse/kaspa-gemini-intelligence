@@ -31,10 +31,10 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
 reqwest = { version = "0.13", features = ["json", "multipart", "rustls"] }
-sysinfo = "0.30"
-dashmap = "6.1"
-governor = "0.6"
-rand = "0.8.6"
+sysinfo = "0.39"
+dashmap = "6.2"
+governor = "0.10"
+rand = "0.10"
 sha2 = "0.11"
 
 tracing = "0.1"
