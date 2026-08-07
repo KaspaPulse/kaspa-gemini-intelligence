@@ -1,48 +1,35 @@
-# ---------------------------------------------------
-# Stage 1: Builder (Heavy - Contains Source & Compiler)
-# ---------------------------------------------------
-FROM rust:1.80-slim-bookworm AS builder
+# syntax=docker/dockerfile:1.7
 
-# Install necessary C-dependencies
-RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
+FROM rust:1.97.1-slim-bookworm AS builder
+
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends pkg-config libssl-dev ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# --- CACHE LAYER OPTIMIZATION ---
-# 1. Copy only dependency manifests
 COPY Cargo.toml Cargo.lock ./
-# 2. Create dummy source files to trigger dependency compilation
-RUN mkdir src && echo "fn main() { println!(\"if you see this, the build broke\") }" > src/main.rs && touch src/lib.rs
-# 3. Build only the dependencies (This layer gets cached!)
-RUN cargo build --release --all-features
+RUN mkdir src \
+    && printf 'fn main() {}\n' > src/main.rs \
+    && touch src/lib.rs \
+    && cargo build --locked --release --all-features \
+    && rm -rf src
 
-# --- ACTUAL CODE COMPILATION ---
-# 4. Remove dummy files and copy the real project
-RUN rm -rf src
 COPY . .
-
-# Force SQLx offline mode
 ENV SQLX_OFFLINE=true
+RUN touch src/main.rs \
+    && cargo build --locked --release --all-features
 
-# 5. Update timestamp of main to force rebuild of OUR code, not dependencies
-RUN touch src/main.rs
-RUN cargo build --release --all-features
-
-# ---------------------------------------------------
-# Stage 2: Runtime (Lightweight & Secure - Binary Only)
-# ---------------------------------------------------
 FROM debian:bookworm-slim AS runtime
 
-# Install CA certificates for HTTPS/API calls
-RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends ca-certificates \
+    && groupadd --system --gid 10001 kaspa \
+    && useradd --system --uid 10001 --gid kaspa --home-dir /nonexistent --shell /usr/sbin/nologin kaspa \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+COPY --from=builder --chown=kaspa:kaspa /app/target/release/kaspa-pulse /usr/local/bin/kaspa-pulse
 
-# Copy ONLY the compiled binary
-COPY --from=builder /app/target/release/kaspa-pulse /usr/local/bin/kaspa-pulse
-
-# Ensure the binary is executable
-RUN chmod +x /usr/local/bin/kaspa-pulse
-
-# Define the entrypoint
-ENTRYPOINT ["kaspa-pulse"]
+USER 10001:10001
+ENTRYPOINT ["/usr/local/bin/kaspa-pulse"]
