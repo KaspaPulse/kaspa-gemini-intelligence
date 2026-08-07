@@ -9,8 +9,8 @@ description = "Kaspa Pulse Mining Bot - Lightweight community build"
 [dependencies]
 tokio = { version = "1", features = ["full", "time", "tracing"] }
 tokio-util = "0.7"
-teloxide = { version = "0.13", features = ["macros", "webhooks-axum"] }
-axum = "=0.7.9"
+teloxide = { version = "0.17", features = ["macros", "webhooks-axum"] }
+axum = "0.8"
 
 async-trait = "0.1.80"
 async-channel = "2.5.0"
