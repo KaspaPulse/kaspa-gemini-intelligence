@@ -30,12 +30,12 @@ dotenvy = "0.15"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
-reqwest = { version = "0.12", features = ["json", "multipart", "rustls-tls"] }
+reqwest = { version = "0.13", features = ["json", "multipart", "rustls"] }
 sysinfo = "0.30"
 dashmap = "6.1"
 governor = "0.6"
 rand = "0.8.6"
-sha2 = "0.10.9"
+sha2 = "0.11"
 
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
