@@ -1,58 +1,59 @@
-use std::fs;
+#[test]
+fn subscription_runtime_is_wired_into_the_utxo_monitor() {
+    let source = include_str!("../src/presentation/telegram/workers/utxo_monitor.rs");
+
+    assert!(source.contains("MonitoringSchedule::new"));
+    assert!(source.contains("spawn_subscription_runtime"));
+    assert!(source.contains("record_scan_trigger"));
+    assert!(source.contains("mark_successful_scan"));
+    assert!(source.contains("KASPA_MONITOR_RECONCILIATION_INTERVAL_SECS"));
+}
+
+#[test]
+fn subscription_supervisor_restores_fallback_after_internal_failure() {
+    let source = include_str!("../src/infrastructure/node/subscription.rs");
+
+    assert!(source.contains("run_subscription_supervisor"));
+    assert!(source.contains("lifecycle.on_runtime_failed(connected)"));
+    assert!(source.contains("increment_subscription_runtime_restarts"));
+    assert!(source.contains("ConnectionTransition::Reconnect"));
+    assert!(source.contains("connection_generation > 1"));
+}
 
 #[test]
 fn callback_execution_guard_is_injected_and_enforced() {
     let main_source = include_str!("../src/main.rs");
-    let callback_source = include_str!("../src/presentation/telegram/handlers/callback.rs");
-    let callback_inflight = include_str!("../src/presentation/telegram/callback_inflight.rs");
+    let handler_source = include_str!("../src/presentation/telegram/handlers/mod.rs");
 
-    assert!(main_source.contains("CallbackExecutionRegistry::default()"));
+    assert!(main_source.contains("CallbackExecutionRegistry::default"));
     assert!(main_source.contains("callback_execution_registry"));
-    assert!(callback_source.contains("try_acquire"));
-    assert!(callback_source.contains("Another action is already running"));
-    assert!(callback_inflight.contains("CallbackExecutionGuard"));
-}
-
-#[test]
-fn final_audit_fixes_preserve_contextual_callback_recovery() {
-    let callback_source = include_str!("../src/presentation/telegram/handlers/callback.rs");
-
-    assert!(callback_source.contains("recover_callback_ui"));
-    assert!(callback_source.contains("restored_markup"));
-    assert!(callback_source.contains("source_callback"));
-}
-
-#[test]
-fn clippy_strictness_regressions_are_prevented() {
-    let workflow = include_str!("../.github/workflows/rust-ci.yml");
-
-    assert!(workflow.contains("cargo clippy --locked --all-targets --all-features -- -D warnings"));
+    assert!(handler_source.contains("callback_execution_registry.try_acquire"));
+    assert!(handler_source.contains("edit_message_reply_markup"));
+    assert!(handler_source.contains("increment_callbacks_rejected_inflight"));
 }
 
 #[test]
 fn callback_ui_is_restored_and_database_failures_are_not_reported_as_success() {
-    let callback_source = include_str!("../src/presentation/telegram/handlers/callback.rs");
+    let handler_source = include_str!("../src/presentation/telegram/handlers/mod.rs");
+    let wallet_source = include_str!("../src/presentation/telegram/handlers/wallet.rs");
 
-    assert!(callback_source.contains("restore_callback_keyboard"));
-    assert!(callback_source.contains("callback_error_message"));
-    assert!(callback_source.contains("DatabaseError"));
-}
+    assert!(handler_source.contains("restore_safe_callback_menu"));
+    assert!(handler_source.contains("restore_wallet_callback_menu"));
+    assert!(handler_source.contains("Unable to lock this action panel"));
+    assert!(handler_source.contains("This action message is no longer available"));
+    assert!(handler_source.contains("Wallets were not deleted"));
+    assert!(handler_source.contains("Setting was not changed"));
+    assert!(handler_source.contains("Failed to send a replacement action panel"));
+    assert!(handler_source.contains("callback_disables_keyboard(&data) && q.message.is_none()"));
 
-#[test]
-fn final_audit_followup_preserves_accurate_deletion_recovery() {
-    let callback_source = include_str!("../src/presentation/telegram/handlers/callback.rs");
-
-    assert!(callback_source.contains("delete_wallet"));
-    assert!(callback_source.contains("remove_tracked_wallet"));
-    assert!(callback_source.contains("recover_callback_ui"));
-}
-
-#[test]
-fn final_scan_freshness_includes_nested_processing_failures() {
-    let utxo_source = include_str!("../src/presentation/telegram/workers/utxo_monitor.rs");
-
-    assert!(utxo_source.contains("wallet_task_succeeded"));
-    assert!(utxo_source.contains("scan_succeeded"));
+    let remove_handler = wallet_source
+        .split("pub async fn handle_wallet_remove_do")
+        .nth(1)
+        .and_then(|source| source.split("pub fn wallet_buttons_markup").next())
+        .expect("wallet remove handler missing");
+    assert!(!remove_handler.contains("unwrap_or_default"));
+    assert!(remove_handler.contains("wallet_query.get_list(cid).await?"));
+    assert!(remove_handler.contains("wallet_mgt.remove_wallet(address, cid).await?"));
 }
 
 #[test]
@@ -109,61 +110,124 @@ fn timeout_metrics_and_deterministic_tokio_time_are_wired() {
 }
 
 #[test]
-fn rpc_outage_events_use_matching_sql_bind_parameters() {
-    let events_repo = include_str!("../src/infrastructure/database/events_repo.rs");
+fn readiness_configuration_is_fail_safe() {
+    let source = include_str!("../src/infrastructure/observability.rs");
 
-    assert!(events_repo.contains("BotEventType::RpcOutage"));
-    assert!(events_repo.contains("event_type.as_str()"));
+    assert!(source.contains("effective_subscription_requirement"));
+    assert!(source.contains("Invalid boolean value"));
+    assert!(source.contains("using default"));
 }
 
 #[test]
 fn queue_stats_preserves_fail_closed_unknown_status_detection() {
-    let queue_source = include_str!("../src/infrastructure/telegram_delivery_queue.rs");
+    let source = include_str!("../src/infrastructure/telegram_delivery_queue.rs");
 
-    assert!(queue_source.contains("unknown_status_count"));
-    assert!(queue_source.contains("unexpected delivery queue status"));
+    assert!(source.contains("unexpected_status_count"));
+    assert!(source.contains("Unexpected Telegram delivery queue status"));
 }
 
 #[test]
-fn readiness_configuration_is_fail_safe() {
-    let health_source = include_str!("../src/infrastructure/webhook_security.rs");
-    let observability_source = include_str!("../src/infrastructure/observability.rs");
+fn clippy_strictness_regressions_are_prevented() {
+    let observability = include_str!("../src/infrastructure/observability.rs");
+    let handlers = include_str!("../src/presentation/telegram/handlers/mod.rs");
 
-    assert!(health_source.contains("ReadinessPolicy::from_env"));
-    assert!(observability_source.contains("parse_bool_env"));
-    assert!(observability_source.contains("Err("));
+    assert!(observability.contains(".checked_div(self.delivery_latency_samples)"));
+
+    let final_test_module = handlers
+        .rfind("mod callback_execution_tests")
+        .expect("callback execution test module missing");
+    let final_runtime_item = handlers
+        .rfind("pub async fn handle_block_user")
+        .expect("handle_block_user missing");
+    assert!(final_test_module > final_runtime_item);
 }
 
 #[test]
-fn subscription_runtime_is_wired_into_the_utxo_monitor() {
-    let utxo_source = include_str!("../src/presentation/telegram/workers/utxo_monitor.rs");
-    let subscription_source = include_str!("../src/infrastructure/node/subscription.rs");
+fn final_audit_fixes_preserve_contextual_callback_recovery() {
+    let source = include_str!("../src/presentation/telegram/handlers/mod.rs");
 
-    assert!(utxo_source.contains("NodeSubscriptionSupervisor"));
-    assert!(subscription_source.contains("SubscriptionRuntimeState"));
-}
-
-#[test]
-fn subscription_supervisor_restores_fallback_after_internal_failure() {
-    let subscription_source = include_str!("../src/infrastructure/node/subscription.rs");
-
-    assert!(subscription_source.contains("supervisor_restarts_failed_session_and_keeps_polling_fallback_active"));
+    assert!(source.contains("enum CallbackRecoveryMenu"));
+    assert!(source.contains("restore_contextual_callback_menu"));
+    assert!(source.contains("CallbackRecoveryMenu::Wallet"));
+    assert!(source.contains("callback_recovery_menu(data, callback_is_admin)"));
 }
 
 #[test]
 fn successful_scan_freshness_is_not_advanced_after_wallet_failures() {
-    let utxo_source = include_str!("../src/presentation/telegram/workers/utxo_monitor.rs");
+    let source = include_str!("../src/presentation/telegram/workers/utxo_monitor.rs");
 
-    assert!(utxo_source.contains("successful_scan_requires_every_wallet_task_to_succeed"));
+    assert!(source.contains("all_wallet_scan_tasks_succeeded"));
+    assert!(source.contains("wallet_scan_outcomes.push(false)"));
+    assert!(source.contains("successful-scan freshness was not advanced"));
+    assert!(!source.contains("while join_set.join_next().await.is_some() {}"));
 }
 
 #[test]
-fn repository_contains_expected_runtime_files() {
-    for path in [
-        "src/infrastructure/observability.rs",
-        "src/infrastructure/metrics.rs",
-        "src/infrastructure/node/subscription.rs",
-    ] {
-        assert!(fs::metadata(path).is_ok(), "missing {path}");
-    }
+fn final_audit_followup_preserves_accurate_deletion_recovery() {
+    let handler_source = include_str!("../src/presentation/telegram/handlers/mod.rs");
+    let wallet_source = include_str!("../src/presentation/telegram/handlers/wallet.rs");
+
+    let forget_command = handler_source
+        .split("Command::Forget | Command::ForgetAll =>")
+        .nth(1)
+        .and_then(|source| source.split("Command::ForgetWallets =>").next())
+        .expect("forget command branch missing");
+    assert!(forget_command.contains("admin_confirm::send_command_confirmation"));
+    assert!(forget_command.contains("SensitiveAction::ForgetAll"));
+
+    let forget_wallets_command = handler_source
+        .split("Command::ForgetWallets =>")
+        .nth(1)
+        .and_then(|source| source.split("Command::HideMenu =>").next())
+        .expect("forget-wallets command branch missing");
+    assert!(forget_wallets_command.contains("admin_confirm::send_command_confirmation"));
+    assert!(forget_wallets_command.contains("SensitiveAction::ClearWallets"));
+    assert!(!handler_source.contains("async fn send_confirm_delete_all"));
+    assert!(!handler_source.contains("async fn send_confirm_clear_wallets"));
+
+    let forget_all_execution = handler_source
+        .rsplit("if data == \"do_forget_all\"")
+        .next()
+        .and_then(|source| source.split("if data == \"cmd_add_wallet\"").next())
+        .expect("forget-all execution branch missing");
+    assert!(forget_all_execution.contains("restore_contextual_callback_menu"));
+    assert!(!forget_all_execution.contains("restore_wallet_callback_menu"));
+
+    let remove_handler = wallet_source
+        .split("pub async fn handle_wallet_remove_do")
+        .nth(1)
+        .and_then(|source| source.split("pub fn wallet_buttons_markup").next())
+        .expect("wallet remove handler missing");
+    assert!(remove_handler.contains("wallet_mgt.remove_wallet(address, cid).await?"));
+    assert!(remove_handler.contains("restore_wallet_removal_state"));
+    assert!(!remove_handler.contains(".edit_message_text"));
+}
+
+#[test]
+fn final_scan_freshness_includes_nested_processing_failures() {
+    let use_case_source = include_str!("../src/wallet/wallet_use_cases.rs");
+    let worker_source = include_str!("../src/presentation/telegram/workers/utxo_monitor.rs");
+
+    assert!(use_case_source.contains("pub struct WalletUtxoScanResult"));
+    assert!(use_case_source.contains("completed_without_errors: bool"));
+    assert!(use_case_source.contains("return (None, false);"));
+    assert!(use_case_source.contains("Reward analysis task failed to join"));
+    assert!(worker_source.contains("scan_result.completed_without_errors"));
+    assert!(worker_source.contains("for event in scan_result.events"));
+}
+
+#[test]
+fn rpc_outage_events_use_matching_sql_bind_parameters() {
+    let source = include_str!("../src/infrastructure/external_services/system.rs");
+
+    assert!(
+        source.contains("VALUES ($1, $2, 'node_unreachable', 'RPC connection lost', $3::jsonb)")
+    );
+    assert!(source.contains("VALUES ($1, $2, 'recovered', $3::jsonb)"));
+    assert!(source.contains("Failed to record RPC outage event"));
+    assert!(source.contains("Failed to record RPC recovery event"));
+    assert!(!source.contains(
+        "VALUES ('RPC_ERROR', 'error', 'node_unreachable', 'RPC connection lost', $1::jsonb)"
+    ));
+    assert!(!source.contains("VALUES ('RPC_RECOVERED', 'info', 'recovered', $1::jsonb)"));
 }
