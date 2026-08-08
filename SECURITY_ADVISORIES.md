@@ -24,6 +24,16 @@ Last automated review: **2026-08-08**
 
 ---
 
+## Scorecard / OSV aggregation note
+
+OpenSSF Scorecard currently groups eight RustSec records in this dependency graph under its broad `Vulnerabilities` check. That aggregate must not be interpreted as eight equivalent exploitable runtime vulnerabilities.
+
+Seven of the eight records are RustSec `INFO Unmaintained` notices: `RUSTSEC-2025-0052`, `RUSTSEC-2024-0375`, `RUSTSEC-2024-0388`, `RUSTSEC-2024-0384`, `RUSTSEC-2024-0436`, `RUSTSEC-2024-0370`, and `RUSTSEC-2026-0173`. `RUSTSEC-2021-0145` is `INFO Unsound`, affects `atty` on Windows, has no patched release, and is retained only through an upstream/transitive path. Production container validation remains Linux-based.
+
+These records remain visible and monitored; they are not represented as a zero-advisory state. No additional ignore is added merely to improve an OpenSSF Scorecard number.
+
+---
+
 ## Current managed findings
 
 ### RUSTSEC-2024-0388 — `derivative` unmaintained
@@ -78,7 +88,7 @@ Action: track `rusty-kaspa` updates and remove the exception once upstream no lo
 
 Status: upstream/transitive exceptions.
 
-Kaspa Pulse does not directly depend on `atty`.
+Kaspa Pulse does not directly depend on `atty`. `RUSTSEC-2021-0145` is an informational unsoundness advisory specific to Windows and has no patched `atty` release; production container validation is Linux-based.
 
 Action: remove these exceptions when the upstream dependency chain is updated.
 

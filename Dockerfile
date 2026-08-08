@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
-FROM rust:1.97.1-slim-trixie AS builder
+# Keep the human-readable tag for Dependabot while pinning the immutable image digest.
+FROM rust:1.97.1-slim-trixie@sha256:3b2879047d42784ca9403ad20c51ed3df361a50f1df96f5777d39b4e33aa65cd AS builder
 
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends pkg-config libssl-dev ca-certificates \
@@ -20,7 +21,7 @@ ENV SQLX_OFFLINE=true
 RUN touch src/main.rs \
     && cargo build --locked --release --all-features
 
-FROM debian:trixie-slim AS runtime
+FROM debian:trixie-slim@sha256:3a39a0592364683e6bab97937b72cad5a8fa6dcbbee90edb3bb48c7f8e94f258 AS runtime
 
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends ca-certificates \
