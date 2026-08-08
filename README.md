@@ -240,9 +240,12 @@ Additional controls:
 - Normal CI checkout does not persist repository credentials.
 - Git dependencies are allow-listed in `deny.toml`.
 - `rusty-kaspa` is pinned to an explicit release tag rather than a floating branch.
-- Dependabot checks Cargo, GitHub Actions, and Docker dependencies on staggered weekly schedules and groups compatible updates.
+- Dependabot checks Cargo, GitHub Actions, Docker, Rust toolchain, and Compose dependencies on staggered weekly schedules.
 - The scheduled `rusty-kaspa` updater validates changes before publishing an update branch/PR.
 - Accepted upstream/transitive RustSec exceptions are documented in `SECURITY_ADVISORIES.md`; they are not silently hidden.
+- Releases include a CycloneDX SBOM, SHA-256 checksum, Sigstore bundles, and SLSA/in-toto provenance.
+- [SUPPLY_CHAIN.md](SUPPLY_CHAIN.md) documents fail-closed verification of release provenance.
+- [security-insights.yml](security-insights.yml) publishes the repository's OpenSSF Security Insights posture in a machine-readable format.
 
 ---
 
@@ -250,7 +253,7 @@ Additional controls:
 
 Read [SECURITY.md](SECURITY.md) before reporting a vulnerability. Submit unpatched vulnerabilities privately through GitHub's repository Security Advisories / **Report a vulnerability** flow rather than a public issue.
 
-See [SECURITY_ADVISORIES.md](SECURITY_ADVISORIES.md) for documented upstream/transitive exceptions and their review policy.
+See [SECURITY_ADVISORIES.md](SECURITY_ADVISORIES.md) for documented upstream/transitive exceptions and their review policy, and [SUPPLY_CHAIN.md](SUPPLY_CHAIN.md) for signed-release verification.
 
 ---
 
