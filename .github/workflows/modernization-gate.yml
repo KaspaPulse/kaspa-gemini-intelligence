@@ -6,6 +6,7 @@ on:
       - agent/modernize-2026
     paths:
       - Cargo.toml
+      - Cargo.lock
       - rust-toolchain.toml
       - Dockerfile
       - src/**
@@ -34,13 +35,13 @@ env:
   DATABASE_ADMIN_URL: "postgres://postgres:POSTGRES_TEST_PASSWORD@127.0.0.1:5432/kaspa_dev?sslmode=disable"
   WEBHOOK_SECRET_TOKEN: "TEST_WEBHOOK_SECRET_TOKEN_PLACEHOLDER_32_CHARS"
   USE_WEBHOOK: "false"
-  WEBHOOK_DOMAIN: "example.invalid"
+  WEBHOOK_DOMAIN: example.invalid
   WEBHOOK_PORT: "8443"
-  WEBHOOK_BIND: "127.0.0.1"
+  WEBHOOK_BIND: 127.0.0.1
   WEBHOOK_MAX_CONNECTIONS: "20"
   WEBHOOK_ALLOW_PUBLIC_BIND: "false"
   HEALTH_ENDPOINT_ENABLED: "true"
-  HEALTH_BIND: "127.0.0.1"
+  HEALTH_BIND: 127.0.0.1
   HEALTH_PORT: "18080"
   HEALTH_ALLOW_PUBLIC_BIND: "false"
   ENABLE_TELEGRAM_DELIVERY_QUEUE: "true"
@@ -56,7 +57,7 @@ env:
 
 jobs:
   gate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
 
     services:
@@ -90,6 +91,45 @@ jobs:
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: Apply major-version API migrations
+        shell: python
+        run: |
+          from pathlib import Path
+
+          cargo = Path("Cargo.toml")
+          text = cargo.read_text()
+          text = text.replace(
+              'reqwest = { version = "0.13", features = ["json", "multipart", "rustls"] }',
+              'reqwest = { version = "0.13", features = ["json", "multipart", "query", "rustls"] }',
+          )
+          cargo.write_text(text)
+
+          admin_confirm = Path("src/presentation/telegram/handlers/admin_confirm.rs")
+          text = admin_confirm.read_text()
+          text = text.replace(
+              'use rand::RngCore;\nuse rand::rngs::OsRng;',
+              'use rand::TryRng;\nuse rand::rngs::SysRng;',
+          )
+          text = text.replace(
+              '''fn generate_nonce() -> String {\n    let mut bytes = [0u8; NONCE_BYTES];\n    let mut rng = OsRng;\n    rng.fill_bytes(&mut bytes);\n    encode_hex(&bytes)\n}''',
+              '''fn generate_nonce() -> anyhow::Result<String> {\n    let mut bytes = [0u8; NONCE_BYTES];\n    SysRng\n        .try_fill_bytes(&mut bytes)\n        .map_err(|error| anyhow::anyhow!("failed to generate secure confirmation nonce: {error}"))?;\n    Ok(encode_hex(&bytes))\n}''',
+          )
+          text = text.replace('let nonce = generate_nonce();', 'let nonce = generate_nonce()?;')
+          text = text.replace('let nonce = generate_nonce();\n        assert_eq!', 'let nonce = generate_nonce().expect("system RNG should be available");\n        assert_eq!')
+          admin_confirm.write_text(text)
+
+          handlers = Path("src/presentation/telegram/handlers/mod.rs")
+          text = handlers.read_text()
+          text = text.replace(
+              'let mut message = message.clone();\n                message.from = Some(q.from.clone());',
+              'let mut message = (**message).clone();\n                message.from = Some(q.from.clone());',
+          )
+          text = text.replace(
+              'if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(mut message)) = q.message {\n            message.from = Some(q.from.clone());\n            handle_command(bot, message, command, ucs, app_context).await?;',
+              'if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) = q.message {\n            let mut message = *message;\n            message.from = Some(q.from.clone());\n            handle_command(bot, message, command, ucs, app_context).await?;',
+          )
+          handlers.write_text(text)
 
       - name: Refresh compatible dependency graph
         run: cargo update
@@ -126,37 +166,47 @@ jobs:
           tool: cargo-audit,cargo-deny
 
       - name: Cargo check
+        id: cargo_check
         run: cargo check --all-targets --all-features
 
-      - name: Clippy strict
-        run: cargo clippy --all-targets --all-features -- -D warnings
-
-      - name: Tests
-        run: cargo test --all-targets --all-features
-
-      - name: Release build
-        run: cargo build --release --all-features
-
-      - name: Cargo audit
-        run: cargo audit
-
-      - name: Cargo deny
-        run: cargo deny check
-
-      - name: Docker build
-        run: docker build --pull --tag kaspa-pulse:modernization-test .
-
-      - name: Verify generated diff
-        run: git diff --check
-
-      - name: Commit generated lockfile and formatting
+      - name: Persist migration and dependency state
+        if: always()
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -u
+          git add Cargo.toml Cargo.lock src tests
           if git diff --cached --quiet; then
-            echo "No generated changes to commit."
+            echo "No modernization changes to persist."
             exit 0
           fi
-          git commit -m "chore: refresh generated dependency state"
+          git diff --cached --check
+          git commit -m "chore: apply major dependency API migrations"
           git push origin HEAD:agent/modernize-2026
+
+      - name: Clippy strict
+        if: success()
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Tests
+        if: success()
+        run: cargo test --all-targets --all-features
+
+      - name: Release build
+        if: success()
+        run: cargo build --release --all-features
+
+      - name: Cargo audit
+        if: success()
+        run: cargo audit
+
+      - name: Cargo deny
+        if: success()
+        run: cargo deny check
+
+      - name: Docker build
+        if: success()
+        run: docker build --pull --tag kaspa-pulse:modernization-test .
+
+      - name: Verify generated diff
+        if: success()
+        run: git diff --check
