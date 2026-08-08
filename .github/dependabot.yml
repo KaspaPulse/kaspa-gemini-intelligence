@@ -2,7 +2,9 @@ version: 2
 
 updates:
   - package-ecosystem: cargo
-    directory: "/"
+    directories:
+      - "/"
+      - "/fuzz"
     schedule:
       interval: weekly
       day: monday
@@ -16,6 +18,7 @@ updates:
         update-types:
           - minor
           - patch
+        group-by: dependency-name
 
   - package-ecosystem: github-actions
     directory: "/"
