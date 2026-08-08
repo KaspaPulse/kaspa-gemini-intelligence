@@ -9,6 +9,8 @@ This file records intentionally accepted or currently unavoidable RustSec findin
 - Remove an exception as soon as the upstream dependency path no longer requires it.
 - Re-review the dependency graph whenever Rust, `rusty-kaspa`, SQLx, Teloxide, Reqwest, Axum, Rustls, or other security-sensitive dependencies change.
 - CI rejects ignored RustSec IDs that are not documented here and rejects a review date older than 45 days.
+- OSV exceptions must be advisory-ID-specific, include a concrete reason, and expire within 45 days; package-wide or ecosystem-wide vulnerability suppression is not permitted.
+- A passing OSV scan never replaces the independent `cargo audit` and `cargo deny` gates.
 
 Current CI security gates:
 
@@ -22,6 +24,8 @@ cargo clippy --locked --all-targets --all-features -- -D warnings
 cargo test --locked --all-targets --all-features
 ```
 
+The security workflow also runs the SHA-pinned official OSV Scanner reusable workflow against `Cargo.lock` and applies only the reviewed, time-bounded entries in `osv-scanner.toml`.
+
 Last automated review: **2026-08-08**
 
 ---
@@ -32,7 +36,9 @@ OpenSSF Scorecard currently groups eight RustSec records in this dependency grap
 
 Seven of the eight records are RustSec `INFO Unmaintained` notices: `RUSTSEC-2025-0052`, `RUSTSEC-2024-0375`, `RUSTSEC-2024-0388`, `RUSTSEC-2024-0384`, `RUSTSEC-2024-0436`, `RUSTSEC-2024-0370`, and `RUSTSEC-2026-0173`. `RUSTSEC-2021-0145` is `INFO Unsound`, affects `atty` on Windows, has no patched release, and is retained only through an upstream/transitive path. Production container validation remains Linux-based.
 
-These records remain visible and monitored; they are not represented as a zero-advisory state. No additional ignore is added merely to improve an OpenSSF Scorecard number.
+After dependency-path review, these eight records are encoded in `osv-scanner.toml` as narrow advisory-ID exceptions expiring on **2026-09-22**. CI rejects expired, undocumented, duplicate, malformed, or excessively long-lived OSV exceptions. This is not a blanket package/ecosystem override: new advisories remain scannable, and `cargo audit` plus `cargo deny` remain independent security controls.
+
+The purpose of these OSV exceptions is to encode the reviewed non-actionability of specific upstream/transitive findings while preserving an automatic expiry and re-review requirement; they must not be used to hide a locally actionable vulnerability.
 
 ---
 
