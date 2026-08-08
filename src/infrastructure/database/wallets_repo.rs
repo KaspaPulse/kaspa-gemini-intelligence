@@ -179,24 +179,22 @@ impl PostgresRepository {
         &self,
         chat_id: i64,
     ) -> Result<Vec<TrackedWallet>, AppError> {
-        let rows = sqlx::query!(
-            r#"
-            SELECT wallet, chat_id as "chat_id!"
-            FROM user_wallets
-            WHERE chat_id = $1
-            ORDER BY wallet
-            "#,
-            chat_id
+        let rows: Vec<(String, i64)> = sqlx::query_as(
+            "SELECT wallet, chat_id
+             FROM user_wallets
+             WHERE chat_id = $1
+             ORDER BY wallet",
         )
+        .bind(chat_id)
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
         Ok(rows
             .into_iter()
-            .map(|row| TrackedWallet {
-                address: row.wallet,
-                chat_id: row.chat_id,
+            .map(|(address, row_chat_id)| TrackedWallet {
+                address,
+                chat_id: row_chat_id,
             })
             .collect())
     }
