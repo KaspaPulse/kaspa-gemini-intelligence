@@ -1,53 +1,53 @@
 name: Rust CI
 
 on:
-  push:
-    branches: [main, dev]
-    paths:
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "rust-toolchain.toml"
-      - "Dockerfile"
-      - ".dockerignore"
-      - "src/**"
-      - "tests/**"
-      - "migrations/**"
-      - "scripts/ci-prepare-postgres.sh"
-      - ".github/workflows/rust-ci.yml"
   pull_request:
     branches: [main, dev]
     paths:
+      - "src/**"
+      - "tests/**"
+      - "migrations/**"
+      - "scripts/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain.toml"
       - "Dockerfile"
-      - ".dockerignore"
+      - "docker-compose*.yml"
+      - ".github/workflows/rust-ci.yml"
+  push:
+    branches: [main, dev]
+    paths:
       - "src/**"
       - "tests/**"
       - "migrations/**"
-      - "scripts/ci-prepare-postgres.sh"
+      - "scripts/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "Dockerfile"
+      - "docker-compose*.yml"
       - ".github/workflows/rust-ci.yml"
   workflow_dispatch:
-
-permissions:
-  contents: read
 
 concurrency:
   group: rust-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
-  SQLX_OFFLINE: "true"
-  CARGO_INCREMENTAL: "0"
-  APP_ENV: "ci"
-  RUST_LOG: "info"
-  ENABLE_VERBOSE_LOGS: "false"
+  SQLX_OFFLINE: true
+  CARGO_INCREMENTAL: 0
+  APP_ENV: ci
+  RUST_LOG: info
+  ENABLE_VERBOSE_LOGS: false
   BOT_TOKEN: "1234567890:TEST_PLACEHOLDER_TOKEN_NOT_REAL"
   ADMIN_ID: "484901117"
   NODE_URL_01: "wss://example.invalid/json"
-  DATABASE_URL: "postgres://kaspa_pulse_app:TEST_PASSWORD@127.0.0.1:5432/kaspa_dev?sslmode=disable"
-  DATABASE_ADMIN_URL: "postgres://postgres:POSTGRES_TEST_PASSWORD@127.0.0.1:5432/kaspa_dev?sslmode=disable"
+  DATABASE_URL: "postgresql://kaspa_ci_runtime:KASPA_CI_RUNTIME_PASSWORD@127.0.0.1:5432/kaspa_dev?sslmode=disable"
+  DATABASE_ADMIN_URL: "postgresql://postgres:POSTGRES_TEST_PASSWORD@127.0.0.1:5432/kaspa_dev?sslmode=disable"
   WEBHOOK_SECRET_TOKEN: "TEST_WEBHOOK_SECRET_TOKEN_PLACEHOLDER_32_CHARS"
   USE_WEBHOOK: "false"
   WEBHOOK_DOMAIN: "example.invalid"
@@ -75,7 +75,6 @@ jobs:
     name: fmt + check + clippy + test + release + docker
     runs-on: ubuntu-24.04
     timeout-minutes: 45
-
     services:
       postgres:
         image: postgres:16
@@ -83,13 +82,13 @@ jobs:
           POSTGRES_DB: kaspa_dev
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: POSTGRES_TEST_PASSWORD
-        ports:
-          - 5432:5432
         options: >-
           --health-cmd "pg_isready -U postgres -d kaspa_dev"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
+        ports:
+          - 5432:5432
 
     steps:
       - name: Checkout repository
@@ -132,7 +131,30 @@ jobs:
         run: cargo test --locked --all-targets --all-features
 
       - name: Build production release
+        if: >-
+          github.event_name == 'workflow_dispatch' ||
+          github.event_name == 'push' ||
+          github.event_name == 'pull_request'
         run: cargo build --locked --release --all-features
 
       - name: Build production container
+        if: >-
+          github.event_name == 'workflow_dispatch' ||
+          github.event_name == 'push' ||
+          github.event_name == 'pull_request'
         run: docker build --pull --tag kaspa-pulse:ci .
+
+      - name: Smoke-test production container
+        if: >-
+          github.event_name == 'workflow_dispatch' ||
+          github.event_name == 'push' ||
+          github.event_name == 'pull_request'
+        run: |
+          docker run --rm --entrypoint /bin/sh kaspa-pulse:ci -c '
+            test "$(id -u)" = "10001"
+            test -x /usr/local/bin/kaspa-pulse
+            touch /var/lib/kaspa-pulse/.write-test
+          '
+          output="$(docker run --rm kaspa-pulse:ci 2>&1 || true)"
+          printf '%s\n' "$output"
+          grep -F "DATABASE_URL must be set" <<< "$output"
