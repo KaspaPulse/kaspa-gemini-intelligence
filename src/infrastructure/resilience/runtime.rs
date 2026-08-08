@@ -1,7 +1,9 @@
 use crate::domain::errors::AppError;
 use std::future::Future;
+use std::sync::OnceLock;
 use tokio::task::JoinHandle;
 use tokio::time::{Duration, timeout};
+use tokio_util::task::TaskTracker;
 
 pub fn env_u64(key: &str, default_value: u64) -> u64 {
     std::env::var(key)
@@ -53,6 +55,18 @@ where
     }
 }
 
+fn task_tracker() -> &'static TaskTracker {
+    static TRACKER: OnceLock<TaskTracker> = OnceLock::new();
+    TRACKER.get_or_init(TaskTracker::new)
+}
+
+pub async fn drain_tracked_tasks(duration: Duration) -> bool {
+    let tracker = task_tracker();
+    tracker.close();
+
+    timeout(duration, tracker.wait()).await.is_ok()
+}
+
 pub fn spawn_resilient<F>(task_name: &'static str, future: F) -> JoinHandle<()>
 where
     F: Future<Output = ()> + Send + 'static,
@@ -63,7 +77,7 @@ where
         tracing::info!("[TASK STOP] {} finished normally", task_name);
     });
 
-    tokio::spawn(async move {
+    task_tracker().spawn(async move {
         match worker.await {
             Ok(_) => {
                 tracing::info!("[TASK MONITOR] {} joined cleanly", task_name);
@@ -82,4 +96,18 @@ where
             }
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn tracked_task_drain_waits_for_task_completion() {
+        spawn_resilient("task_tracker_test", async {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        });
+
+        assert!(drain_tracked_tasks(Duration::from_secs(1)).await);
+    }
 }
