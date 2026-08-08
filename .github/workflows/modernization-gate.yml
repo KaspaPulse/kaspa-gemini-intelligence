@@ -77,7 +77,7 @@ jobs:
 
     steps:
       - name: Checkout modernization branch
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e307fa77bcc1a760be07e9a9fcad76f2e4 # v7.0.1
         with:
           ref: agent/modernize-2026
           fetch-depth: 0
@@ -116,7 +116,10 @@ jobs:
               '''fn generate_nonce() -> anyhow::Result<String> {\n    let mut bytes = [0u8; NONCE_BYTES];\n    SysRng\n        .try_fill_bytes(&mut bytes)\n        .map_err(|error| anyhow::anyhow!("failed to generate secure confirmation nonce: {error}"))?;\n    Ok(encode_hex(&bytes))\n}''',
           )
           text = text.replace('let nonce = generate_nonce();', 'let nonce = generate_nonce()?;')
-          text = text.replace('let nonce = generate_nonce();\n        assert_eq!', 'let nonce = generate_nonce().expect("system RNG should be available");\n        assert_eq!')
+          text = text.replace(
+              '''fn generated_nonce_is_128_bit_lower_hex() {\n        let nonce = generate_nonce()?;''',
+              '''fn generated_nonce_is_128_bit_lower_hex() {\n        let nonce = generate_nonce().expect("system RNG should be available");''',
+          )
           admin_confirm.write_text(text)
 
           handlers = Path("src/presentation/telegram/handlers/mod.rs")
