@@ -23,7 +23,7 @@ project:
     contact:
       name: "KaspaPulse Security"
       primary: true
-      social: "https://github.com/KaspaPulse/kaspa-telegram-notify/security/advisories/new"
+      social: "https://github.com/KaspaPulse"
     in-scope:
       - "Kaspa Pulse source code and release artifacts"
       - "Authentication, database, network, Telegram, and Kaspa RPC security issues"
@@ -44,6 +44,8 @@ repository:
   status: "active"
   accepts-change-request: true
   accepts-automated-change-request: true
+  bug-fixes-only: false
+  no-third-party-packages: false
   core-team:
     - name: "KaspaPulse"
       primary: true
@@ -58,6 +60,7 @@ repository:
     security-policy: "https://github.com/KaspaPulse/kaspa-telegram-notify/blob/main/SECURITY.md"
   release:
     automated-pipeline: true
+    changelog: "https://github.com/KaspaPulse/kaspa-telegram-notify/releases/tag/v{version}"
     distribution-points:
       - uri: "https://github.com/KaspaPulse/kaspa-telegram-notify/releases"
         comment: "Canonical signed GitHub Releases."
@@ -67,7 +70,12 @@ repository:
         predicate-uri: "https://slsa.dev/provenance/v1"
         comment: "Cryptographically signed provenance for the v1.2.0 Linux x86_64 release archive."
   security:
-    assessments: {}
+    assessments:
+      self:
+        name: "Kaspa Pulse security posture review"
+        date: "2026-08-08"
+        evidence: "https://github.com/KaspaPulse/kaspa-telegram-notify/actions/runs/31278117325"
+        comment: "Maintainer review backed by the current OpenSSF Scorecard run, signed release evidence, CodeQL, dependency scanning, fuzzing, and protected pull-request CI."
     champions:
       - name: "KaspaPulse"
         primary: true
