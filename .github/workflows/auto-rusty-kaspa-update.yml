@@ -96,7 +96,7 @@ jobs:
         run: bash scripts/ci-prepare-postgres.sh
 
       - name: Install validation tools
-        uses: taiki-e/install-action@13608cbb45b01feb47ef444ab1a42dc41ad56f1a # v2.79.11
+        uses: taiki-e/install-action@6c6fd71fe4fb72c3697d269963d0e15df8adedad # v2.85.10
         with:
           tool: cargo-audit,cargo-deny
           fallback: none
