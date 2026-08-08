@@ -1,9 +1,12 @@
+use kaspa_pulse::domain::entities::TrackedWallet;
 use kaspa_pulse::domain::errors::AppError;
+use kaspa_pulse::infrastructure::database::postgres_adapter::PostgresRepository;
 use kaspa_pulse::infrastructure::telegram_delivery_queue::{
     mark_failed, mark_sent, parse_max_delivery_attempts,
 };
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
+use std::sync::Arc;
 use std::time::Duration;
 
 async fn test_pool() -> PgPool {
@@ -11,7 +14,7 @@ async fn test_pool() -> PgPool {
         std::env::var("DATABASE_URL").expect("DATABASE_URL is required for database tests");
 
     PgPoolOptions::new()
-        .max_connections(5)
+        .max_connections(25)
         .acquire_timeout(Duration::from_secs(5))
         .connect(&database_url)
         .await
@@ -34,6 +37,60 @@ fn wallet_repository_does_not_hide_lookup_or_quota_errors() {
     assert!(source.contains("fetch_one(&mut *transaction)"));
     assert!(source.contains("execute(&mut *transaction)"));
     assert!(source.contains("transaction\n            .commit()"));
+}
+
+#[tokio::test]
+async fn concurrent_wallet_additions_cannot_exceed_per_user_limit() {
+    let pool = test_pool().await;
+    let repository = Arc::new(PostgresRepository::new(pool.clone()));
+    let chat_id = -9_024_000_001_i64;
+    let limit = kaspa_pulse::utils::max_wallets_per_user();
+
+    assert!(limit > 0);
+    assert!(
+        limit <= 100,
+        "concurrency regression test expects a bounded MAX_WALLETS_PER_USER"
+    );
+
+    sqlx::query("DELETE FROM user_wallets WHERE chat_id = $1")
+        .bind(chat_id)
+        .execute(&pool)
+        .await
+        .expect("test rows must be reset");
+
+    let mut tasks = Vec::new();
+    for index in 0..(limit + 8) {
+        let repository = Arc::clone(&repository);
+        tasks.push(tokio::spawn(async move {
+            repository
+                .add_tracked_wallet(TrackedWallet {
+                    address: format!("kaspa:concurrency-regression-{index}"),
+                    chat_id,
+                })
+                .await
+        }));
+    }
+
+    let mut successful_adds = 0_i64;
+    for task in tasks {
+        if task.await.expect("wallet add task must not panic").is_ok() {
+            successful_adds += 1;
+        }
+    }
+
+    let persisted = repository
+        .count_user_wallets(chat_id)
+        .await
+        .expect("wallet count must remain readable");
+
+    assert_eq!(successful_adds, limit);
+    assert_eq!(persisted, limit);
+
+    sqlx::query("DELETE FROM user_wallets WHERE chat_id = $1")
+        .bind(chat_id)
+        .execute(&pool)
+        .await
+        .expect("test rows must be cleaned up");
 }
 
 #[test]
