@@ -77,7 +77,7 @@ jobs:
 
     steps:
       - name: Checkout modernization branch
-        uses: actions/checkout@3d3c42e307fa77bcc1a760be07e9a9fcad76f2e4 # v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: agent/modernize-2026
           fetch-depth: 0
