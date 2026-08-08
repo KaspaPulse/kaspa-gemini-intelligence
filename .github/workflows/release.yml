@@ -104,7 +104,8 @@ jobs:
         run: |
           set -euo pipefail
           cargo install --locked cargo-cyclonedx --version 0.5.9
-          export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+          SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+          export SOURCE_DATE_EPOCH
           cargo cyclonedx --format json --all-features --target "$TARGET"
           test -s bom.json
 
