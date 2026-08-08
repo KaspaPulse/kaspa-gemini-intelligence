@@ -49,6 +49,7 @@ jobs:
           toolchain: nightly-2026-08-01
           components: rustfmt
 
+      # The official Linux prebuilt is musl-linked; ASan fuzz builds on this GNU runner need a GNU-host cargo-fuzz.
       - name: Install cargo-fuzz 0.13.2 from locked source
         run: cargo +nightly-2026-08-01 install cargo-fuzz --version 0.13.2 --locked
 
