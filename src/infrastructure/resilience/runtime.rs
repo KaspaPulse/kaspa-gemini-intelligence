@@ -1,7 +1,7 @@
 use crate::domain::errors::AppError;
 use std::future::Future;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 use tokio::time::{Duration, timeout};
