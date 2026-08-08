@@ -1,6 +1,7 @@
 use crate::domain::errors::AppError;
 use chrono::{TimeZone, Utc};
 use reqwest::Client;
+use serde_json::Value;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -37,14 +38,12 @@ impl CoinGeckoAdapter {
 #[async_trait]
 impl MarketProvider for CoinGeckoAdapter {
     async fn get_kaspa_market_data(&self) -> Result<(f64, f64), AppError> {
-        // 1. Check cache: Return data if it is younger than 60 seconds to prevent API rate limiting [cite: 1149]
         if let Some((data, timestamp)) = *self.cache.read().await
             && timestamp.elapsed() < Duration::from_secs(60)
         {
             return Ok(data);
         }
 
-        // 2. Fetch API URL from environment or use production default [cite: 1150]
         let url = match std::env::var("COINGECKO_API_URL") {
             Ok(value) if !value.trim().is_empty() => value,
             _ => {
@@ -57,14 +56,13 @@ impl MarketProvider for CoinGeckoAdapter {
                 }
 
                 self.circuit_breaker.record_failure();
-                return Err(crate::domain::errors::AppError::Internal(
+                return Err(AppError::ApiError(
                     "COINGECKO_API_URL is missing and no stale market cache is available"
                         .to_string(),
                 ));
             }
         };
 
-        // 3. Execute request with proper User-Agent [cite: 1151]
         if !self.circuit_breaker.is_allowed() {
             tracing::warn!(
                 "⚡ [API BLOCKED] Circuit Breaker is OPEN. Serving stale cache if available..."
@@ -72,8 +70,8 @@ impl MarketProvider for CoinGeckoAdapter {
             if let Some((data, _)) = *self.cache.read().await {
                 return Ok(data);
             } else {
-                return Err(crate::domain::errors::AppError::Internal(
-                    "Service Unavailable (Circuit Open)".to_string(),
+                return Err(AppError::ApiError(
+                    "CoinGecko service unavailable while circuit breaker is open".to_string(),
                 ));
             }
         }
@@ -81,30 +79,38 @@ impl MarketProvider for CoinGeckoAdapter {
         let res = self
             .client
             .get(&url)
-            .header("User-Agent", "KaspaPulse/1.0")
+            .header("User-Agent", "KaspaPulse/1.2")
             .send()
             .await
             .map_err(|e| {
                 self.circuit_breaker.record_failure();
-                crate::domain::errors::AppError::Internal(e.to_string())
+                AppError::ApiError(format!("CoinGecko request failed: {e}"))
             })?;
 
-        // 4. Parse JSON response [cite: 1152]
-        let json: serde_json::Value = res.json().await.map_err(|e| {
+        let status = res.status();
+        if !status.is_success() {
             self.circuit_breaker.record_failure();
-            crate::domain::errors::AppError::Internal(e.to_string())
+            return Err(AppError::ApiError(format!(
+                "CoinGecko request failed with HTTP status {status}"
+            )));
+        }
+
+        let json: Value = res.json().await.map_err(|e| {
+            self.circuit_breaker.record_failure();
+            AppError::ApiError(format!("CoinGecko response was not valid JSON: {e}"))
+        })?;
+
+        let data = parse_current_market_data(&json).inspect_err(|_| {
+            self.circuit_breaker.record_failure();
         })?;
 
         self.circuit_breaker.record_success();
-        let price = json["kaspa"]["usd"].as_f64().unwrap_or(0.0);
-        let mcap = json["kaspa"]["usd_market_cap"].as_f64().unwrap_or(0.0);
-
-        // 5. Update shared cache with fresh data and current timestamp [cite: 1153]
         let mut cache_write = self.cache.write().await;
-        *cache_write = Some(((price, mcap), Instant::now()));
+        *cache_write = Some((data, Instant::now()));
 
-        Ok((price, mcap))
+        Ok(data)
     }
+
     async fn get_kaspa_usd_history(
         &self,
         from_unix: i64,
@@ -115,8 +121,8 @@ impl MarketProvider for CoinGeckoAdapter {
         }
 
         if !self.circuit_breaker.is_allowed() {
-            return Err(crate::domain::errors::AppError::Internal(
-                "Service Unavailable (Circuit Open)".to_string(),
+            return Err(AppError::ApiError(
+                "CoinGecko service unavailable while circuit breaker is open".to_string(),
             ));
         }
 
@@ -135,25 +141,27 @@ impl MarketProvider for CoinGeckoAdapter {
                 ("from", from.as_str()),
                 ("to", to.as_str()),
             ])
-            .header("User-Agent", "KaspaPulse/1.0")
+            .header("User-Agent", "KaspaPulse/1.2")
             .send()
             .await
             .map_err(|e| {
                 self.circuit_breaker.record_failure();
-                crate::domain::errors::AppError::Internal(e.to_string())
+                AppError::ApiError(format!("CoinGecko history request failed: {e}"))
             })?;
 
         let status = res.status();
         if !status.is_success() {
             self.circuit_breaker.record_failure();
-            return Err(crate::domain::errors::AppError::Internal(format!(
+            return Err(AppError::ApiError(format!(
                 "CoinGecko history request failed with status {status}"
             )));
         }
 
-        let json: serde_json::Value = res.json().await.map_err(|e| {
+        let json: Value = res.json().await.map_err(|e| {
             self.circuit_breaker.record_failure();
-            crate::domain::errors::AppError::Internal(e.to_string())
+            AppError::ApiError(format!(
+                "CoinGecko history response was not valid JSON: {e}"
+            ))
         })?;
 
         let prices = json
@@ -161,9 +169,7 @@ impl MarketProvider for CoinGeckoAdapter {
             .and_then(|value| value.as_array())
             .ok_or_else(|| {
                 self.circuit_breaker.record_failure();
-                crate::domain::errors::AppError::Internal(
-                    "CoinGecko history response missing prices".to_string(),
-                )
+                AppError::ApiError("CoinGecko history response missing prices".to_string())
             })?;
 
         let mut by_day: BTreeMap<String, f64> = BTreeMap::new();
@@ -196,7 +202,7 @@ impl MarketProvider for CoinGeckoAdapter {
 
         if by_day.is_empty() {
             self.circuit_breaker.record_failure();
-            return Err(crate::domain::errors::AppError::Internal(
+            return Err(AppError::ApiError(
                 "CoinGecko history response did not contain usable daily prices".to_string(),
             ));
         }
@@ -207,7 +213,30 @@ impl MarketProvider for CoinGeckoAdapter {
     }
 }
 
-// --- Merged Trait (Formerly in ports) ---
+fn parse_current_market_data(json: &Value) -> Result<MarketData, AppError> {
+    let price = json
+        .pointer("/kaspa/usd")
+        .and_then(Value::as_f64)
+        .filter(|value| value.is_finite() && *value > 0.0)
+        .ok_or_else(|| {
+            AppError::ApiError(
+                "CoinGecko response missing a finite positive kaspa.usd value".to_string(),
+            )
+        })?;
+
+    let market_cap = json
+        .pointer("/kaspa/usd_market_cap")
+        .and_then(Value::as_f64)
+        .filter(|value| value.is_finite() && *value > 0.0)
+        .ok_or_else(|| {
+            AppError::ApiError(
+                "CoinGecko response missing a finite positive kaspa.usd_market_cap value"
+                    .to_string(),
+            )
+        })?;
+
+    Ok((price, market_cap))
+}
 
 use async_trait::async_trait;
 
@@ -223,18 +252,52 @@ pub trait MarketProvider: Send + Sync {
         to_unix: i64,
     ) -> Result<Vec<(String, f64)>, AppError>;
 }
+
 fn build_http_client() -> Client {
     Client::builder()
-        .timeout(Duration::from_secs(env_u64("HTTP_TIMEOUT_SECS", 10)))
-        .connect_timeout(Duration::from_secs(env_u64("HTTP_CONNECT_TIMEOUT_SECS", 5)))
+        .timeout(Duration::from_secs(
+            crate::infrastructure::resilience::runtime::env_u64("HTTP_TIMEOUT_SECS", 10),
+        ))
+        .connect_timeout(Duration::from_secs(
+            crate::infrastructure::resilience::runtime::env_u64("HTTP_CONNECT_TIMEOUT_SECS", 5),
+        ))
         .user_agent("KaspaPulse/1.2")
         .build()
         .expect("failed to build HTTP client")
 }
 
-fn env_u64(key: &str, default_value: u64) -> u64 {
-    std::env::var(key)
-        .ok()
-        .and_then(|value| value.parse::<u64>().ok())
-        .unwrap_or(default_value)
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn parses_valid_current_market_data() {
+        let data = parse_current_market_data(&json!({
+            "kaspa": {
+                "usd": 0.1234,
+                "usd_market_cap": 3_500_000_000.0
+            }
+        }))
+        .expect("valid market response");
+
+        assert_eq!(data, (0.1234, 3_500_000_000.0));
+    }
+
+    #[test]
+    fn rejects_missing_or_non_positive_current_market_data() {
+        assert!(parse_current_market_data(&json!({"kaspa": {}})).is_err());
+        assert!(
+            parse_current_market_data(&json!({
+                "kaspa": {"usd": 0.0, "usd_market_cap": 3_500_000_000.0}
+            }))
+            .is_err()
+        );
+        assert!(
+            parse_current_market_data(&json!({
+                "kaspa": {"usd": 0.1234, "usd_market_cap": -1.0}
+            }))
+            .is_err()
+        );
+    }
 }
