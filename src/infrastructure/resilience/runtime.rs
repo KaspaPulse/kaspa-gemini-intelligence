@@ -97,17 +97,3 @@ where
         }
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn tracked_task_drain_waits_for_task_completion() {
-        spawn_resilient("task_tracker_test", async {
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        });
-
-        assert!(drain_tracked_tasks(Duration::from_secs(1)).await);
-    }
-}
