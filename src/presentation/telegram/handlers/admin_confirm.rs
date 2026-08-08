@@ -1,8 +1,8 @@
 use crate::domain::models::{AppContext, ConfirmationSession, RequestIdentity, SensitiveAction};
 use dashmap::DashMap;
 use dashmap::mapref::entry::Entry;
-use rand::RngCore;
-use rand::rngs::OsRng;
+use rand::TryRng;
+use rand::rngs::SysRng;
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -77,11 +77,12 @@ fn nonce_hash(nonce: &str) -> Result<String, String> {
     Ok(encode_hex(&Sha256::digest(nonce.as_bytes())))
 }
 
-fn generate_nonce() -> String {
+fn generate_nonce() -> anyhow::Result<String> {
     let mut bytes = [0u8; NONCE_BYTES];
-    let mut rng = OsRng;
-    rng.fill_bytes(&mut bytes);
-    encode_hex(&bytes)
+    SysRng.try_fill_bytes(&mut bytes).map_err(|error| {
+        anyhow::anyhow!("failed to generate secure confirmation nonce: {error}")
+    })?;
+    Ok(encode_hex(&bytes))
 }
 
 fn register_confirmation(
@@ -158,7 +159,7 @@ pub async fn send_command_confirmation(
         anyhow::bail!("Admin actions are allowed only in the configured private admin chat.");
     }
 
-    let nonce = generate_nonce();
+    let nonce = generate_nonce()?;
     let confirmation_message = bot
         .send_message(
             teloxide::types::ChatId(identity.chat_id),
@@ -186,7 +187,7 @@ pub async fn edit_callback_confirmation(
     identity: RequestIdentity,
     action: SensitiveAction,
 ) -> anyhow::Result<()> {
-    let nonce = generate_nonce();
+    let nonce = generate_nonce()?;
     register_confirmation(ctx, identity, action, &nonce).map_err(anyhow::Error::msg)?;
 
     let result = bot
@@ -367,7 +368,7 @@ mod tests {
 
     #[test]
     fn generated_nonce_is_128_bit_lower_hex() {
-        let nonce = generate_nonce();
+        let nonce = generate_nonce()?;
         assert_eq!(nonce.len(), 32);
         assert!(nonce.bytes().all(|value| value.is_ascii_hexdigit()));
     }

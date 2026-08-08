@@ -946,7 +946,7 @@ pub async fn handle_callback(
             if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) =
                 q.message.as_ref()
             {
-                let mut message = message.clone();
+                let mut message = (**message).clone();
                 message.from = Some(q.from.clone());
 
                 match data.as_str() {
@@ -1591,7 +1591,8 @@ pub async fn handle_callback(
             .text("Processing...")
             .await;
 
-        if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(mut message)) = q.message {
+        if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) = q.message {
+            let mut message = *message;
             message.from = Some(q.from.clone());
             handle_command(bot, message, command, ucs, app_context).await?;
         } else {
