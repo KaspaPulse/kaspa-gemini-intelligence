@@ -49,8 +49,11 @@ jobs:
           toolchain: nightly-2026-08-01
           components: rustfmt
 
-      - name: Install cargo-fuzz 0.13.2 from locked source
-        run: cargo +nightly-2026-08-01 install cargo-fuzz --version 0.13.2 --locked
+      - name: Install cargo-fuzz 0.13.2
+        uses: taiki-e/install-action@6c6fd71fe4fb72c3697d269963d0e15df8adedad # v2.85.10
+        with:
+          tool: cargo-fuzz@0.13.2
+          fallback: none
 
       - name: Check fuzz target formatting
         run: cargo +nightly-2026-08-01 fmt --manifest-path fuzz/Cargo.toml -- --check
