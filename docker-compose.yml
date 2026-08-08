@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   kaspa-pulse-engine:
     build:
@@ -7,10 +5,16 @@ services:
       dockerfile: Dockerfile
     container_name: kaspa_enterprise_bot
     restart: unless-stopped
+    init: true
     env_file:
       - .env
     ports:
-      - "${WEBHOOK_PORT:-8443}:${WEBHOOK_PORT:-8443}" # Exposes the webhook port dynamically
+      - "127.0.0.1:${WEBHOOK_PORT:-8443}:${WEBHOOK_PORT:-8443}"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 30s
     logging:
       driver: "json-file"
       options:

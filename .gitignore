@@ -1,78 +1,39 @@
-# ==============================================================================
 # Secrets and local environment
-# ==============================================================================
 .env
 .env.*
 !.env.example
 
-# ==============================================================================
 # Rust build output
-# ==============================================================================
 target/
+**/*.rs.bk
 
-# ==============================================================================
-# Local backups
-# ==============================================================================
-backup_*/
-_backup_archive/
-
-# ==============================================================================
-# Logs
-# ==============================================================================
+# Runtime and logs
 *.log
 logs/
-
-# ==============================================================================
-# OS / Editor
-# ==============================================================================
-.DS_Store
-Thumbs.db
-.vscode/
-.idea/
-
-# ==============================================================================
-# Local runtime files
-# ==============================================================================
 *.pid
 *.tmp
+panic_event_pending.json
 
-# Local database audit reports
+# Local database / audit output
 db_audit_*.txt
 db_audit_remote_*.txt
 
-# ==============================================================================
-# Kaspa Pulse local/private files
-# ==============================================================================
-.env
-.env.*
-!.env.example
-
-# Local generated backups
+# Local backups and exports
 .backup/
-.local-cleanup-backup-*/
+backup_*/
 backups/
+_backup_archive/
+.local-cleanup-backup-*/
+local-cleanup-backup-*/
 *.dump
 *.sql.dump
 *.backup
 *.bak
+repo-before-history-clean-*.bundle
+project_code_export_*.txt
 
-# Runtime/log output
-logs/
-*.log
-
-# Build output
-target/
-
-# OS/editor noise
+# OS / editor noise
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
-repo-before-history-clean-*.bundle
-project_code_export_*.txt
-local-cleanup-backup-*/
-repo-before-history-clean-*.bundle
-project_code_export_*.txt
-local-cleanup-backup-*/
-repo-before-history-clean-*.bundle
-project_code_export_*.txt

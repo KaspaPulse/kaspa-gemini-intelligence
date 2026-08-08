@@ -3,8 +3,8 @@ use crate::infrastructure::database::postgres_adapter::PostgresRepository;
 use chrono::Utc;
 use kaspa_rpc_core::api::rpc::RpcApi;
 use sqlx::Row;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use sysinfo::System;
 use teloxide::prelude::*;
 use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, ParseMode};
@@ -640,10 +640,10 @@ pub async fn handle_errors(
         if let Some(chat_id) = chat_id {
             text.push_str(&format!("Chat: <code>{}</code>\n", chat_id));
         }
-        if let Some(wallet) = wallet {
-            if !wallet.is_empty() {
-                text.push_str(&format!("Wallet: <code>{}</code>\n", wallet));
-            }
+        if let Some(wallet) = wallet
+            && !wallet.is_empty()
+        {
+            text.push_str(&format!("Wallet: <code>{}</code>\n", wallet));
         }
         if let Some(err) = err {
             let short = if err.chars().count() > 120 {

@@ -174,10 +174,9 @@ pub fn spawn_node_monitor(ctx: AppContext, bot: Bot, token: CancellationToken) {
                                     .parse_mode(teloxide::types::ParseMode::Html).await { tracing::error!("[TELEGRAM ERROR] Bot API request failed: {}", e); }
                             }
 
-                            if failed_attempts % 10 == 0 {
-                                if let Err(e) = bot.send_message(ChatId(ctx.admin_chat_id), format!("🚨 <b>CRITICAL:</b> Node still unreachable after {} attempts. Continuing to retry quietly...", failed_attempts))
+                            if failed_attempts % 10 == 0
+                                && let Err(e) = bot.send_message(ChatId(ctx.admin_chat_id), format!("🚨 <b>CRITICAL:</b> Node still unreachable after {} attempts. Continuing to retry quietly...", failed_attempts))
                                     .parse_mode(teloxide::types::ParseMode::Html).await { tracing::error!("[TELEGRAM ERROR] Bot API request failed: {}", e); }
-                            }
 
                             let _ = ctx.rpc.connect(None).await;
                         } else {

@@ -170,10 +170,10 @@ pub async fn handle_balance(
     }
 
     let mut kas_price = 0.0;
-    if let Ok(response) = reqwest::get("https://api.kaspa.org/info/price").await {
-        if let Ok(json) = response.json::<serde_json::Value>().await {
-            kas_price = json["price"].as_f64().unwrap_or(0.0);
-        }
+    if let Ok(response) = reqwest::get("https://api.kaspa.org/info/price").await
+        && let Ok(json) = response.json::<serde_json::Value>().await
+    {
+        kas_price = json["price"].as_f64().unwrap_or(0.0);
     }
 
     let total_sompi: u64 = wallet_details.iter().map(|w| w.balance_sompi).sum();
@@ -284,10 +284,10 @@ pub async fn handle_wallet_balance_detail(
     };
 
     let mut kas_price = 0.0;
-    if let Ok(response) = reqwest::get("https://api.kaspa.org/info/price").await {
-        if let Ok(json) = response.json::<serde_json::Value>().await {
-            kas_price = json["price"].as_f64().unwrap_or(0.0);
-        }
+    if let Ok(response) = reqwest::get("https://api.kaspa.org/info/price").await
+        && let Ok(json) = response.json::<serde_json::Value>().await
+    {
+        kas_price = json["price"].as_f64().unwrap_or(0.0);
     }
 
     let balance_kas = detail.balance_sompi as f64 / 1e8;

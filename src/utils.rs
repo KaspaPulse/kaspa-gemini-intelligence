@@ -1,5 +1,5 @@
 use anyhow::Context;
-use governor::{clock::DefaultClock, state::keyed::DefaultKeyedStateStore, Quota, RateLimiter};
+use governor::{Quota, RateLimiter, clock::DefaultClock, state::keyed::DefaultKeyedStateStore};
 use std::num::NonZeroU32;
 use std::sync::OnceLock;
 use teloxide::{

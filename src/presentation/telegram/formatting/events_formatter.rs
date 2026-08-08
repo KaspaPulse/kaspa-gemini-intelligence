@@ -36,8 +36,14 @@ pub fn format_live_event(event: &LiveBlockEvent) -> String {
         }
     };
 
-    let mut final_msg = format!("{}\n━━━━━━━━━━━━━━━━━━\n<b>Time:</b> <code>{}</code>\n<b>Wallet:</b> {}\n<b>Amount:</b> <code>+{:.8} KAS</code>\n<b>Balance:</b> <code>{:.8} KAS</code>\n<blockquote expandable>",
-        header_emoji, time_str, format_short_wallet(&event.wallet_address), event.amount_kas, event.live_balance_kas);
+    let mut final_msg = format!(
+        "{}\n━━━━━━━━━━━━━━━━━━\n<b>Time:</b> <code>{}</code>\n<b>Wallet:</b> {}\n<b>Amount:</b> <code>+{:.8} KAS</code>\n<b>Balance:</b> <code>{:.8} KAS</code>\n<blockquote expandable>",
+        header_emoji,
+        time_str,
+        format_short_wallet(&event.wallet_address),
+        event.amount_kas,
+        event.live_balance_kas
+    );
 
     final_msg.push_str(&format!(
         "<b>TXID:</b> {}\n",

@@ -1,7 +1,7 @@
 use crate::domain::errors::AppError;
 use std::future::Future;
 use tokio::task::JoinHandle;
-use tokio::time::{timeout, Duration};
+use tokio::time::{Duration, timeout};
 
 pub fn env_u64(key: &str, default_value: u64) -> u64 {
     std::env::var(key)

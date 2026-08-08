@@ -595,10 +595,10 @@ async fn register_listener(
 }
 
 async fn unregister_listener(client: &Arc<KaspaRpcClient>, listener_id: &mut Option<ListenerId>) {
-    if let Some(id) = listener_id.take() {
-        if let Err(error) = client.rpc_api().unregister_listener(id).await {
-            tracing::debug!("[KASPA SUBSCRIPTION] Listener cleanup failed: {}", error);
-        }
+    if let Some(id) = listener_id.take()
+        && let Err(error) = client.rpc_api().unregister_listener(id).await
+    {
+        tracing::debug!("[KASPA SUBSCRIPTION] Listener cleanup failed: {}", error);
     }
 }
 
@@ -752,9 +752,11 @@ mod tests {
 
         tokio::time::advance(Duration::from_secs(5)).await;
         let mut pending = Box::pin(schedule.next_trigger(&cancellation));
-        assert!(tokio::time::timeout(Duration::ZERO, &mut pending)
-            .await
-            .is_err());
+        assert!(
+            tokio::time::timeout(Duration::ZERO, &mut pending)
+                .await
+                .is_err()
+        );
 
         tokio::time::advance(Duration::from_secs(25)).await;
         assert_eq!(pending.await, Some(MonitorTrigger::PeriodicReconciliation));

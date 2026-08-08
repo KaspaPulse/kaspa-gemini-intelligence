@@ -13,7 +13,7 @@ allow = [
     "Zlib",
     "MPL-2.0",
     "LGPL-3.0-only",
-    "CDLA-Permissive-2.0"
+    "CDLA-Permissive-2.0",
 ]
 
 [bans]
@@ -22,27 +22,24 @@ wildcards = "warn"
 
 [advisories]
 ignore = [
-            "RUSTSEC-2024-0388", # derivative unmaintained: transitive via kaspa-txscript v2.0.1 -> ark-groth16/ark-crypto-primitives; no safe upgrade. See SECURITY_ADVISORIES.md.
-"RUSTSEC-2026-0173", # proc-macro-error2 unmaintained: transitive via kaspa-rpc-core/serde_nested_with; no safe upgrade. See SECURITY_ADVISORIES.md.
-"RUSTSEC-2023-0071", # RSA: PostgreSQL-only bot; MySQL feature path removed. See SECURITY_ADVISORIES.md.
-    "RUSTSEC-2025-0052", # async-std: Upstream Kaspa SDK transitive dependency. See SECURITY_ADVISORIES.md.
-    "RUSTSEC-2024-0375", # atty: Upstream transitive dependency. See SECURITY_ADVISORIES.md.
-    "RUSTSEC-2024-0384", # instant: Upstream transitive dependency. See SECURITY_ADVISORIES.md.
-    "RUSTSEC-2024-0436", # paste: Upstream transitive/build dependency. See SECURITY_ADVISORIES.md.
-    "RUSTSEC-2024-0370", # proc-macro-error: Upstream transitive/build dependency. See SECURITY_ADVISORIES.md.
-    "RUSTSEC-2025-0134", # rustls-pemfile: Upstream TLS-related transitive dependency. See SECURITY_ADVISORIES.md.
-    "RUSTSEC-2024-0407", # linkme: Upstream transitive dependency. See SECURITY_ADVISORIES.md.
-    "RUSTSEC-2021-0145"  # atty soundness: Upstream transitive dependency. See SECURITY_ADVISORIES.md.
+    "RUSTSEC-2024-0388", # derivative: unmaintained, transitive through the Kaspa/Arkworks stack. See SECURITY_ADVISORIES.md.
+    "RUSTSEC-2026-0173", # proc-macro-error2: unmaintained build-time transitive dependency. See SECURITY_ADVISORIES.md.
+    "RUSTSEC-2023-0071", # RSA: PostgreSQL-only bot; MySQL path is not selected. See SECURITY_ADVISORIES.md.
+    "RUSTSEC-2025-0052", # async-std: upstream Kaspa SDK transitive dependency. See SECURITY_ADVISORIES.md.
+    "RUSTSEC-2024-0375", # atty: upstream transitive dependency. See SECURITY_ADVISORIES.md.
+    "RUSTSEC-2024-0384", # instant: upstream transitive dependency. See SECURITY_ADVISORIES.md.
+    "RUSTSEC-2024-0436", # paste: upstream transitive/build dependency. See SECURITY_ADVISORIES.md.
+    "RUSTSEC-2024-0370", # proc-macro-error: upstream transitive/build dependency. See SECURITY_ADVISORIES.md.
+    "RUSTSEC-2025-0134", # rustls-pemfile: upstream TLS-related transitive dependency. See SECURITY_ADVISORIES.md.
+    "RUSTSEC-2024-0407", # linkme: upstream transitive dependency. See SECURITY_ADVISORIES.md.
+    "RUSTSEC-2021-0145", # atty soundness: upstream transitive dependency. See SECURITY_ADVISORIES.md.
 ]
 unmaintained = "all"
 yanked = "deny"
+
 [sources]
 unknown-registry = "warn"
 unknown-git = "deny"
 allow-git = [
     "https://github.com/kaspanet/rusty-kaspa",
 ]
-
-
-
-

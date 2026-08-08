@@ -52,7 +52,7 @@ fn required_confirmations_are_clamped_to_safe_range() {
 }
 
 use kaspa_pulse::wallet::reward_confirmation::{
-    reward_processing_decision, RewardProcessingDecision,
+    RewardProcessingDecision, reward_processing_decision,
 };
 
 #[test]

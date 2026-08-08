@@ -166,18 +166,24 @@ async fn wallet_remove_deletes_only_the_exact_chat_wallet_pair() {
         .await
         .expect("exact wallet removal should succeed");
 
-    assert!(!repository
-        .user_wallet_exists(&shared_address, first_chat_id)
-        .await
-        .expect("removed pair lookup should succeed"));
-    assert!(repository
-        .user_wallet_exists(&shared_address, second_chat_id)
-        .await
-        .expect("other chat lookup should succeed"));
-    assert!(repository
-        .user_wallet_exists(&other_address, first_chat_id)
-        .await
-        .expect("other wallet lookup should succeed"));
+    assert!(
+        !repository
+            .user_wallet_exists(&shared_address, first_chat_id)
+            .await
+            .expect("removed pair lookup should succeed")
+    );
+    assert!(
+        repository
+            .user_wallet_exists(&shared_address, second_chat_id)
+            .await
+            .expect("other chat lookup should succeed")
+    );
+    assert!(
+        repository
+            .user_wallet_exists(&other_address, first_chat_id)
+            .await
+            .expect("other wallet lookup should succeed")
+    );
 
     repository
         .remove_tracked_wallet(&shared_address, first_chat_id)
@@ -331,12 +337,14 @@ async fn mark_sent_finishes_the_processing_row_and_clears_its_lock() {
             .expect("attempts should decode"),
         1
     );
-    assert!(row
-        .try_get::<bool, _>("lock_time_cleared")
-        .expect("lock state should decode"));
-    assert!(row
-        .try_get::<bool, _>("worker_cleared")
-        .expect("worker state should decode"));
+    assert!(
+        row.try_get::<bool, _>("lock_time_cleared")
+            .expect("lock state should decode")
+    );
+    assert!(
+        row.try_get::<bool, _>("worker_cleared")
+            .expect("worker state should decode")
+    );
 }
 
 #[tokio::test]

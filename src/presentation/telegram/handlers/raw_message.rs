@@ -1,8 +1,8 @@
 use crate::domain::models::{AppContext, PendingInputAction};
 use crate::infrastructure::database::postgres_adapter::PostgresRepository;
 use crate::wallet::wallet_use_cases::WalletManagementUseCase;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use teloxide::prelude::*;
 
 pub async fn handle_raw_message(

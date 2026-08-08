@@ -1,6 +1,6 @@
 use kaspa_pulse::wallet::alert_delivery::{
-    delivery_outcome, should_record_delivered, should_record_failed, AlertDeliveryAttempt,
-    AlertDeliveryOutcome,
+    AlertDeliveryAttempt, AlertDeliveryOutcome, delivery_outcome, should_record_delivered,
+    should_record_failed,
 };
 
 #[test]

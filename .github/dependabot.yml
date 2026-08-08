@@ -1,0 +1,44 @@
+version: 2
+
+updates:
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:30"
+      timezone: "Asia/Riyadh"
+    open-pull-requests-limit: 5
+    groups:
+      cargo-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:45"
+      timezone: "Asia/Riyadh"
+    open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+      timezone: "Asia/Riyadh"
+    open-pull-requests-limit: 5
+    groups:
+      docker-images:
+        patterns:
+          - "*"

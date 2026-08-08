@@ -184,10 +184,10 @@ pub async fn handle_miner(
 
     let mut global_hashrate = "Unknown".to_string();
 
-    if let Some(first_wallet) = tracked.first() {
-        if let Ok(stats) = miner_stats.execute(first_wallet).await {
-            global_hashrate = stats.global_network_hashrate;
-        }
+    if let Some(first_wallet) = tracked.first()
+        && let Ok(stats) = miner_stats.execute(first_wallet).await
+    {
+        global_hashrate = stats.global_network_hashrate;
     }
 
     let text = format!(

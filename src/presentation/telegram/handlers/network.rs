@@ -123,8 +123,7 @@ pub async fn handle_dag(
         ));
         text.push_str(&format!(
             "✂️ <b>Pruning Point:</b> <code>{}...</code>\n",
-            &info
-                .pruning_point_hash
+            info.pruning_point_hash
                 .to_string()
                 .chars()
                 .take(8)
@@ -186,44 +185,44 @@ pub async fn handle_dag(
 }
 
 pub async fn handle_fees(bot: Bot, msg: Message) -> anyhow::Result<()> {
-    if let Ok(response) = reqwest::get("https://api.kaspa.org/info/fee-estimate").await {
-        if let Ok(json) = response.json::<serde_json::Value>().await {
-            let normal = json["normalBuckets"][0]["feerate"].as_f64().unwrap_or(1.0);
-            let priority = json["priorityBucket"]["feerate"]
-                .as_f64()
-                .unwrap_or(normal * 1.5);
-            let low = json["lowBuckets"][0]["feerate"]
-                .as_f64()
-                .unwrap_or(normal * 0.5);
+    if let Ok(response) = reqwest::get("https://api.kaspa.org/info/fee-estimate").await
+        && let Ok(json) = response.json::<serde_json::Value>().await
+    {
+        let normal = json["normalBuckets"][0]["feerate"].as_f64().unwrap_or(1.0);
+        let priority = json["priorityBucket"]["feerate"]
+            .as_f64()
+            .unwrap_or(normal * 1.5);
+        let low = json["lowBuckets"][0]["feerate"]
+            .as_f64()
+            .unwrap_or(normal * 0.5);
 
-            let text = format!(
-                "⛽ <b>Network Fee Market</b>\n\
+        let text = format!(
+            "⛽ <b>Network Fee Market</b>\n\
                  ━━━━━━━━━━━━━━━━━━\n\
                  🚀 <b>Priority:</b> <code>{:.2} sompi/gram</code>\n\
                  ⚡ <b>Normal:</b> <code>{:.2} sompi/gram</code>\n\
                  🐢 <b>Low:</b> <code>{:.2} sompi/gram</code>\n\n\
                  <i>* Standard transaction size is ~3000 mass.</i>\n\n\
                  ⏱️ <code>{}</code>",
-                priority,
-                normal,
-                low,
-                chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC")
-            );
+            priority,
+            normal,
+            low,
+            chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC")
+        );
 
-            let markup = crate::utils::refresh_markup("refresh_fees");
+        let markup = crate::utils::refresh_markup("refresh_fees");
 
-            let _ = crate::utils::send_reply_or_edit_log(
-                &bot,
-                msg.chat.id,
-                msg.id,
-                msg.from.as_ref().filter(|u| u.is_bot).map(|_| msg.id),
-                text,
-                Some(markup),
-            )
-            .await;
+        let _ = crate::utils::send_reply_or_edit_log(
+            &bot,
+            msg.chat.id,
+            msg.id,
+            msg.from.as_ref().filter(|u| u.is_bot).map(|_| msg.id),
+            text,
+            Some(markup),
+        )
+        .await;
 
-            return Ok(());
-        }
+        return Ok(());
     }
 
     crate::send_logged!(bot, msg, "⚠️ Kaspa.org API unreachable.");
@@ -312,7 +311,7 @@ pub async fn handle_market_data(
                 KaspaFormatter::format_hashrate(res.hashrate),
                 res.peers,
                 online_indicator,
-                &res.pruning_point.chars().take(8).collect::<String>(),
+                res.pruning_point.chars().take(8).collect::<String>(),
                 live_bps,
                 expected_bps,
                 chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC")

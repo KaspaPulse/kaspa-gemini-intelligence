@@ -12,8 +12,8 @@ use crate::network::stats_use_cases::{
 };
 use crate::presentation::telegram::commands::Command;
 use crate::wallet::wallet_use_cases::{WalletManagementUseCase, WalletQueriesUseCase};
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use teloxide::prelude::*;
 use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, ParseMode};
 
@@ -771,18 +771,18 @@ pub async fn handle_callback(
         None
     };
 
-    if callback_disables_keyboard(&data) {
-        if let Err(error) = disable_callback_keyboard(&bot, &q).await {
-            let _ = bot
-                .answer_callback_query(q.id.clone())
-                .text("Unable to lock this action panel. Please try again.")
-                .await;
-            tracing::warn!(
-                "[CALLBACK UI] Effectful callback refused because the keyboard could not be disabled: {}",
-                error
-            );
-            return Err(error);
-        }
+    if callback_disables_keyboard(&data)
+        && let Err(error) = disable_callback_keyboard(&bot, &q).await
+    {
+        let _ = bot
+            .answer_callback_query(q.id.clone())
+            .text("Unable to lock this action panel. Please try again.")
+            .await;
+        tracing::warn!(
+            "[CALLBACK UI] Effectful callback refused because the keyboard could not be disabled: {}",
+            error
+        );
+        return Err(error);
     }
 
     crate::presentation::telegram::handlers::admin_confirm::cleanup_expired(&app_context);
@@ -864,8 +864,8 @@ pub async fn handle_callback(
 
             let _ = bot.answer_callback_query(q.id.clone()).await;
 
-            if let Some(message) = q.message.as_ref() {
-                if let Err(error) =
+            if let Some(message) = q.message.as_ref()
+                && let Err(error) =
                     crate::presentation::telegram::handlers::admin_confirm::edit_callback_confirmation(
                         &bot,
                         message,
@@ -884,7 +884,6 @@ pub async fn handle_callback(
                     .await;
                     return Err(error);
                 }
-            }
 
             return Ok(());
         }
@@ -946,7 +945,7 @@ pub async fn handle_callback(
             if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) =
                 q.message.as_ref()
             {
-                let mut message = message.clone();
+                let mut message = (**message).clone();
                 message.from = Some(q.from.clone());
 
                 match data.as_str() {
@@ -1525,24 +1524,23 @@ pub async fn handle_callback(
             .text("Setting updated.")
             .await;
 
-        if let Some(message) = q.message.as_ref() {
-            if let Err(error) = admin::handle_interactive_settings(
+        if let Some(message) = q.message.as_ref()
+            && let Err(error) = admin::handle_interactive_settings(
                 bot.clone(),
                 message.chat().id,
                 Some(message.id()),
                 app_context.clone(),
             )
             .await
-            {
-                restore_safe_callback_menu(
-                    &bot,
-                    &q,
-                    true,
-                    "✅ <b>Setting updated.</b>\nThe admin menu has been restored.",
-                )
-                .await;
-                return Err(error);
-            }
+        {
+            restore_safe_callback_menu(
+                &bot,
+                &q,
+                true,
+                "✅ <b>Setting updated.</b>\nThe admin menu has been restored.",
+            )
+            .await;
+            return Err(error);
         }
 
         return Ok(());
@@ -1591,7 +1589,8 @@ pub async fn handle_callback(
             .text("Processing...")
             .await;
 
-        if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(mut message)) = q.message {
+        if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) = q.message {
+            let mut message = *message;
             message.from = Some(q.from.clone());
             handle_command(bot, message, command, ucs, app_context).await?;
         } else {
@@ -1711,7 +1710,7 @@ pub async fn handle_block_user(
 
 #[cfg(test)]
 mod callback_execution_tests {
-    use super::{callback_disables_keyboard, callback_recovery_menu, CallbackRecoveryMenu};
+    use super::{CallbackRecoveryMenu, callback_disables_keyboard, callback_recovery_menu};
 
     #[test]
     fn state_changing_callbacks_disable_the_keyboard() {

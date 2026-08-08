@@ -23,7 +23,7 @@ use teloxide::dptree;
 use teloxide::prelude::*;
 use teloxide::types::BotCommandScope;
 use tracing::info;
-use tracing_subscriber::{fmt, layer::SubscriberExt, registry, util::SubscriberInitExt, EnvFilter};
+use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, registry, util::SubscriberInitExt};
 
 use crate::infrastructure::market::coingecko_adapter::CoinGeckoAdapter;
 use crate::network::analyze_dag::AnalyzeDagUseCase;
@@ -423,7 +423,7 @@ async fn main() -> anyhow::Result<()> {
     tokio::spawn(async move {
         #[cfg(unix)]
         {
-            use tokio::signal::unix::{signal, SignalKind};
+            use tokio::signal::unix::{SignalKind, signal};
 
             let mut sigterm = match signal(SignalKind::terminate()) {
                 Ok(signal) => signal,
@@ -448,9 +448,9 @@ async fn main() -> anyhow::Result<()> {
                             .unwrap_or(3);
 
                         tracing::info!(
-            "[SYSTEM] Waiting {} seconds for background workers to drain before closing database pool.",
-            shutdown_drain_secs
-        );
+                            "[SYSTEM] Waiting {} seconds for background workers to drain before closing database pool.",
+                            shutdown_drain_secs
+                        );
 
                         tokio::time::sleep(std::time::Duration::from_secs(shutdown_drain_secs))
                             .await;
@@ -495,9 +495,9 @@ async fn main() -> anyhow::Result<()> {
                 .unwrap_or(3);
 
             tracing::info!(
-            "[SYSTEM] Waiting {} seconds for background workers to drain before closing database pool.",
-            shutdown_drain_secs
-        );
+                "[SYSTEM] Waiting {} seconds for background workers to drain before closing database pool.",
+                shutdown_drain_secs
+            );
 
             tokio::time::sleep(std::time::Duration::from_secs(shutdown_drain_secs)).await;
         }

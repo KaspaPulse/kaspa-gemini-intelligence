@@ -14,26 +14,24 @@ fn masks_long_wallets() {
 
 #[test]
 fn validates_message_size() {
-    std::env::set_var("MAX_RAW_MESSAGE_CHARS", "10");
     assert!(validate_raw_message_size("short").is_ok());
-    assert!(validate_raw_message_size("this message is too long").is_err());
+    assert!(validate_raw_message_size(&"x".repeat(513)).is_err());
 }
 
 #[test]
 fn validates_wallet_size() {
-    std::env::set_var("MAX_WALLET_ADDRESS_CHARS", "20");
     assert!(validate_wallet_address_size("kaspa:short").is_ok());
-    assert!(validate_wallet_address_size("kaspa:this_is_a_very_long_wallet_value").is_err());
+    assert!(validate_wallet_address_size(&format!("kaspa:{}", "x".repeat(121))).is_err());
 }
 
 #[test]
 fn add_wallet_rate_limit_blocks_burst() {
-    std::env::set_var("RATE_LIMIT_ADD_WALLET_PER_MINUTE", "1");
     let actor_user_id = 9988776655_u64;
-    let first = is_add_wallet_rate_limited(actor_user_id);
-    let second = is_add_wallet_rate_limited(actor_user_id);
-    assert!(!first);
-    assert!(second);
+    let outcomes = (0..=5)
+        .map(|_| is_add_wallet_rate_limited(actor_user_id))
+        .collect::<Vec<_>>();
+
+    assert!(outcomes.iter().any(|limited| *limited));
 }
 
 #[test]

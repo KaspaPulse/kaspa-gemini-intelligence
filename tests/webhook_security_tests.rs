@@ -1,5 +1,5 @@
 use kaspa_pulse::infrastructure::webhook_security::{
-    validate_webhook_bind_policy, validate_webhook_domain, validate_webhook_secret,
+    validate_webhook_bind_policy_value, validate_webhook_domain, validate_webhook_secret,
 };
 use std::net::IpAddr;
 
@@ -22,11 +22,15 @@ fn rejects_domain_with_scheme_or_path() {
 
 #[test]
 fn production_rejects_public_webhook_bind_by_default() {
-    std::env::remove_var("WEBHOOK_ALLOW_PUBLIC_BIND");
-
     let public_ip: IpAddr = "0.0.0.0".parse().unwrap();
-    assert!(validate_webhook_bind_policy("production", public_ip).is_err());
+    assert!(validate_webhook_bind_policy_value("production", public_ip, false).is_err());
 
     let loopback: IpAddr = "127.0.0.1".parse().unwrap();
-    assert!(validate_webhook_bind_policy("production", loopback).is_ok());
+    assert!(validate_webhook_bind_policy_value("production", loopback, false).is_ok());
+}
+
+#[test]
+fn production_allows_explicit_public_webhook_bind_override() {
+    let public_ip: IpAddr = "0.0.0.0".parse().unwrap();
+    assert!(validate_webhook_bind_policy_value("production", public_ip, true).is_ok());
 }

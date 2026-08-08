@@ -1,10 +1,24 @@
-# Ignore build artifacts
 target/
 **/*.rs.bk
 
-# Ignore Git history
 .git/
-.gitignore
+.github/
 
-# Ignore environment variables (never send .env to the builder)
 .env
+.env.*
+
+logs/
+*.log
+*.pid
+*.tmp
+panic_event_pending.json
+
+.backup/
+backup_*/
+backups/
+*.dump
+*.sql.dump
+*.backup
+*.bak
+repo-before-history-clean-*.bundle
+project_code_export_*.txt
