@@ -18,6 +18,7 @@ concurrency:
 jobs:
   analyze:
     name: Rust security-extended analysis
+    if: github.repository_visibility == 'public'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
