@@ -1,262 +1,145 @@
 # Security Advisories Review Log
 
-This file documents every intentionally ignored RustSec advisory in this project.
+This file records intentionally accepted or currently unavoidable RustSec findings in Kaspa Pulse.
 
 ## Policy
 
-- Do not ignore a RustSec advisory without documenting source, reachability, risk, mitigation, and review date.
-- Re-check this file when updating Kaspa SDK, tokio, sqlx, reqwest, teloxide, axum, rustls, or any dependency that touches networking, cryptography, persistence, Telegram input handling, or build-time macros.
-- CI must run:
-  - `cargo audit`
-  - `cargo deny check`
-  - `cargo tree -d`
-  - `cargo machete`
-  - `cargo clippy --all-targets --all-features -- -D warnings`
-  - `cargo test`
-- Ignored advisories are allowed only when:
-  - the vulnerable code path is not reachable,
-  - the dependency is an upstream transitive dependency with no fixed version yet,
-  - the affected feature is disabled,
-  - or the dependency is build-time only and the risk is documented.
-
-Last automated review date: 2026-05-04
-
----
-
-## RUSTSEC-2023-0071
-
-Source: RSA dependency pulled by optional/removed database feature path.
-
-Reachability: Not directly used by this bot. Project uses PostgreSQL through `sqlx`, not MySQL.
-
-Risk: Low, assuming MySQL feature remains removed/disabled and no code path reintroduces RSA-based MySQL authentication.
-
-Mitigation:
-
-- Keep PostgreSQL-only database path.
-- Keep `cargo audit` enabled.
-- Re-check after dependency updates.
-
-Review date: 2026-06-01
-
-Upstream issue: N/A unless dependency path becomes reachable again.
-
----
-
-## RUSTSEC-2025-0052
-
-Source: `async-std`, currently treated as an upstream/transitive Kaspa SDK dependency.
-
-Reachability: Not directly used by the bot application code.
-
-Risk: Medium because it is an unmaintained runtime dependency, even if transitive.
-
-Mitigation:
-
-- Keep monitoring Kaspa SDK updates.
-- Prefer removal when upstream Kaspa SDK stops pulling it.
-- CI runs `cargo audit` and `cargo deny check`.
-
-Review date: 2026-06-01
-
-Upstream issue: Track through Kaspa SDK dependency updates.
-
----
-
-## RUSTSEC-2024-0375
-
-Source: `atty`, upstream/transitive dependency.
-
-Reachability: Not directly used by the bot application code.
-
-Risk: Low to Medium depending on whether the transitive path is reachable at runtime.
-
-Mitigation:
-
-- Keep advisory visible in this document.
-- Re-check after Kaspa SDK and CLI-related dependency updates.
-
-Review date: 2026-06-01
-
-Upstream issue: Track through upstream dependency chain.
-
----
-
-## RUSTSEC-2021-0145
-
-Source: `atty` soundness advisory, upstream/transitive dependency.
-
-Reachability: Not directly used by the bot application code.
-
-Risk: Low to Medium.
-
-Mitigation:
-
-- Monitor with `cargo audit`.
-- Remove ignore when dependency chain no longer includes affected crate.
-
-Review date: 2026-06-01
-
-Upstream issue: Track through upstream dependency chain.
-
----
-
-## RUSTSEC-2024-0384
-
-Source: `instant`, upstream/transitive dependency.
-
-Reachability: Not directly used by the bot application code.
-
-Risk: Low, assuming no direct runtime reliance.
-
-Mitigation:
-
-- Monitor with `cargo audit` and `cargo deny check`.
-- Remove ignore when upstream dependency is removed.
-
-Review date: 2026-06-01
-
-Upstream issue: Track through upstream dependency chain.
-
----
-
-## RUSTSEC-2024-0436
-
-Source: `paste`, upstream/transitive/build dependency.
-
-Reachability: Not directly used by application runtime.
-
-Risk: Low to Medium. Procedural macro dependencies can matter during build-time supply chain review.
-
-Mitigation:
-
-- Keep CI dependency checks enabled.
-- Remove ignore after upstream update.
-
-Review date: 2026-06-01
-
-Upstream issue: Track through upstream dependency chain.
-
----
-
-## RUSTSEC-2024-0370
-
-Source: `proc-macro-error`, upstream/transitive/build dependency.
-
-Reachability: Build-time/transitive dependency. Not directly used by application runtime.
-
-Risk: Low to Medium.
-
-Mitigation:
-
-- Keep build pipeline dependency checks enabled.
-- Remove ignore after upstream update.
-
-Review date: 2026-06-01
-
-Upstream issue: Track through upstream dependency chain.
-
----
-
-## RUSTSEC-2025-0134
-
-Source: `rustls-pemfile`, upstream/transitive dependency.
-
-Reachability: Potentially relevant to TLS/certificate parsing depending on dependency path.
-
-Risk: Medium because TLS-related dependencies are security-sensitive.
-
-Mitigation:
-
-- Monitor closely.
-- Prefer upgrading transitive dependency when upstream allows.
-- Keep `reqwest` configured with `rustls-tls`.
-- Re-check after Kaspa SDK or TLS dependency updates.
-
-Review date: 2026-06-01
-
-Upstream issue: Track through upstream dependency chain.
-
----
-
-## RUSTSEC-2024-0407
-
-Source: `linkme`, upstream/transitive dependency.
-
-Reachability: Not directly used by the bot application code.
-
-Risk: Low to Medium.
-
-Mitigation:
-
-- Monitor with `cargo audit`.
-- Remove ignore when upstream dependency is removed or patched.
-
-Review date: 2026-06-01
-
-Upstream issue: Track through upstream dependency chain.
-
----
-
-## Git Dependency Policy
-
-Current project policy:
-
-- Git dependencies are allowed only for explicitly approved sources.
-- Approved Git sources must be listed in `deny.toml`.
-- Prefer tags or immutable revisions over floating branches.
-- Re-run `cargo update`, `cargo audit`, and `cargo deny check` after updating Git dependencies.
-
-Approved Git sources:
-
-- https://github.com/kaspanet/rusty-kaspa
-- https://github.com/murar8/serde_nested_with
-
-Review date: 2026-06-01
-
----
-
-## Operational Security Notes
-
-The following files must never be committed:
-
-```text
-.env
-.env.*
-.backup/
-backups/
-*.dump
-*.sql.dump
-*.bak
-repo-before-history-clean-*.bundle
-project_code_export_*.txt
-````
-
-If any of these were committed:
-
-1. remove them from the current repository state
-2. rewrite Git history
-3. force-push protected branches intentionally
-4. rotate affected credentials
-5. reset existing server clones with `git reset --hard origin/dev`
-
----
-
-## Review Checklist
-
-Before production deployment:
+- Never suppress a RustSec finding without recording why it is accepted and how it will be revisited.
+- Treat an unmaintained/transitive warning differently from a proven exploitable vulnerability.
+- Remove an exception as soon as the upstream dependency path no longer requires it.
+- Re-review the dependency graph whenever Rust, `rusty-kaspa`, SQLx, Teloxide, Reqwest, Axum, Rustls, or other security-sensitive dependencies change.
+
+Current CI security gates:
 
 ```bash
-cargo fmt
 cargo audit
 cargo deny check
-cargo tree -d
 cargo machete
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test
+cargo tree --locked -d
+cargo clippy --locked --all-targets --all-features -- -D warnings
+cargo test --locked --all-targets --all-features
 ```
 
-Also verify local-only endpoints:
+Last automated review: **2026-08-08**
+
+---
+
+## Current managed findings
+
+### RUSTSEC-2024-0388 — `derivative` unmaintained
+
+Status: temporary transitive exception.
+
+Known path includes the upstream Kaspa/Arkworks dependency stack (`kaspa-txscript` → Arkworks components → `derivative`). Kaspa Pulse does not select `derivative` directly.
+
+Action: keep `cargo audit`/`cargo deny` enabled and remove the exception when upstream no longer resolves this crate.
+
+### RUSTSEC-2026-0173 — `proc-macro-error2` unmaintained / future compatibility
+
+Status: temporary build-time transitive exception.
+
+The current resolved graph includes `aquamarine` → `proc-macro-error2`. Rust 1.97.1 also reports this crate in its future-incompatibility output. Kaspa Pulse does not depend on it directly.
+
+Action: track upstream replacement/removal and delete the exception when a safe path exists. Re-evaluate immediately if the advisory changes from maintenance/future compatibility to an exploitable vulnerability.
+
+### RUSTSEC-2024-0320 — `yaml-rust` unmaintained
+
+Status: visible transitive warning.
+
+Kaspa Pulse does not depend on `yaml-rust` directly. The warning remains visible in automated security output rather than being represented as a clean/no-warning state.
+
+Action: monitor the upstream dependency path and remove it when upstream dependencies stop resolving the crate.
+
+### RUSTSEC-2024-0384 — `instant` unmaintained
+
+Status: temporary transitive exception.
+
+Kaspa Pulse does not depend on `instant` directly.
+
+Action: monitor upstream Kaspa/dependency updates and remove the exception when the crate leaves the graph.
+
+### RUSTSEC-2023-0071 — RSA advisory
+
+Status: accepted only while the affected optional database path is not selected by the application.
+
+Kaspa Pulse is PostgreSQL-only and does not select a MySQL application backend. SQLx default features are disabled and the application explicitly enables PostgreSQL.
+
+Action: re-evaluate if MySQL/RSA-backed authentication is ever introduced.
+
+### RUSTSEC-2025-0052 — `async-std` unmaintained
+
+Status: upstream/transitive Kaspa dependency.
+
+Kaspa Pulse application code does not directly select `async-std`.
+
+Action: track `rusty-kaspa` updates and remove the exception once upstream no longer requires the crate.
+
+### RUSTSEC-2024-0375 and RUSTSEC-2021-0145 — `atty`
+
+Status: upstream/transitive exceptions.
+
+Kaspa Pulse does not directly depend on `atty`.
+
+Action: remove these exceptions when the upstream dependency chain is updated.
+
+### RUSTSEC-2024-0436 — `paste`
+
+Status: upstream/transitive or build-time exception.
+
+Action: keep build-pipeline security checks enabled and remove the exception after the upstream path disappears.
+
+### RUSTSEC-2024-0370 — `proc-macro-error`
+
+Status: upstream/transitive build-time exception.
+
+Action: remove after the upstream dependency path is replaced.
+
+### RUSTSEC-2025-0134 — `rustls-pemfile`
+
+Status: TLS-related transitive exception and therefore treated as security-sensitive.
+
+Action: monitor closely and remove as soon as the resolved upstream TLS stack permits it.
+
+### RUSTSEC-2024-0407 — `linkme`
+
+Status: upstream/transitive exception.
+
+Action: remove when the upstream dependency path is patched or removed.
+
+---
+
+## Git dependency policy
+
+Git dependencies are allowed only for explicitly reviewed sources. Floating branches are not accepted for production dependencies when an immutable release tag/revision is available.
+
+Approved Git source:
+
+```text
+https://github.com/kaspanet/rusty-kaspa
+```
+
+The current Kaspa SDK dependencies are pinned to the approved `v2.0.1` tag.
+
+---
+
+## Release review checklist
+
+Before a production release:
+
+```bash
+cargo fmt --all -- --check
+cargo check --locked --all-targets --all-features
+cargo clippy --locked --all-targets --all-features -- -D warnings
+cargo test --locked --all-targets --all-features
+cargo audit
+cargo deny check
+cargo machete
+cargo tree --locked -d
+cargo build --locked --release --all-features
+docker build --pull -t kaspa-pulse:release .
+```
+
+Operationally verify local endpoints where enabled:
 
 ```bash
 curl http://127.0.0.1:18080/healthz
@@ -264,41 +147,8 @@ curl http://127.0.0.1:18080/readyz
 curl http://127.0.0.1:18080/metrics
 ```
 
+---
 
-## RUSTSEC-2026-0173 - proc-macro-error2 unmaintained
+## Secret and repository hygiene
 
-Status: accepted temporary transitive advisory.
-
-proc-macro-error2 is pulled transitively through serde_nested_with -> kaspa-rpc-core from the Kaspa Rust dependency stack. The advisory reports the crate as unmaintained and states that no safe upgrade is currently available.
-
-Risk decision:
-- This is not a direct runtime dependency selected by Kaspa Pulse.
-- It is currently inherited from upstream Kaspa RPC dependencies.
-- We will keep it documented and allowed temporarily, and revisit when upstream Kaspa dependencies provide a migration path.
-
-Required follow-up:
-- Re-run cargo audit and cargo deny check during each release.
-- Remove this allow entry as soon as a safe upstream upgrade path exists.
-
-
-## RUSTSEC-2024-0388 - derivative unmaintained
-
-Status: accepted temporary transitive advisory.
-
-derivative is pulled transitively through:
-
-kaspa-txscript v2.0.1 -> ark-groth16 -> ark-crypto-primitives -> derivative
-
-This dependency is inherited from the upstream Kaspa Rust dependency stack after upgrading Kaspa crates to 2.0.1.
-
-Risk decision:
-- Kaspa Pulse does not depend on derivative directly.
-- The advisory is classified as unmaintained, not an actively exploitable vulnerability in our application path.
-- The advisory currently reports no safe upgrade path from our dependency tree.
-- We accept this advisory temporarily while monitoring upstream Kaspa and Arkworks dependency updates.
-
-Required follow-up:
-- Re-run cargo audit and cargo deny check on every release.
-- Remove this allow entry once upstream Kaspa dependencies no longer pull derivative.
-- Re-evaluate this exception if the advisory changes from unmaintained to vulnerability.
-
+Never commit `.env` files, database dumps, backup archives, generated repository exports, or runtime panic markers. If a real credential was committed, rotate it immediately; deleting the latest file alone does not remove it from Git history.
