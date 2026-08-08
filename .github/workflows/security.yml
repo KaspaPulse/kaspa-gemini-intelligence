@@ -8,6 +8,7 @@ on:
       - "Cargo.lock"
       - "deny.toml"
       - ".cargo/audit.toml"
+      - "osv-scanner.toml"
       - "SECURITY_ADVISORIES.md"
       - "scripts/check-security-advisories.py"
       - ".github/workflows/security.yml"
@@ -18,6 +19,7 @@ on:
       - "Cargo.lock"
       - "deny.toml"
       - ".cargo/audit.toml"
+      - "osv-scanner.toml"
       - "SECURITY_ADVISORIES.md"
       - "scripts/check-security-advisories.py"
       - ".github/workflows/security.yml"
@@ -69,3 +71,15 @@ jobs:
 
       - name: Duplicate dependency report
         run: cargo tree --locked -d
+
+  osv-scan:
+    name: OSV full dependency scan
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
+    with:
+      scan-args: |-
+        --lockfile=./Cargo.lock
+      fail-on-vuln: true
