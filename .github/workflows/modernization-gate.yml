@@ -122,6 +122,28 @@ jobs:
           )
           admin_confirm.write_text(text)
 
+          delivery_queue = Path("src/infrastructure/telegram_delivery_queue.rs")
+          text = delivery_queue.read_text()
+          text = text.replace(
+              '''pub fn max_delivery_attempts() -> i32 {\n    std::env::var("TELEGRAM_DELIVERY_MAX_ATTEMPTS")\n        .ok()\n        .and_then(|value| value.parse::<i32>().ok())\n        .filter(|value| *value > 0)\n        .map(|value| value.clamp(1, 100))\n        .unwrap_or(DEFAULT_MAX_DELIVERY_ATTEMPTS)\n}''',
+              '''pub fn parse_max_delivery_attempts(value: Option<&str>) -> i32 {\n    value\n        .and_then(|value| value.parse::<i32>().ok())\n        .filter(|value| *value > 0)\n        .map(|value| value.clamp(1, 100))\n        .unwrap_or(DEFAULT_MAX_DELIVERY_ATTEMPTS)\n}\n\npub fn max_delivery_attempts() -> i32 {\n    let value = std::env::var("TELEGRAM_DELIVERY_MAX_ATTEMPTS").ok();\n    parse_max_delivery_attempts(value.as_deref())\n}''',
+          )
+          delivery_queue.write_text(text)
+
+          fail_closed_tests = Path("tests/fail_closed_database_behavior_tests.rs")
+          text = fail_closed_tests.read_text()
+          text = text.replace(
+              '''use kaspa_pulse::infrastructure::telegram_delivery_queue::{\n    mark_failed, mark_sent, max_delivery_attempts,\n};''',
+              '''use kaspa_pulse::infrastructure::telegram_delivery_queue::{\n    mark_failed, mark_sent, parse_max_delivery_attempts,\n};''',
+          )
+          text = text.replace('use std::sync::Mutex;\n', '')
+          text = text.replace('\nstatic ENV_TEST_LOCK: Mutex<()> = Mutex::new(());\n', '\n')
+          text = text.replace(
+              '''#[test]\nfn delivery_max_attempts_has_a_safe_default_and_bounds() {\n    let _guard = ENV_TEST_LOCK.lock().expect("env test lock poisoned");\n\n    std::env::remove_var("TELEGRAM_DELIVERY_MAX_ATTEMPTS");\n    assert_eq!(max_delivery_attempts(), 5);\n\n    std::env::set_var("TELEGRAM_DELIVERY_MAX_ATTEMPTS", "0");\n    assert_eq!(max_delivery_attempts(), 5);\n\n    std::env::set_var("TELEGRAM_DELIVERY_MAX_ATTEMPTS", "7");\n    assert_eq!(max_delivery_attempts(), 7);\n\n    std::env::set_var("TELEGRAM_DELIVERY_MAX_ATTEMPTS", "1000");\n    assert_eq!(max_delivery_attempts(), 100);\n\n    std::env::remove_var("TELEGRAM_DELIVERY_MAX_ATTEMPTS");\n}''',
+              '''#[test]\nfn delivery_max_attempts_has_a_safe_default_and_bounds() {\n    assert_eq!(parse_max_delivery_attempts(None), 5);\n    assert_eq!(parse_max_delivery_attempts(Some("0")), 5);\n    assert_eq!(parse_max_delivery_attempts(Some("7")), 7);\n    assert_eq!(parse_max_delivery_attempts(Some("1000")), 100);\n    assert_eq!(parse_max_delivery_attempts(Some("not-a-number")), 5);\n}''',
+          )
+          fail_closed_tests.write_text(text)
+
           handlers = Path("src/presentation/telegram/handlers/mod.rs")
           text = handlers.read_text()
           text = text.replace(
