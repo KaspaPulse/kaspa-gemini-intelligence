@@ -15,7 +15,7 @@ pub mod utils;
 use dotenvy::dotenv;
 use std::env;
 use std::fs;
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -216,41 +216,23 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Kaspa Pulse starting.");
 
-    let db_url = env::var("DATABASE_URL")
-        .map_err(|_| anyhow::anyhow!("DATABASE_URL must be set in .env"))?;
-    let rpc_url =
-        env::var("NODE_URL_01").map_err(|_| anyhow::anyhow!("NODE_URL_01 must be set in .env"))?;
-
-    let app_env = env::var("APP_ENV").unwrap_or_else(|_| "production".to_string());
-    let db_max_connections: u32 = env::var("DB_MAX_CONNECTIONS")
-        .unwrap_or_else(|_| "10".to_string())
-        .parse()
-        .unwrap_or(10)
-        .clamp(2, 50);
-
-    let verbose_logs = env::var("ENABLE_VERBOSE_LOGS")
-        .unwrap_or_else(|_| "false".to_string())
-        .eq_ignore_ascii_case("true");
+    let startup = crate::config::StartupConfig::from_env()?;
 
     tracing::info!(
         "[SYSTEM] Environment: {} | DB max connections: {} | Verbose logs: {}",
-        app_env,
-        db_max_connections,
-        verbose_logs
+        startup.app_env,
+        startup.db_max_connections,
+        startup.verbose_logs
     );
 
     let pool = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(db_max_connections)
-        .connect(&db_url)
+        .max_connections(startup.db_max_connections)
+        .connect(&startup.database_url)
         .await?;
 
     let db_repo = Arc::new(PostgresRepository::new(pool.clone()));
 
-    let allow_runtime_schema_ensure = env::var("ALLOW_RUNTIME_SCHEMA_ENSURE")
-        .unwrap_or_else(|_| "false".to_string())
-        .eq_ignore_ascii_case("true");
-
-    if allow_runtime_schema_ensure {
+    if startup.allow_runtime_schema_ensure {
         tracing::warn!(
             "[DATABASE] Runtime schema ensure is enabled. Prefer applying migrations before startup."
         );
@@ -289,7 +271,7 @@ async fn main() -> anyhow::Result<()> {
 
     let rpc_client = kaspa_wrpc_client::KaspaRpcClient::new(
         kaspa_wrpc_client::WrpcEncoding::SerdeJson,
-        Some(&rpc_url),
+        Some(&startup.node_url),
         None,
         Some(network_id),
         None,
@@ -343,40 +325,9 @@ async fn main() -> anyhow::Result<()> {
         market_provider.clone(),
     ));
 
-    let bot_token =
-        env::var("BOT_TOKEN").map_err(|_| anyhow::anyhow!("BOT_TOKEN must be set in .env"))?;
-    let bot = Bot::new(bot_token);
-    // Telegram command scopes are synchronized after actor/chat identity validation.
-    // ADMIN_ID remains a backward-compatible private-chat fallback.
-    let legacy_admin_id = env::var("ADMIN_ID").ok();
-    let admin_user_id_raw = env::var("ADMIN_USER_ID")
-        .ok()
-        .or_else(|| legacy_admin_id.clone())
-        .ok_or_else(|| {
-            anyhow::anyhow!("ADMIN_USER_ID must be set (or ADMIN_ID for backward compatibility)")
-        })?;
-    let admin_chat_id_raw = env::var("ADMIN_CHAT_ID")
-        .ok()
-        .or(legacy_admin_id)
-        .ok_or_else(|| {
-            anyhow::anyhow!("ADMIN_CHAT_ID must be set (or ADMIN_ID for backward compatibility)")
-        })?;
-
-    let admin_user_id: u64 = admin_user_id_raw
-        .parse()
-        .map_err(|_| anyhow::anyhow!("ADMIN_USER_ID must be a positive Telegram user ID"))?;
-    let admin_chat_id: i64 = admin_chat_id_raw
-        .parse()
-        .map_err(|_| anyhow::anyhow!("ADMIN_CHAT_ID must be a numeric Telegram chat ID"))?;
-
-    let admin_private_chat_id = i64::try_from(admin_user_id)
-        .map_err(|_| anyhow::anyhow!("ADMIN_USER_ID is outside the supported Telegram ID range"))?;
-
-    if admin_user_id == 0 || admin_chat_id <= 0 || admin_chat_id != admin_private_chat_id {
-        return Err(anyhow::anyhow!(
-            "Admin commands require a private chat: ADMIN_CHAT_ID must equal ADMIN_USER_ID"
-        ));
-    }
+    let bot = Bot::new(startup.bot_token.clone());
+    let admin_user_id = startup.admin_user_id;
+    let admin_chat_id = startup.admin_chat_id;
 
     // Clear stale Telegram command scopes so deleted legacy commands disappear.
     let _ = bot.delete_my_commands().await;
@@ -530,40 +481,26 @@ async fn main() -> anyhow::Result<()> {
         ])
         .build();
 
-    if env::var("USE_WEBHOOK").unwrap_or_else(|_| "false".to_string()) == "true" {
+    if startup.use_webhook {
         info!("Running in WEBHOOK mode");
 
-        let domain = env::var("WEBHOOK_DOMAIN")
-            .map_err(|_| anyhow::anyhow!("WEBHOOK_DOMAIN must be set when USE_WEBHOOK=true"))?;
-
-        let port: u16 = env::var("WEBHOOK_PORT")
-            .unwrap_or_else(|_| "8443".to_string())
-            .parse()
-            .map_err(|_| anyhow::anyhow!("WEBHOOK_PORT must be a valid u16 port"))?;
-
-        let bind_ip_raw = env::var("WEBHOOK_BIND").unwrap_or_else(|_| "127.0.0.1".to_string());
-        let bind_ip: IpAddr = bind_ip_raw
-            .parse()
-            .map_err(|_| anyhow::anyhow!("WEBHOOK_BIND must be a valid IP address"))?;
-
-        let secret_token = env::var("WEBHOOK_SECRET_TOKEN")
-            .map(|value| value.trim().to_string())
-            .map_err(|_| {
-                anyhow::anyhow!("WEBHOOK_SECRET_TOKEN must be set when USE_WEBHOOK=true")
-            })?;
+        let webhook = startup
+            .webhook
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("validated webhook configuration is missing"))?;
 
         crate::infrastructure::webhook_security::validate_webhook_runtime_settings(
-            &app_env,
-            bind_ip,
-            &domain,
-            &secret_token,
+            &startup.app_env,
+            webhook.bind_ip,
+            &webhook.domain,
+            &webhook.secret_token,
         )?;
 
-        let addr = SocketAddr::new(bind_ip, port);
-        let url = format!("https://{}/webhook", domain).parse()?;
+        let addr = SocketAddr::new(webhook.bind_ip, webhook.port);
+        let url = format!("https://{}/webhook", webhook.domain).parse()?;
         let webhook_metadata = format!(
             r#"{{"domain":"{}","bind":"{}","port":{}}}"#,
-            domain, bind_ip, port
+            webhook.domain, webhook.bind_ip, webhook.port
         );
 
         let mut webhook_start_event =
@@ -575,13 +512,13 @@ async fn main() -> anyhow::Result<()> {
 
         tracing::info!(
             "[WEBHOOK] Listening on {}:{} for domain {}",
-            bind_ip,
-            port,
-            domain
+            webhook.bind_ip,
+            webhook.port,
+            webhook.domain
         );
 
         let options = teloxide::update_listeners::webhooks::Options::new(addr, url)
-            .secret_token(secret_token)
+            .secret_token(webhook.secret_token.clone())
             .max_connections(crate::infrastructure::webhook_security::webhook_max_connections());
 
         let listener = teloxide::update_listeners::webhooks::axum(bot, options).await?;
@@ -624,11 +561,7 @@ async fn main() -> anyhow::Result<()> {
         tracing::error!("[SYSTEM] Failed to persist shutdown event: {}", error);
     }
 
-    let shutdown_drain_secs = std::env::var("SHUTDOWN_DRAIN_SECS")
-        .ok()
-        .and_then(|value| value.parse::<u64>().ok())
-        .filter(|value| *value <= 30)
-        .unwrap_or(3);
+    let shutdown_drain_secs = startup.shutdown_drain_secs;
     let drain_timeout = std::time::Duration::from_secs(shutdown_drain_secs);
 
     tracing::info!(

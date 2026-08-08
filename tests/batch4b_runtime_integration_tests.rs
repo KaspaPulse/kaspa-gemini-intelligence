@@ -82,8 +82,8 @@ fn health_endpoint_is_started_in_polling_and_webhook_modes() {
     assert_eq!(main_source.matches(health_call).count(), 1);
     let call_position = main_source.find(health_call).expect("health call missing");
     let webhook_branch_position = main_source
-        .find("if env::var(\"USE_WEBHOOK\")")
-        .expect("webhook branch missing");
+        .find("if startup.use_webhook")
+        .expect("typed webhook branch missing");
     assert!(call_position < webhook_branch_position);
 }
 

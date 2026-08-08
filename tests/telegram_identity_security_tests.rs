@@ -81,12 +81,15 @@ fn confirmation_is_bound_to_actor_chat_and_message() {
 
 #[test]
 fn admin_configuration_separates_user_and_chat_with_legacy_fallback() {
-    let source = read_source("src/main.rs");
+    let config_source = read_source("src/config/mod.rs");
+    let main_source = read_source("src/main.rs");
 
-    assert!(source.contains("ADMIN_USER_ID"));
-    assert!(source.contains("ADMIN_CHAT_ID"));
-    assert!(source.contains("ADMIN_ID"));
-    assert!(source.contains("ADMIN_CHAT_ID must equal ADMIN_USER_ID"));
+    assert!(config_source.contains("ADMIN_USER_ID"));
+    assert!(config_source.contains("ADMIN_CHAT_ID"));
+    assert!(config_source.contains("ADMIN_ID"));
+    assert!(config_source.contains("ADMIN_CHAT_ID must equal ADMIN_USER_ID"));
+    assert!(main_source.contains("startup.admin_user_id"));
+    assert!(main_source.contains("startup.admin_chat_id"));
 }
 
 #[test]
