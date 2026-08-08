@@ -6,6 +6,44 @@ use crate::domain::errors::AppError;
 use super::postgres_adapter::PostgresRepository;
 
 impl PostgresRepository {
+    // Retained as a narrow read API for database characterization/integration tests. Runtime
+    // mutation code performs the equivalent check inside add_tracked_wallet's transaction.
+    #[allow(dead_code)]
+    pub async fn count_user_wallets(&self, chat_id: i64) -> Result<i64, AppError> {
+        let count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*)
+             FROM user_wallets
+             WHERE chat_id = $1",
+        )
+        .bind(chat_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+        Ok(count)
+    }
+
+    // Retained for characterization/integration tests without reusing it in the write path,
+    // where a separate preflight query would reintroduce a check-then-insert race.
+    #[allow(dead_code)]
+    pub async fn user_wallet_exists(&self, address: &str, chat_id: i64) -> Result<bool, AppError> {
+        let exists = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(
+                SELECT 1
+                FROM user_wallets
+                WHERE wallet = $1
+                AND chat_id = $2
+             )",
+        )
+        .bind(address)
+        .bind(chat_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+        Ok(exists)
+    }
+
     pub async fn add_tracked_wallet(&self, wallet: TrackedWallet) -> Result<(), AppError> {
         let mut transaction = self
             .pool
