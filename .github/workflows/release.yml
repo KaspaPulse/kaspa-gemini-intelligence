@@ -106,8 +106,16 @@ jobs:
           cargo install --locked cargo-cyclonedx --version 0.5.9
           SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
           export SOURCE_DATE_EPOCH
-          cargo cyclonedx --format json --all-features --target "$TARGET"
-          test -s bom.json
+          sbom="kaspa-pulse-${VERSION}.cdx.json"
+          cargo cyclonedx \
+            --format json \
+            --spec-version 1.5 \
+            --all-features \
+            --target "$TARGET" \
+            --override-filename "$sbom" \
+            --verbose
+          test -s "$sbom"
+          python3 -m json.tool "$sbom" >/dev/null
 
       - name: Assemble deterministic release archive
         if: steps.gate.outputs.create == 'true'
@@ -121,7 +129,7 @@ jobs:
           install -m 0755 "target/${TARGET}/release/kaspa-pulse" dist/stage/kaspa-pulse
           install -m 0644 LICENSE dist/stage/LICENSE
           install -m 0644 README.md dist/stage/README.md
-          mv bom.json "dist/${sbom}"
+          install -m 0644 "$sbom" "dist/${sbom}"
           source_date_epoch="$(git log -1 --format=%ct)"
           tar --sort=name \
             --mtime="@${source_date_epoch}" \
