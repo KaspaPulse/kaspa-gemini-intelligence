@@ -92,8 +92,9 @@ impl StartupConfig {
         let admin_chat_id = admin_chat_id_raw
             .parse::<i64>()
             .with_context(|| "ADMIN_CHAT_ID must be a numeric Telegram chat ID")?;
-        let admin_private_chat_id = i64::try_from(admin_user_id)
-            .map_err(|_| anyhow::anyhow!("ADMIN_USER_ID is outside the supported Telegram ID range"))?;
+        let admin_private_chat_id = i64::try_from(admin_user_id).map_err(|_| {
+            anyhow::anyhow!("ADMIN_USER_ID is outside the supported Telegram ID range")
+        })?;
 
         if admin_user_id == 0 || admin_chat_id <= 0 || admin_chat_id != admin_private_chat_id {
             bail!("Admin commands require a private chat: ADMIN_CHAT_ID must equal ADMIN_USER_ID");
@@ -106,8 +107,8 @@ impl StartupConfig {
                 "WEBHOOK_PORT",
                 8443,
             )?;
-            let bind_raw = optional(&mut lookup, "WEBHOOK_BIND")
-                .unwrap_or_else(|| "127.0.0.1".to_string());
+            let bind_raw =
+                optional(&mut lookup, "WEBHOOK_BIND").unwrap_or_else(|| "127.0.0.1".to_string());
             let bind_ip = bind_raw
                 .parse::<IpAddr>()
                 .with_context(|| "WEBHOOK_BIND must be a valid IP address")?;
@@ -303,7 +304,7 @@ mod tests {
         let webhook = config.webhook.expect("webhook config");
 
         assert_eq!(webhook.port, 9443);
-        assert_eq!(webhook.bind_ip, "127.0.0.2".parse::<IpAddr>().unwrap());
+        assert_eq!(webhook.bind_ip.to_string(), "127.0.0.2");
         assert_eq!(config.shutdown_drain_secs, 7);
     }
 }
