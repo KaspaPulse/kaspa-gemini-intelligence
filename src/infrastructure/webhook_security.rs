@@ -135,70 +135,65 @@ pub fn spawn_health_endpoint(cancel_token: CancellationToken) {
     let port = env_u16_local("HEALTH_PORT", 18080);
     let addr = SocketAddr::new(bind_ip, port);
 
-    crate::infrastructure::resilience::runtime::spawn_resilient(
-        "health_endpoint",
-        async move {
-            use axum::{Router, http::StatusCode, routing::get};
+    crate::infrastructure::resilience::runtime::spawn_resilient("health_endpoint", async move {
+        use axum::{Router, http::StatusCode, routing::get};
 
-            async fn healthz() -> &'static str {
-                "ok\n"
-            }
+        async fn healthz() -> &'static str {
+            "ok\n"
+        }
 
-            async fn readyz() -> (StatusCode, String) {
-                let snapshot = crate::infrastructure::observability::snapshot();
-                let state = snapshot.readiness(
-                    crate::infrastructure::metrics::now_unix_secs(),
-                    crate::infrastructure::observability::ReadinessPolicy::from_env(),
-                );
-                let status = match state {
-                    crate::infrastructure::observability::ReadinessState::Ready
-                    | crate::infrastructure::observability::ReadinessState::Degraded => {
-                        StatusCode::OK
-                    }
-                    crate::infrastructure::observability::ReadinessState::NotReady => {
-                        StatusCode::SERVICE_UNAVAILABLE
-                    }
-                };
-
-                (status, format!("{}\n", state.as_str()))
-            }
-
-            async fn metricsz() -> String {
-                crate::infrastructure::metrics::render_metrics()
-            }
-
-            let app = Router::new()
-                .route("/healthz", get(healthz))
-                .route("/readyz", get(readyz))
-                .route("/metrics", get(metricsz));
-
-            let listener = match tokio::net::TcpListener::bind(addr).await {
-                Ok(listener) => listener,
-                Err(error) => {
-                    tracing::error!(
-                        "[HEALTH] Failed to bind health endpoint on {}: {}",
-                        addr,
-                        error
-                    );
-                    return;
+        async fn readyz() -> (StatusCode, String) {
+            let snapshot = crate::infrastructure::observability::snapshot();
+            let state = snapshot.readiness(
+                crate::infrastructure::metrics::now_unix_secs(),
+                crate::infrastructure::observability::ReadinessPolicy::from_env(),
+            );
+            let status = match state {
+                crate::infrastructure::observability::ReadinessState::Ready
+                | crate::infrastructure::observability::ReadinessState::Degraded => StatusCode::OK,
+                crate::infrastructure::observability::ReadinessState::NotReady => {
+                    StatusCode::SERVICE_UNAVAILABLE
                 }
             };
 
-            tracing::info!(
-                "[HEALTH] Listening on {} with /healthz, /readyz and /metrics",
-                addr
-            );
+            (status, format!("{}\n", state.as_str()))
+        }
 
-            let shutdown = cancel_token.cancelled_owned();
+        async fn metricsz() -> String {
+            crate::infrastructure::metrics::render_metrics()
+        }
 
-            if let Err(error) = axum::serve(listener, app)
-                .with_graceful_shutdown(async move {
-                    shutdown.await;
-                })
-                .await
-            {
-                tracing::error!("[HEALTH] Health endpoint failed: {}", error);
+        let app = Router::new()
+            .route("/healthz", get(healthz))
+            .route("/readyz", get(readyz))
+            .route("/metrics", get(metricsz));
+
+        let listener = match tokio::net::TcpListener::bind(addr).await {
+            Ok(listener) => listener,
+            Err(error) => {
+                tracing::error!(
+                    "[HEALTH] Failed to bind health endpoint on {}: {}",
+                    addr,
+                    error
+                );
+                return;
             }
-        },
-    );
+        };
+
+        tracing::info!(
+            "[HEALTH] Listening on {} with /healthz, /readyz and /metrics",
+            addr
+        );
+
+        let shutdown = cancel_token.cancelled_owned();
+
+        if let Err(error) = axum::serve(listener, app)
+            .with_graceful_shutdown(async move {
+                shutdown.await;
+            })
+            .await
+        {
+            tracing::error!("[HEALTH] Health endpoint failed: {}", error);
+        }
+    });
 }
