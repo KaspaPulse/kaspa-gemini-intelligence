@@ -100,9 +100,8 @@ impl MarketProvider for CoinGeckoAdapter {
             AppError::ApiError(format!("CoinGecko response was not valid JSON: {e}"))
         })?;
 
-        let data = parse_current_market_data(&json).map_err(|error| {
+        let data = parse_current_market_data(&json).inspect_err(|_| {
             self.circuit_breaker.record_failure();
-            error
         })?;
 
         self.circuit_breaker.record_success();
