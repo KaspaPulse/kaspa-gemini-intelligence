@@ -8,6 +8,7 @@ on:
     paths:
       - "Cargo.toml"
       - "Cargo.lock"
+      - "scripts/finalize-cyclonedx.py"
       - ".github/workflows/release.yml"
   workflow_dispatch:
 
@@ -86,8 +87,10 @@ jobs:
             --target "$TARGET" \
             --override-filename "$sbom_prefix" \
             --verbose
-          test -s "$sbom"
-          python3 -m json.tool "$sbom" >/dev/null
+          python3 scripts/finalize-cyclonedx.py \
+            "$sbom" \
+            --version "$VERSION" \
+            --target "$TARGET"
 
   release:
     name: Build, attest, and publish
@@ -155,8 +158,10 @@ jobs:
             --target "$TARGET" \
             --override-filename "$sbom_prefix" \
             --verbose
-          test -s "$sbom"
-          python3 -m json.tool "$sbom" >/dev/null
+          python3 scripts/finalize-cyclonedx.py \
+            "$sbom" \
+            --version "$VERSION" \
+            --target "$TARGET"
 
       - name: Assemble deterministic release archive
         if: steps.gate.outputs.create == 'true'
