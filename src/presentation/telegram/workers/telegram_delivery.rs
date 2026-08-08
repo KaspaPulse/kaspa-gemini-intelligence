@@ -1,6 +1,7 @@
 use chrono::Utc;
 use sqlx::PgPool;
 use std::time::Duration;
+use teloxide::errors::AsResponseParameters;
 use teloxide::prelude::*;
 use teloxide::types::{ChatId, LinkPreviewOptions, ParseMode};
 use tokio::time::MissedTickBehavior;
@@ -147,11 +148,9 @@ async fn deliver_pending_batch(bot: &Bot, pool: &PgPool) {
             Err(error) => {
                 crate::infrastructure::metrics::inc_telegram_send_failures();
 
-                let error_text = error.to_string();
+                let (error_text, retry_after) = normalize_delivery_error(&error);
 
-                if let Some(retry_after) =
-                    crate::infrastructure::telegram_delivery_queue::retry_after_seconds(&error_text)
-                {
+                if let Some(retry_after) = retry_after {
                     tracing::warn!(
                         "[TELEGRAM RATE LIMIT] retry_after={}s for queued alert id={}",
                         retry_after,
@@ -180,5 +179,37 @@ async fn deliver_pending_batch(bot: &Bot, pool: &PgPool) {
                 );
             }
         }
+    }
+}
+
+fn normalize_delivery_error(error: &teloxide::RequestError) -> (String, Option<i64>) {
+    let retry_after = error
+        .retry_after()
+        .map(|seconds| i64::from(seconds.seconds()));
+
+    let error_text = match retry_after {
+        Some(seconds) => format!("retry_after {seconds}; {error}"),
+        None => error.to_string(),
+    };
+
+    (error_text, retry_after)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use teloxide::types::Seconds;
+
+    #[test]
+    fn structured_retry_after_is_normalized_for_queue_scheduling() {
+        let error = teloxide::RequestError::RetryAfter(Seconds::from_seconds(17));
+        let (error_text, retry_after) = normalize_delivery_error(&error);
+
+        assert_eq!(retry_after, Some(17));
+        assert!(error_text.starts_with("retry_after 17;"));
+        assert_eq!(
+            crate::infrastructure::telegram_delivery_queue::retry_after_seconds(&error_text),
+            Some(17)
+        );
     }
 }
