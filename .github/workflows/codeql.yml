@@ -3,29 +3,13 @@ name: CodeQL
 on:
   push:
     branches: [main, dev]
-    paths:
-      - "src/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "rust-toolchain.toml"
-      - ".github/workflows/codeql.yml"
   pull_request:
     branches: [main, dev]
-    paths:
-      - "src/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "rust-toolchain.toml"
-      - ".github/workflows/codeql.yml"
   schedule:
     - cron: "37 2 * * 4"
   workflow_dispatch:
 
-permissions:
-  contents: read
-  actions: read
-  packages: read
-  security-events: write
+permissions: read-all
 
 concurrency:
   group: codeql-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -36,6 +20,11 @@ jobs:
     name: Rust security-extended analysis
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+      packages: read
+      security-events: write
 
     steps:
       - name: Checkout repository

@@ -3,30 +3,8 @@ name: Rust CI
 on:
   pull_request:
     branches: [main, dev]
-    paths:
-      - "src/**"
-      - "tests/**"
-      - "migrations/**"
-      - "scripts/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "rust-toolchain.toml"
-      - "Dockerfile"
-      - "docker-compose*.yml"
-      - ".github/workflows/rust-ci.yml"
   push:
     branches: [main, dev]
-    paths:
-      - "src/**"
-      - "tests/**"
-      - "migrations/**"
-      - "scripts/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "rust-toolchain.toml"
-      - "Dockerfile"
-      - "docker-compose*.yml"
-      - ".github/workflows/rust-ci.yml"
   workflow_dispatch:
 
 concurrency:

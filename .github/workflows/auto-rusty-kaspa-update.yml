@@ -14,9 +14,7 @@ on:
   schedule:
     - cron: "17 2 * * 1"
 
-permissions:
-  contents: write
-  pull-requests: write
+permissions: read-all
 
 concurrency:
   group: auto-rusty-kaspa-update
@@ -57,6 +55,9 @@ jobs:
   update-rusty-kaspa:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    permissions:
+      contents: write
+      pull-requests: write
 
     services:
       postgres:
