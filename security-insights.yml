@@ -1,0 +1,82 @@
+header:
+  schema-version: "2.2.0"
+  last-updated: "2026-08-08"
+  last-reviewed: "2026-08-08"
+  url: "https://raw.githubusercontent.com/KaspaPulse/kaspa-telegram-notify/main/security-insights.yml"
+  comment: "Machine-readable security posture for the canonical Kaspa Pulse repository."
+
+project:
+  name: "Kaspa Pulse"
+  homepage: "https://github.com/KaspaPulse/kaspa-telegram-notify"
+  administrators:
+    - name: "KaspaPulse"
+      primary: true
+      social: "https://github.com/KaspaPulse"
+  repositories:
+    - name: "kaspa-telegram-notify"
+      url: "https://github.com/KaspaPulse/kaspa-telegram-notify"
+      comment: "Canonical source repository for the Kaspa Pulse Telegram notification service."
+  vulnerability-reporting:
+    reports-accepted: true
+    bug-bounty-available: false
+    policy: "https://github.com/KaspaPulse/kaspa-telegram-notify/blob/main/SECURITY.md"
+    contact:
+      name: "KaspaPulse Security"
+      primary: true
+      social: "https://github.com/KaspaPulse"
+    in-scope:
+      - "Kaspa Pulse source code and release artifacts"
+      - "Authentication, database, network, Telegram, and Kaspa RPC security issues"
+      - "Build, dependency, and release supply-chain vulnerabilities"
+    out-of-scope:
+      - "Vulnerabilities in unrelated third-party infrastructure not controlled by this project"
+      - "Reports that require publishing secrets or private user data"
+    comment: "Use GitHub private security advisories for unpatched vulnerabilities; do not disclose them in public issues."
+  documentation:
+    code-of-conduct: "https://github.com/KaspaPulse/kaspa-telegram-notify/blob/main/CODE_OF_CONDUCT.md"
+    quickstart-guide: "https://github.com/KaspaPulse/kaspa-telegram-notify/blob/main/README.md"
+    release-process: "https://github.com/KaspaPulse/kaspa-telegram-notify/blob/main/.github/workflows/release.yml"
+    signature-verification: "https://github.com/KaspaPulse/kaspa-telegram-notify/blob/main/SUPPLY_CHAIN.md"
+    support-policy: "https://github.com/KaspaPulse/kaspa-telegram-notify/blob/main/SECURITY.md"
+
+repository:
+  url: "https://github.com/KaspaPulse/kaspa-telegram-notify"
+  status: "active"
+  accepts-change-request: true
+  accepts-automated-change-request: true
+  bug-fixes-only: false
+  no-third-party-packages: false
+  core-team:
+    - name: "KaspaPulse"
+      primary: true
+      social: "https://github.com/KaspaPulse"
+  license:
+    expression: "MIT"
+    url: "https://github.com/KaspaPulse/kaspa-telegram-notify/blob/main/LICENSE"
+  documentation:
+    contributing-guide: "https://github.com/KaspaPulse/kaspa-telegram-notify/blob/main/CONTRIBUTING.md"
+    dependency-management-policy: "https://github.com/KaspaPulse/kaspa-telegram-notify/blob/main/SECURITY_ADVISORIES.md"
+    review-policy: "https://github.com/KaspaPulse/kaspa-telegram-notify/blob/main/CONTRIBUTING.md"
+    security-policy: "https://github.com/KaspaPulse/kaspa-telegram-notify/blob/main/SECURITY.md"
+  release:
+    automated-pipeline: true
+    changelog: "https://github.com/KaspaPulse/kaspa-telegram-notify/releases/tag/v{version}"
+    distribution-points:
+      - uri: "https://github.com/KaspaPulse/kaspa-telegram-notify/releases"
+        comment: "Canonical signed GitHub Releases."
+    attestations:
+      - name: "SLSA build provenance"
+        location: "https://github.com/KaspaPulse/kaspa-telegram-notify/releases/download/v1.2.0/kaspa-pulse-1.2.0-x86_64-unknown-linux-gnu.tar.gz.intoto.jsonl"
+        predicate-uri: "https://slsa.dev/provenance/v1"
+        comment: "Cryptographically signed provenance for the v1.2.0 Linux x86_64 release archive."
+  security:
+    assessments:
+      self:
+        name: "Kaspa Pulse security posture review"
+        date: "2026-08-08"
+        evidence: "https://github.com/KaspaPulse/kaspa-telegram-notify/actions/runs/31278117325"
+        comment: "Maintainer review backed by the current OpenSSF Scorecard run, signed release evidence, CodeQL, dependency scanning, fuzzing, and protected pull-request CI."
+    champions:
+      - name: "KaspaPulse"
+        primary: true
+        social: "https://github.com/KaspaPulse"
