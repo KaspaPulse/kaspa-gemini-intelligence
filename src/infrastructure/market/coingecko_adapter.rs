@@ -160,7 +160,9 @@ impl MarketProvider for CoinGeckoAdapter {
 
         let json: Value = res.json().await.map_err(|e| {
             self.circuit_breaker.record_failure();
-            AppError::ApiError(format!("CoinGecko history response was not valid JSON: {e}"))
+            AppError::ApiError(format!(
+                "CoinGecko history response was not valid JSON: {e}"
+            ))
         })?;
 
         let prices = json
