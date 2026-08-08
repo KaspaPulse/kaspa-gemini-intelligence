@@ -143,6 +143,42 @@ async fn record_pending_panic_marker(
     Ok(())
 }
 
+async fn wait_for_shutdown_signal() -> &'static str {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+
+        match signal(SignalKind::terminate()) {
+            Ok(mut sigterm) => {
+                tokio::select! {
+                    result = tokio::signal::ctrl_c() => {
+                        if let Err(error) = result {
+                            tracing::error!("[SYSTEM] SIGINT listener failed: {}", error);
+                        }
+                        "SIGINT"
+                    }
+                    _ = sigterm.recv() => "SIGTERM",
+                }
+            }
+            Err(error) => {
+                tracing::error!("[SYSTEM] Failed to install SIGTERM handler: {}", error);
+                if let Err(ctrl_c_error) = tokio::signal::ctrl_c().await {
+                    tracing::error!("[SYSTEM] SIGINT listener failed: {}", ctrl_c_error);
+                }
+                "SIGINT"
+            }
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        if let Err(error) = tokio::signal::ctrl_c().await {
+            tracing::error!("[SYSTEM] SIGINT listener failed: {}", error);
+        }
+        "SIGINT"
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenv().ok();
@@ -416,96 +452,6 @@ async fn main() -> anyhow::Result<()> {
             .store(is_maint, std::sync::atomic::Ordering::Relaxed);
     }
 
-    let pool_shutdown = pool.clone();
-    let db_shutdown = db_repo.clone();
-    let ct_shutdown = cancel_token.clone();
-
-    tokio::spawn(async move {
-        #[cfg(unix)]
-        {
-            use tokio::signal::unix::{SignalKind, signal};
-
-            let mut sigterm = match signal(SignalKind::terminate()) {
-                Ok(signal) => signal,
-                Err(e) => {
-                    tracing::error!("[SYSTEM] Failed to install SIGTERM handler: {}", e);
-                    let _ = tokio::signal::ctrl_c().await;
-                    tracing::warn!("[SYSTEM] SIGINT received. Starting graceful shutdown.");
-                    ct_shutdown.cancel();
-
-                    let mut shutdown_event =
-                        BotEventRecord::new(BotEventType::SystemShutdown, EventSeverity::Info);
-                    shutdown_event.status = Some("ok");
-                    shutdown_event.metadata_json = r#"{"reason":"signal"}"#;
-
-                    let _ = db_shutdown.record_bot_event_record(shutdown_event).await;
-
-                    {
-                        let shutdown_drain_secs = std::env::var("SHUTDOWN_DRAIN_SECS")
-                            .ok()
-                            .and_then(|v| v.parse::<u64>().ok())
-                            .filter(|v| *v <= 30)
-                            .unwrap_or(3);
-
-                        tracing::info!(
-                            "[SYSTEM] Waiting {} seconds for background workers to drain before closing database pool.",
-                            shutdown_drain_secs
-                        );
-
-                        tokio::time::sleep(std::time::Duration::from_secs(shutdown_drain_secs))
-                            .await;
-                    }
-
-                    pool_shutdown.close().await;
-                    tracing::info!("[SYSTEM] Database connections closed safely.");
-                    return;
-                }
-            };
-
-            tokio::select! {
-                _ = tokio::signal::ctrl_c() => {
-                    tracing::warn!("[SYSTEM] SIGINT received. Starting graceful shutdown.");
-                }
-                _ = sigterm.recv() => {
-                    tracing::warn!("[SYSTEM] SIGTERM received. Starting graceful shutdown.");
-                }
-            }
-        }
-
-        #[cfg(not(unix))]
-        {
-            let _ = tokio::signal::ctrl_c().await;
-            tracing::warn!("[SYSTEM] SIGINT received. Starting graceful shutdown.");
-        }
-
-        ct_shutdown.cancel();
-
-        let mut shutdown_event =
-            BotEventRecord::new(BotEventType::SystemShutdown, EventSeverity::Info);
-        shutdown_event.status = Some("ok");
-        shutdown_event.metadata_json = r#"{"reason":"signal"}"#;
-
-        let _ = db_shutdown.record_bot_event_record(shutdown_event).await;
-
-        {
-            let shutdown_drain_secs = std::env::var("SHUTDOWN_DRAIN_SECS")
-                .ok()
-                .and_then(|v| v.parse::<u64>().ok())
-                .filter(|v| *v <= 30)
-                .unwrap_or(3);
-
-            tracing::info!(
-                "[SYSTEM] Waiting {} seconds for background workers to drain before closing database pool.",
-                shutdown_drain_secs
-            );
-
-            tokio::time::sleep(std::time::Duration::from_secs(shutdown_drain_secs)).await;
-        }
-
-        pool_shutdown.close().await;
-        tracing::info!("[SYSTEM] Database connections closed safely.");
-    });
-
     crate::presentation::telegram::workers::utxo_monitor::start_utxo_monitor(
         bot.clone(),
         node_provider.clone(),
@@ -582,7 +528,6 @@ async fn main() -> anyhow::Result<()> {
             bot_use_cases,
             callback_execution_registry
         ])
-        .enable_ctrlc_handler()
         .build();
 
     if env::var("USE_WEBHOOK").unwrap_or_else(|_| "false".to_string()) == "true" {
@@ -642,24 +587,67 @@ async fn main() -> anyhow::Result<()> {
         let listener = teloxide::update_listeners::webhooks::axum(bot, options).await?;
 
         tokio::select! {
-            _ = cancel_token.cancelled() => {
-                tracing::info!("[SYSTEM] Webhook dispatcher shutdown requested.");
+            signal = wait_for_shutdown_signal() => {
+                tracing::warn!("[SYSTEM] {} received. Starting graceful shutdown.", signal);
+                cancel_token.cancel();
             }
             _ = dispatcher.dispatch_with_listener(
                 listener,
                 LoggingErrorHandler::with_custom_text("Webhook Error"),
-            ) => {}
+            ) => {
+                tracing::warn!("[SYSTEM] Webhook dispatcher exited. Stopping background workers.");
+                cancel_token.cancel();
+            }
         }
     } else {
         info!("Running in POLLING mode");
         bot.delete_webhook().await?;
         tokio::select! {
-            _ = cancel_token.cancelled() => {
-                tracing::info!("[SYSTEM] Polling dispatcher shutdown requested.");
+            signal = wait_for_shutdown_signal() => {
+                tracing::warn!("[SYSTEM] {} received. Starting graceful shutdown.", signal);
+                cancel_token.cancel();
             }
-            _ = dispatcher.dispatch() => {}
+            _ = dispatcher.dispatch() => {
+                tracing::warn!("[SYSTEM] Polling dispatcher exited. Stopping background workers.");
+                cancel_token.cancel();
+            }
         }
     }
+
+    cancel_token.cancel();
+
+    let mut shutdown_event =
+        BotEventRecord::new(BotEventType::SystemShutdown, EventSeverity::Info);
+    shutdown_event.status = Some("ok");
+    shutdown_event.metadata_json = r#"{"reason":"graceful_shutdown"}"#;
+
+    if let Err(error) = db_repo.record_bot_event_record(shutdown_event).await {
+        tracing::error!("[SYSTEM] Failed to persist shutdown event: {}", error);
+    }
+
+    let shutdown_drain_secs = std::env::var("SHUTDOWN_DRAIN_SECS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value <= 30)
+        .unwrap_or(3);
+    let drain_timeout = std::time::Duration::from_secs(shutdown_drain_secs);
+
+    tracing::info!(
+        "[SYSTEM] Waiting up to {} seconds for tracked background workers to stop.",
+        shutdown_drain_secs
+    );
+
+    if crate::infrastructure::resilience::runtime::drain_tracked_tasks(drain_timeout).await {
+        tracing::info!("[SYSTEM] All tracked background workers stopped cleanly.");
+    } else {
+        tracing::warn!(
+            "[SYSTEM] Background worker drain timed out after {} seconds; closing database pool.",
+            shutdown_drain_secs
+        );
+    }
+
+    pool.close().await;
+    tracing::info!("[SYSTEM] Database connections closed safely.");
 
     Ok(())
 }
