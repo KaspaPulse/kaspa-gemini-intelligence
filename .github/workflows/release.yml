@@ -78,12 +78,13 @@ jobs:
           SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
           export SOURCE_DATE_EPOCH
           sbom="kaspa-pulse-${VERSION}.cdx.json"
+          sbom_prefix="kaspa-pulse-${VERSION}.cdx"
           cargo cyclonedx \
             --format json \
             --spec-version 1.5 \
             --all-features \
             --target "$TARGET" \
-            --override-filename "$sbom" \
+            --override-filename "$sbom_prefix" \
             --verbose
           test -s "$sbom"
           python3 -m json.tool "$sbom" >/dev/null
@@ -146,12 +147,13 @@ jobs:
           SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
           export SOURCE_DATE_EPOCH
           sbom="kaspa-pulse-${VERSION}.cdx.json"
+          sbom_prefix="kaspa-pulse-${VERSION}.cdx"
           cargo cyclonedx \
             --format json \
             --spec-version 1.5 \
             --all-features \
             --target "$TARGET" \
-            --override-filename "$sbom" \
+            --override-filename "$sbom_prefix" \
             --verbose
           test -s "$sbom"
           python3 -m json.tool "$sbom" >/dev/null
