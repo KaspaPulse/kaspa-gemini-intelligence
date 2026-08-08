@@ -1,0 +1,33 @@
+name: Feature request
+description: Propose a focused improvement to Kaspa Pulse
+title: "[Feature]: "
+labels: []
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What concrete problem should this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the desired behavior and any compatibility constraints.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Optional alternatives or trade-offs you have considered.
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      options:
+        - label: I searched existing issues and pull requests for similar work.
+          required: true
+        - label: This request is compatible with the Rust/Cargo architecture and does not add unrelated tooling.
+          required: true

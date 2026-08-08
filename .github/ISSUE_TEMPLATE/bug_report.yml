@@ -1,0 +1,54 @@
+name: Bug report
+description: Report a reproducible problem in Kaspa Pulse
+title: "[Bug]: "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for reporting a bug. Do not include secrets, tokens, wallet private keys, or private user data.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the observed behavior and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+      description: Provide the smallest reliable reproduction you can.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: v1.2.0 or commit SHA
+    validations:
+      required: true
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Runtime environment
+      options:
+        - Docker / Compose
+        - Native Linux
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant sanitized logs
+      description: Remove credentials, tokens, addresses tied to private users, and other sensitive data before pasting.
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues for the same problem.
+          required: true
+        - label: This is not an unpatched security vulnerability; security issues must follow SECURITY.md.
+          required: true

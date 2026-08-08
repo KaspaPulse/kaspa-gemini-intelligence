@@ -1,0 +1,14 @@
+# Repository ownership
+
+* @KaspaPulse
+
+# Security-sensitive and automation paths
+/.github/ @KaspaPulse
+/.cargo/ @KaspaPulse
+/Cargo.toml @KaspaPulse
+/Cargo.lock @KaspaPulse
+/Dockerfile @KaspaPulse
+/docker-compose*.yml @KaspaPulse
+/migrations/ @KaspaPulse
+/scripts/ @KaspaPulse
+/src/ @KaspaPulse
