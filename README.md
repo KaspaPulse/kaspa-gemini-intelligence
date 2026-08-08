@@ -51,7 +51,7 @@ Telegram delivery worker
 
 - Rust **1.97.1**, pinned in `rust-toolchain.toml`.
 - Rust **Edition 2024**.
-- PostgreSQL-only SQLx 0.9 feature selection.
+- PostgreSQL **18** validation baseline with PostgreSQL-only SQLx 0.9 feature selection.
 - Teloxide 0.17 and Axum 0.8.
 - Reqwest 0.13 with Rustls.
 - `rusty-kaspa` dependencies pinned to the approved `v2.0.1` Git tag.
@@ -99,7 +99,7 @@ The crate has `publish = false` to prevent accidental publication to crates.io.
 ## Requirements
 
 - Rust 1.97.1.
-- PostgreSQL 16+ recommended.
+- PostgreSQL 18 recommended.
 - A reachable Kaspa wRPC endpoint.
 - A Telegram bot token.
 - Docker/Compose only for container deployment.
@@ -223,7 +223,7 @@ cargo clippy --locked --all-targets --all-features -- -D warnings
 cargo test --locked --all-targets --all-features
 ```
 
-Production release, Docker build, and container smoke tests run on `main`/`dev` pushes and explicit manual runs. This retains a strong PR gate while avoiding unnecessary hosted-runner consumption for private repositories on GitHub Free.
+Production release, Docker build, and container smoke tests run on `main`/`dev` pushes and explicit manual runs. This keeps pull-request feedback focused while avoiding redundant hosted-runner work, even though this repository is public and standard GitHub-hosted Actions are not constrained by the private-repository minutes allowance.
 
 Dependency/security automation includes:
 
