@@ -7,7 +7,9 @@ fn main_owns_signal_and_database_shutdown_lifecycle() {
     assert!(source.contains("drain_tracked_tasks(drain_timeout).await"));
     assert!(source.contains("pool.close().await;"));
     assert!(!source.contains(".enable_ctrlc_handler()"));
-    assert!(!source.contains("Waiting {} seconds for background workers to drain before closing database pool"));
+    assert!(!source.contains(
+        "Waiting {} seconds for background workers to drain before closing database pool"
+    ));
 }
 
 #[test]
