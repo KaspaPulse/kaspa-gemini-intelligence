@@ -62,7 +62,8 @@ fn command_and_callback_rate_limits_are_keyed_by_actor() {
 fn confirmation_nonce_is_csprng_and_hash_indexed() {
     let source = read_source("src/presentation/telegram/handlers/admin_confirm.rs");
 
-    assert!(source.contains("OsRng"));
+    assert!(source.contains("SysRng"));
+    assert!(source.contains("try_fill_bytes"));
     assert!(source.contains("Sha256"));
     assert!(source.contains("NONCE_BYTES: usize = 16"));
     assert!(!source.contains("token_seed"));
