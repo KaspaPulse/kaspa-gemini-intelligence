@@ -368,7 +368,7 @@ mod tests {
 
     #[test]
     fn generated_nonce_is_128_bit_lower_hex() {
-        let nonce = generate_nonce()?;
+        let nonce = generate_nonce().expect("system RNG should be available");
         assert_eq!(nonce.len(), 32);
         assert!(nonce.bytes().all(|value| value.is_ascii_hexdigit()));
     }
