@@ -49,22 +49,8 @@ jobs:
           toolchain: nightly-2026-08-01
           components: rustfmt
 
-      - name: Install verified cargo-fuzz 0.13.2 binary
-        shell: bash
-        run: |
-          set -euo pipefail
-          archive="/tmp/cargo-fuzz-0.13.2.tar.gz"
-          extract_dir="/tmp/cargo-fuzz-0.13.2"
-          curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error \
-            --output "$archive" \
-            "https://github.com/rust-fuzz/cargo-fuzz/releases/download/0.13.2/cargo-fuzz-0.13.2-x86_64-unknown-linux-musl.tar.gz"
-          echo "b5b704018b63e0f151c17a057ac53b5111e1db545d1b9f72fee79f08a545931c  $archive" | sha256sum --check --strict
-          mkdir -p "$extract_dir"
-          tar -xzf "$archive" -C "$extract_dir"
-          binary="$(find "$extract_dir" -maxdepth 2 -type f -name cargo-fuzz -print -quit)"
-          test -n "$binary"
-          sudo install -m 0755 "$binary" /usr/local/bin/cargo-fuzz
-          cargo-fuzz --version
+      - name: Install cargo-fuzz 0.13.2 from locked source
+        run: cargo +nightly-2026-08-01 install cargo-fuzz --version 0.13.2 --locked
 
       - name: Check fuzz target formatting
         run: cargo +nightly-2026-08-01 fmt --manifest-path fuzz/Cargo.toml -- --check
