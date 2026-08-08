@@ -1,0 +1,51 @@
+name: Workflow Lint
+
+on:
+  pull_request:
+    branches: [main, dev]
+    paths:
+      - ".github/workflows/**"
+  push:
+    branches: [main, dev]
+    paths:
+      - ".github/workflows/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: workflow-lint-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install verified actionlint 1.7.12 binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="/tmp/actionlint-1.7.12.tar.gz"
+          extract_dir="/tmp/actionlint-1.7.12"
+          curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error \
+            --output "$archive" \
+            "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz"
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $archive" | sha256sum --check --strict
+          mkdir -p "$extract_dir"
+          tar -xzf "$archive" -C "$extract_dir"
+          binary="$(find "$extract_dir" -maxdepth 2 -type f -name actionlint -print -quit)"
+          test -n "$binary"
+          sudo install -m 0755 "$binary" /usr/local/bin/actionlint
+          actionlint -version
+
+      - name: Lint GitHub Actions workflows
+        run: actionlint -color
