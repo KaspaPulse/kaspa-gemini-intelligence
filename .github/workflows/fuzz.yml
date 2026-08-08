@@ -1,0 +1,62 @@
+name: Rust Fuzzing
+
+on:
+  pull_request:
+    branches: [main, dev]
+    paths:
+      - "fuzz/**"
+      - "src/utils.rs"
+      - "Cargo.toml"
+      - ".github/workflows/fuzz.yml"
+  push:
+    branches: [main, dev]
+    paths:
+      - "fuzz/**"
+      - "src/utils.rs"
+      - "Cargo.toml"
+      - ".github/workflows/fuzz.yml"
+  schedule:
+    - cron: "47 3 * * 6"
+  workflow_dispatch:
+
+concurrency:
+  group: rust-fuzz-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: 1
+
+jobs:
+  text-safety:
+    name: text and wallet input fuzzing
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install pinned nightly Rust
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
+        with:
+          toolchain: nightly-2026-08-01
+          components: rustfmt
+
+      - name: Install cargo-fuzz 0.13.2
+        uses: taiki-e/install-action@6c6fd71fe4fb72c3697d269963d0e15df8adedad # v2.85.10
+        with:
+          tool: cargo-fuzz@0.13.2
+          fallback: none
+
+      - name: Check fuzz target formatting
+        run: cargo +nightly-2026-08-01 fmt --manifest-path fuzz/Cargo.toml -- --check
+
+      - name: Fuzz untrusted text and wallet inputs
+        run: cargo +nightly-2026-08-01 fuzz run text_safety -- -max_total_time=45 -timeout=5 -max_len=2048 -rss_limit_mb=4096
