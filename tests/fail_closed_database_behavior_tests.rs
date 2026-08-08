@@ -24,8 +24,25 @@ fn wallet_repository_does_not_hide_lookup_or_quota_errors() {
 
     assert!(!source.contains(".unwrap_or(false)"));
     assert!(!source.contains("count_user_wallets(wallet.chat_id).await.unwrap_or(0)"));
-    assert!(source.contains("let already_exists = self"));
-    assert!(source.contains("count_user_wallets(wallet.chat_id).await?"));
+
+    // Quota enforcement must remain in the same transaction as the write. A separate
+    // preflight lookup/count would reintroduce a check-then-insert race under concurrency.
+    assert!(source.contains("let mut transaction = self"));
+    assert!(source.contains("pg_advisory_xact_lock($1)"));
+    assert!(source.contains("let already_exists = sqlx::query_scalar"));
+    assert!(source.contains("let current_count = sqlx::query_scalar"));
+    assert!(source.contains("fetch_one(&mut *transaction)"));
+    assert!(source.contains("execute(&mut *transaction)"));
+    assert!(source.contains("transaction\n            .commit()"));
+}
+
+#[test]
+fn empty_wallet_snapshot_prunes_stale_seen_utxos() {
+    let source = include_str!("../src/infrastructure/database/wallets_repo.rs");
+
+    assert!(source.contains("if current_outpoints.is_empty()"));
+    assert!(source.contains("DELETE FROM wallet_seen_utxos WHERE wallet = $1"));
+    assert!(!source.contains("if current_outpoints.is_empty() {\n            return Ok(())"));
 }
 
 #[test]
