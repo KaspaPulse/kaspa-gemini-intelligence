@@ -3,8 +3,8 @@
 use kaspa_pulse::utils::{
     clean_for_log, contains_dangerous_invisible_chars, extract_single_wallet_from_message,
     html_escape, normalize_user_text, normalize_wallet_input, sanitize_callback_data_for_log,
-    sanitize_event_text_for_storage, sanitize_for_log, sanitize_user_text, validate_raw_message_size,
-    validate_wallet_address_size, validate_wallet_security,
+    sanitize_event_text_for_storage, sanitize_for_log, sanitize_user_text,
+    validate_raw_message_size, validate_wallet_address_size, validate_wallet_security,
 };
 use libfuzzer_sys::fuzz_target;
 
