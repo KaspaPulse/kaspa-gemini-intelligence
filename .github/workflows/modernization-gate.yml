@@ -191,8 +191,13 @@ jobs:
           tool: cargo-audit,cargo-deny
 
       - name: Cargo check
-        id: cargo_check
         run: cargo check --all-targets --all-features
+
+      - name: Apply machine-safe Clippy fixes
+        run: cargo clippy --fix --allow-dirty --allow-staged --all-targets --all-features -- -D warnings
+
+      - name: Reformat Clippy fixes
+        run: cargo fmt --all
 
       - name: Persist migration and dependency state
         if: always()
