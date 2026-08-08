@@ -5,6 +5,7 @@ edition = "2024"
 rust-version = "1.97.1"
 license = "MIT"
 description = "Kaspa Pulse Mining Bot - Lightweight community build"
+publish = false
 
 [dependencies]
 tokio = { version = "1", features = ["full", "time", "tracing"] }
@@ -23,7 +24,7 @@ kaspa-addresses = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v2.0
 kaspa-consensus-core = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v2.0.1" }
 kaspa-hashes = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v2.0.1" }
 
-sqlx = { version = "0.9", features = ["postgres", "runtime-tokio", "tls-rustls", "macros", "chrono", "json"] }
+sqlx = { version = "0.9", default-features = false, features = ["postgres", "runtime-tokio", "tls-rustls", "macros", "chrono", "json"] }
 
 chrono = "0.4"
 dotenvy = "0.15"
@@ -43,16 +44,14 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 [dev-dependencies]
 tokio = { version = "1", features = ["test-util"] }
 
-[profile.release]
-lto = true
-codegen-units = 1
-strip = true
-panic = "abort"
-
-[patch.crates-io]
-
 [features]
 default = []
 
 [profile.dev]
 opt-level = 1
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
