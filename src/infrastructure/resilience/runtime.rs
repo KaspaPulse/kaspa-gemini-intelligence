@@ -1,9 +1,10 @@
 use crate::domain::errors::AppError;
 use std::future::Future;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::OnceLock;
+use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 use tokio::time::{Duration, timeout};
-use tokio_util::task::TaskTracker;
 
 pub fn env_u64(key: &str, default_value: u64) -> u64 {
     std::env::var(key)
@@ -55,29 +56,55 @@ where
     }
 }
 
-fn task_tracker() -> &'static TaskTracker {
-    static TRACKER: OnceLock<TaskTracker> = OnceLock::new();
-    TRACKER.get_or_init(TaskTracker::new)
+fn active_task_count() -> &'static AtomicUsize {
+    static ACTIVE_TASKS: AtomicUsize = AtomicUsize::new(0);
+    &ACTIVE_TASKS
+}
+
+fn task_completion_notify() -> &'static Notify {
+    static TASK_COMPLETION: OnceLock<Notify> = OnceLock::new();
+    TASK_COMPLETION.get_or_init(Notify::new)
+}
+
+struct ActiveTaskGuard;
+
+impl Drop for ActiveTaskGuard {
+    fn drop(&mut self) {
+        active_task_count().fetch_sub(1, Ordering::AcqRel);
+        task_completion_notify().notify_one();
+    }
 }
 
 pub async fn drain_tracked_tasks(duration: Duration) -> bool {
-    let tracker = task_tracker();
-    tracker.close();
+    timeout(duration, async {
+        loop {
+            if active_task_count().load(Ordering::Acquire) == 0 {
+                break;
+            }
 
-    timeout(duration, tracker.wait()).await.is_ok()
+            task_completion_notify().notified().await;
+        }
+    })
+    .await
+    .is_ok()
 }
 
 pub fn spawn_resilient<F>(task_name: &'static str, future: F) -> JoinHandle<()>
 where
     F: Future<Output = ()> + Send + 'static,
 {
+    active_task_count().fetch_add(1, Ordering::AcqRel);
+    let guard = ActiveTaskGuard;
+
     let worker = tokio::spawn(async move {
         tracing::info!("[TASK START] {}", task_name);
         future.await;
         tracing::info!("[TASK STOP] {} finished normally", task_name);
     });
 
-    task_tracker().spawn(async move {
+    tokio::spawn(async move {
+        let _guard = guard;
+
         match worker.await {
             Ok(_) => {
                 tracing::info!("[TASK MONITOR] {} joined cleanly", task_name);
