@@ -66,15 +66,9 @@ impl WalletQueriesUseCase {
     }
 
     pub async fn get_list(&self, chat_id: i64) -> Result<Vec<String>, AppError> {
-        let wallets = self.db.get_all_tracked_wallets().await?;
+        let wallets = self.db.get_tracked_wallets_for_chat(chat_id).await?;
 
-        let user_wallets = wallets
-            .into_iter()
-            .filter(|wallet| wallet.chat_id == chat_id)
-            .map(|wallet| wallet.address)
-            .collect();
-
-        Ok(user_wallets)
+        Ok(wallets.into_iter().map(|wallet| wallet.address).collect())
     }
 
     pub async fn get_wallet_balances(

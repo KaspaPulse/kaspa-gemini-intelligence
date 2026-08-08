@@ -175,6 +175,30 @@ impl PostgresRepository {
         Ok(wallets)
     }
 
+    pub async fn get_tracked_wallets_for_chat(
+        &self,
+        chat_id: i64,
+    ) -> Result<Vec<TrackedWallet>, AppError> {
+        let rows: Vec<(String, i64)> = sqlx::query_as(
+            "SELECT wallet, chat_id
+             FROM user_wallets
+             WHERE chat_id = $1
+             ORDER BY wallet",
+        )
+        .bind(chat_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(address, row_chat_id)| TrackedWallet {
+                address,
+                chat_id: row_chat_id,
+            })
+            .collect())
+    }
+
     pub async fn get_seen_utxos(&self, wallet: &str) -> Result<HashSet<String>, AppError> {
         let rows: Vec<(String,)> =
             sqlx::query_as("SELECT outpoint FROM wallet_seen_utxos WHERE wallet = $1")
