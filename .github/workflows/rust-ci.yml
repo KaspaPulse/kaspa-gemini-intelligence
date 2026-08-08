@@ -3,14 +3,37 @@ name: Rust CI
 on:
   push:
     branches: [main, dev]
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "Dockerfile"
+      - ".dockerignore"
+      - "src/**"
+      - "tests/**"
+      - "migrations/**"
+      - "scripts/ci-prepare-postgres.sh"
+      - ".github/workflows/rust-ci.yml"
   pull_request:
     branches: [main, dev]
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "Dockerfile"
+      - ".dockerignore"
+      - "src/**"
+      - "tests/**"
+      - "migrations/**"
+      - "scripts/ci-prepare-postgres.sh"
+      - ".github/workflows/rust-ci.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: rust-ci-${{ github.workflow }}-${{ github.ref }}
+  group: rust-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -48,10 +71,10 @@ env:
   LOG_MAX_CHARS: "3000"
 
 jobs:
-  check:
-    name: fmt + check + clippy + test + release
-    runs-on: ubuntu-latest
-    timeout-minutes: 35
+  quality:
+    name: fmt + check + clippy + test + release + docker
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
 
     services:
       postgres:
@@ -70,7 +93,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -110,3 +133,6 @@ jobs:
 
       - name: Build production release
         run: cargo build --locked --release --all-features
+
+      - name: Build production container
+        run: docker build --pull --tag kaspa-pulse:ci .

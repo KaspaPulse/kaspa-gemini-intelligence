@@ -1,5 +1,4 @@
 param(
-    [string]$KaspaRepoApi = "https://api.github.com/repos/kaspanet/rusty-kaspa",
     [string]$KaspaGitUrl = "https://github.com/kaspanet/rusty-kaspa.git",
     [switch]$AllowPrerelease,
     [switch]$Push,
@@ -71,9 +70,6 @@ function Compare-KaspaSemverCore {
 function Get-LatestKaspaReleaseTag {
     param([switch]$AllowPrerelease)
 
-    # Use the authoritative tag namespace rather than /releases/latest.
-    # GitHub's "latest release" marker can legitimately point to an older
-    # release and must never be allowed to downgrade Cargo dependencies.
     $tagsRaw = git ls-remote --tags --refs $KaspaGitUrl "refs/tags/v*"
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to list rusty-kaspa tags"
@@ -120,8 +116,8 @@ function Get-CurrentKaspaTags {
     )
 
     $tags = @()
-    foreach ($m in $matches) {
-        $tags += $m.Groups[1].Value
+    foreach ($match in $matches) {
+        $tags += $match.Groups[1].Value
     }
 
     return $tags | Sort-Object -Unique
@@ -132,7 +128,6 @@ function Update-KaspaTags {
 
     $path = "Cargo.toml"
     $content = Get-Content $path -Raw -Encoding UTF8
-
     $new = [regex]::Replace(
         $content,
         '(git\s*=\s*"https://github\.com/kaspanet/rusty-kaspa"\s*,\s*tag\s*=\s*")[^"]+(")',
@@ -179,20 +174,20 @@ Step "Find highest rusty-kaspa semver tag" {
     }
 }
 
-if ($CurrentTags[0] -eq $LatestTag) {
-    Write-Host "`nAlready on highest eligible rusty-kaspa tag: $LatestTag" -ForegroundColor Green
+if ($script:CurrentTags[0] -eq $script:LatestTag) {
+    Write-Host "`nAlready on highest eligible rusty-kaspa tag: $script:LatestTag" -ForegroundColor Green
     exit 0
 }
 
 if (-not $NoBranch) {
-    Step "Create auto update branch from current base" {
-        $safeTag = $LatestTag -replace '[^a-zA-Z0-9_.-]', '-'
+    Step "Create update branch from checked-out base" {
+        $currentBranch = (git branch --show-current).Trim()
+        if ($currentBranch -ne $BaseBranch) {
+            throw "Expected checked-out base branch '$BaseBranch' but found '$currentBranch'."
+        }
+
+        $safeTag = $script:LatestTag -replace '[^a-zA-Z0-9_.-]', '-'
         $branch = "auto/rusty-kaspa-$safeTag"
-
-        git fetch origin $BaseBranch
-        git checkout $BaseBranch
-        git reset --hard "origin/$BaseBranch"
-
         $existing = git branch --list $branch
         if ($existing) {
             git branch -D $branch
@@ -210,7 +205,7 @@ if (-not $NoBranch) {
 }
 
 Step "Update Cargo.toml rusty-kaspa tags" {
-    Update-KaspaTags -TargetTag $LatestTag
+    Update-KaspaTags -TargetTag $script:LatestTag
     Select-String -Path "Cargo.toml" -Pattern "kaspanet/rusty-kaspa|tag ="
 }
 
@@ -221,47 +216,31 @@ Step "Refresh Cargo.lock" {
 $env:SQLX_OFFLINE = "true"
 $env:CARGO_INCREMENTAL = "0"
 $env:RUST_BACKTRACE = "1"
+$allGood = $true
 
-$AllGood = $true
-
-if (-not (Run-AllowFail "cargo fmt" {
-    cargo fmt --all
-})) { $AllGood = $false }
-
-if (-not (Run-AllowFail "cargo check" {
-    cargo check --locked --all-targets --all-features
-})) { $AllGood = $false }
-
-if (-not (Run-AllowFail "cargo clippy" {
-    cargo clippy --locked --all-targets --all-features -- -D warnings
-})) { $AllGood = $false }
-
-if (-not (Run-AllowFail "cargo test" {
-    cargo test --locked --all-targets --all-features
-})) { $AllGood = $false }
+if (-not (Run-AllowFail "cargo fmt" { cargo fmt --all })) { $allGood = $false }
+if (-not (Run-AllowFail "cargo check" { cargo check --locked --all-targets --all-features })) { $allGood = $false }
+if (-not (Run-AllowFail "cargo clippy" { cargo clippy --locked --all-targets --all-features -- -D warnings })) { $allGood = $false }
+if (-not (Run-AllowFail "cargo test" { cargo test --locked --all-targets --all-features })) { $allGood = $false }
 
 if (Get-Command cargo-audit -ErrorAction SilentlyContinue) {
-    if (-not (Run-AllowFail "cargo audit" {
-        cargo audit
-    })) { $AllGood = $false }
+    if (-not (Run-AllowFail "cargo audit" { cargo audit })) { $allGood = $false }
 } else {
     Write-Host "cargo-audit not installed; validation is incomplete." -ForegroundColor Yellow
-    $AllGood = $false
+    $allGood = $false
 }
 
 if (Get-Command cargo-deny -ErrorAction SilentlyContinue) {
-    if (-not (Run-AllowFail "cargo deny check" {
-        cargo deny check
-    })) { $AllGood = $false }
+    if (-not (Run-AllowFail "cargo deny check" { cargo deny check })) { $allGood = $false }
 } else {
     Write-Host "cargo-deny not installed; validation is incomplete." -ForegroundColor Yellow
-    $AllGood = $false
+    $allGood = $false
 }
 
-if (Test-Path "scripts\security-check.ps1") {
+if (Test-Path "scripts/security-check.ps1") {
     if (-not (Run-AllowFail "project security-check.ps1" {
-        powershell -NoProfile -ExecutionPolicy Bypass -File "scripts\security-check.ps1"
-    })) { $AllGood = $false }
+        pwsh -NoProfile -File "scripts/security-check.ps1"
+    })) { $allGood = $false }
 }
 
 Step "Show final diff" {
@@ -270,27 +249,27 @@ Step "Show final diff" {
     git diff --stat
 }
 
-if (-not $AllGood) {
+if (-not $allGood) {
     Write-Host "`nAutomatic Kaspa update failed validation. Do not merge or deploy." -ForegroundColor Red
     exit 1
 }
 
 if ($Push) {
     Step "Commit validated update" {
-        git add -A
+        git add Cargo.toml Cargo.lock
         $pending = @(git diff --cached --name-only)
         if ($pending.Count -eq 0) {
             throw "Validation passed but no update changes are staged."
         }
-        git commit -m "chore(deps): update rusty-kaspa to $LatestTag"
+        git commit -m "chore(deps): update rusty-kaspa to $script:LatestTag"
     }
 
     Step "Push validated update branch" {
-        git push --set-upstream origin $UpdateBranch --force-with-lease
+        git push --set-upstream origin $script:UpdateBranch --force-with-lease
     }
 }
 
 Write-Host "`nAutomatic Kaspa update passed." -ForegroundColor Green
-Write-Host "Branch: $UpdateBranch"
-Write-Host "LatestTag: $LatestTag"
+Write-Host "Branch: $script:UpdateBranch"
+Write-Host "LatestTag: $script:LatestTag"
 exit 0

@@ -12,7 +12,7 @@ on:
           - "false"
           - "true"
   schedule:
-    - cron: "0 2 * * *"
+    - cron: "17 2 * * 1"
 
 permissions:
   contents: write
@@ -22,24 +22,64 @@ concurrency:
   group: auto-rusty-kaspa-update
   cancel-in-progress: false
 
+env:
+  SQLX_OFFLINE: "true"
+  CARGO_INCREMENTAL: "0"
+  APP_ENV: "ci"
+  BOT_TOKEN: "1234567890:TEST_PLACEHOLDER_TOKEN_NOT_REAL"
+  ADMIN_ID: "484901117"
+  NODE_URL_01: "wss://example.invalid/json"
+  DATABASE_URL: "postgres://kaspa_pulse_app:TEST_PASSWORD@127.0.0.1:5432/kaspa_dev?sslmode=disable"
+  DATABASE_ADMIN_URL: "postgres://postgres:POSTGRES_TEST_PASSWORD@127.0.0.1:5432/kaspa_dev?sslmode=disable"
+  WEBHOOK_SECRET_TOKEN: "TEST_WEBHOOK_SECRET_TOKEN_PLACEHOLDER_32_CHARS"
+  USE_WEBHOOK: "false"
+  WEBHOOK_DOMAIN: "example.invalid"
+  WEBHOOK_PORT: "8443"
+  WEBHOOK_BIND: "127.0.0.1"
+  WEBHOOK_MAX_CONNECTIONS: "20"
+  WEBHOOK_ALLOW_PUBLIC_BIND: "false"
+  HEALTH_ENDPOINT_ENABLED: "true"
+  HEALTH_BIND: "127.0.0.1"
+  HEALTH_PORT: "18080"
+  HEALTH_ALLOW_PUBLIC_BIND: "false"
+  ENABLE_TELEGRAM_DELIVERY_QUEUE: "true"
+  ENABLE_ALERT_DELIVERY: "true"
+  MIN_REWARD_CONFIRMATIONS: "10"
+  MAX_WALLETS_PER_USER: "10"
+  RATE_LIMIT_COMMANDS_PER_SECOND: "1"
+  RATE_LIMIT_CALLBACKS_PER_SECOND: "3"
+  RATE_LIMIT_ADD_WALLET_PER_MINUTE: "5"
+  MAX_RAW_MESSAGE_CHARS: "512"
+  MAX_WALLET_ADDRESS_CHARS: "120"
+  LOG_MAX_CHARS: "3000"
+
 jobs:
   update-rusty-kaspa:
-    runs-on: windows-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
 
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: kaspa_dev
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: POSTGRES_TEST_PASSWORD
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d kaspa_dev"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
     steps:
-      - name: Checkout dev
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Checkout dev without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: dev
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Configure Git
-        shell: pwsh
-        run: |
-          git config user.name "kaspa-pulse-auto-updater"
-          git config user.email "actions@github.com"
+          persist-credentials: false
 
       - name: Install Rust 1.97.1
         uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
@@ -47,13 +87,21 @@ jobs:
           toolchain: 1.97.1
           components: clippy, rustfmt
 
-      - name: Install audit tools
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends postgresql-client
+
+      - name: Prepare PostgreSQL test schema
+        run: bash scripts/ci-prepare-postgres.sh
+
+      - name: Install validation tools
         uses: taiki-e/install-action@13608cbb45b01feb47ef444ab1a42dc41ad56f1a # v2.79.11
         with:
           tool: cargo-audit,cargo-deny
+          fallback: none
 
-      - name: Auto update rusty-kaspa to latest release
-        id: update
+      - name: Update and validate rusty-kaspa
         shell: pwsh
         run: |
           $allow = "${{ inputs.allow_prerelease }}"
@@ -61,32 +109,37 @@ jobs:
             $allow = "false"
           }
 
-          $args = @(
-            "-BaseBranch", "dev",
-            "-Push"
-          )
-
+          $args = @("-BaseBranch", "dev")
           if ($allow -eq "true") {
             $args += "-AllowPrerelease"
           }
 
-          powershell -NoProfile -ExecutionPolicy Bypass -File "scripts\update-rusty-kaspa-latest.ps1" @args
+          pwsh -NoProfile -File "scripts/update-rusty-kaspa-latest.ps1" @args
 
-      - name: Create pull request if needed
+      - name: Publish validated update and open PR
         if: success()
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $branch = (git branch --show-current).Trim()
-
           if ($branch -eq "dev") {
             Write-Host "No update branch was created. Already up to date."
             exit 0
           }
 
-          $existing = gh pr list --head $branch --base dev --json number --jq ".[0].number"
+          git config user.name "kaspa-pulse-auto-updater"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml Cargo.lock
+          if (git diff --cached --quiet) {
+            throw "Update branch exists but no Cargo changes are staged."
+          }
 
+          git commit -m "chore(deps): update rusty-kaspa"
+          gh auth setup-git
+          git push --set-upstream origin $branch --force-with-lease
+
+          $existing = gh pr list --head $branch --base dev --json number --jq ".[0].number"
           if ($existing) {
             Write-Host "PR already exists: $existing"
             exit 0
@@ -96,4 +149,4 @@ jobs:
             --base dev `
             --head $branch `
             --title "Auto update rusty-kaspa dependencies" `
-            --body "Automated update to the latest rusty-kaspa release tag. Validation passed: fmt, check, clippy, test, audit/deny/security pipeline."
+            --body "Automated rusty-kaspa update. The update workflow passed fmt, check, strict Clippy, tests, cargo-audit, cargo-deny, and the project security check before publishing this branch."

@@ -1,30 +1,42 @@
-name: Deep Security Audit 🛡️
+name: Dependency & Supply Chain Security
 
 on:
   push:
     branches: [main, dev]
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "deny.toml"
+      - ".cargo/audit.toml"
+      - ".github/workflows/security.yml"
   pull_request:
     branches: [main, dev]
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "deny.toml"
+      - ".cargo/audit.toml"
+      - ".github/workflows/security.yml"
   workflow_dispatch:
   schedule:
-    - cron: "0 0 * * 0"
+    - cron: "17 3 * * 0"
 
 permissions:
   contents: read
 
 concurrency:
-  group: security-${{ github.workflow }}-${{ github.ref }}
+  group: security-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  security_audit:
-    name: Dependency vulnerability check
-    runs-on: ubuntu-latest
+  supply-chain:
+    name: audit + deny + machete
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -33,10 +45,20 @@ jobs:
         with:
           toolchain: 1.97.1
 
-      - name: Install cargo-audit
+      - name: Install supply-chain tools
         uses: taiki-e/install-action@13608cbb45b01feb47ef444ab1a42dc41ad56f1a # v2.79.11
         with:
-          tool: cargo-audit
+          tool: cargo-audit,cargo-deny,cargo-machete
+          fallback: none
 
-      - name: Run dependency vulnerability scan
+      - name: Cargo audit
         run: cargo audit
+
+      - name: Cargo deny
+        run: cargo deny check
+
+      - name: Unused dependency scan
+        run: cargo machete
+
+      - name: Duplicate dependency report
+        run: cargo tree --locked -d
