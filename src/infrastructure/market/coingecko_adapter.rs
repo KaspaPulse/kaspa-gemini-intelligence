@@ -38,10 +38,10 @@ impl CoinGeckoAdapter {
 impl MarketProvider for CoinGeckoAdapter {
     async fn get_kaspa_market_data(&self) -> Result<(f64, f64), AppError> {
         // 1. Check cache: Return data if it is younger than 60 seconds to prevent API rate limiting [cite: 1149]
-        if let Some((data, timestamp)) = *self.cache.read().await {
-            if timestamp.elapsed() < Duration::from_secs(60) {
-                return Ok(data);
-            }
+        if let Some((data, timestamp)) = *self.cache.read().await
+            && timestamp.elapsed() < Duration::from_secs(60)
+        {
+            return Ok(data);
         }
 
         // 2. Fetch API URL from environment or use production default [cite: 1150]

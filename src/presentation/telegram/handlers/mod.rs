@@ -771,18 +771,18 @@ pub async fn handle_callback(
         None
     };
 
-    if callback_disables_keyboard(&data) {
-        if let Err(error) = disable_callback_keyboard(&bot, &q).await {
-            let _ = bot
-                .answer_callback_query(q.id.clone())
-                .text("Unable to lock this action panel. Please try again.")
-                .await;
-            tracing::warn!(
-                "[CALLBACK UI] Effectful callback refused because the keyboard could not be disabled: {}",
-                error
-            );
-            return Err(error);
-        }
+    if callback_disables_keyboard(&data)
+        && let Err(error) = disable_callback_keyboard(&bot, &q).await
+    {
+        let _ = bot
+            .answer_callback_query(q.id.clone())
+            .text("Unable to lock this action panel. Please try again.")
+            .await;
+        tracing::warn!(
+            "[CALLBACK UI] Effectful callback refused because the keyboard could not be disabled: {}",
+            error
+        );
+        return Err(error);
     }
 
     crate::presentation::telegram::handlers::admin_confirm::cleanup_expired(&app_context);
@@ -864,8 +864,8 @@ pub async fn handle_callback(
 
             let _ = bot.answer_callback_query(q.id.clone()).await;
 
-            if let Some(message) = q.message.as_ref() {
-                if let Err(error) =
+            if let Some(message) = q.message.as_ref()
+                && let Err(error) =
                     crate::presentation::telegram::handlers::admin_confirm::edit_callback_confirmation(
                         &bot,
                         message,
@@ -884,7 +884,6 @@ pub async fn handle_callback(
                     .await;
                     return Err(error);
                 }
-            }
 
             return Ok(());
         }
@@ -1525,24 +1524,23 @@ pub async fn handle_callback(
             .text("Setting updated.")
             .await;
 
-        if let Some(message) = q.message.as_ref() {
-            if let Err(error) = admin::handle_interactive_settings(
+        if let Some(message) = q.message.as_ref()
+            && let Err(error) = admin::handle_interactive_settings(
                 bot.clone(),
                 message.chat().id,
                 Some(message.id()),
                 app_context.clone(),
             )
             .await
-            {
-                restore_safe_callback_menu(
-                    &bot,
-                    &q,
-                    true,
-                    "✅ <b>Setting updated.</b>\nThe admin menu has been restored.",
-                )
-                .await;
-                return Err(error);
-            }
+        {
+            restore_safe_callback_menu(
+                &bot,
+                &q,
+                true,
+                "✅ <b>Setting updated.</b>\nThe admin menu has been restored.",
+            )
+            .await;
+            return Err(error);
         }
 
         return Ok(());

@@ -640,10 +640,10 @@ pub async fn handle_errors(
         if let Some(chat_id) = chat_id {
             text.push_str(&format!("Chat: <code>{}</code>\n", chat_id));
         }
-        if let Some(wallet) = wallet {
-            if !wallet.is_empty() {
-                text.push_str(&format!("Wallet: <code>{}</code>\n", wallet));
-            }
+        if let Some(wallet) = wallet
+            && !wallet.is_empty()
+        {
+            text.push_str(&format!("Wallet: <code>{}</code>\n", wallet));
         }
         if let Some(err) = err {
             let short = if err.chars().count() > 120 {
