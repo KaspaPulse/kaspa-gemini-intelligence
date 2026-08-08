@@ -8,10 +8,12 @@ This file records intentionally accepted or currently unavoidable RustSec findin
 - Treat an unmaintained/transitive warning differently from a proven exploitable vulnerability.
 - Remove an exception as soon as the upstream dependency path no longer requires it.
 - Re-review the dependency graph whenever Rust, `rusty-kaspa`, SQLx, Teloxide, Reqwest, Axum, Rustls, or other security-sensitive dependencies change.
+- CI rejects ignored RustSec IDs that are not documented here and rejects a review date older than 45 days.
 
 Current CI security gates:
 
 ```bash
+python3 scripts/check-security-advisories.py --max-age-days 45
 cargo audit
 cargo deny check
 cargo machete
@@ -114,7 +116,9 @@ Action: monitor closely and remove as soon as the resolved upstream TLS stack pe
 
 Status: upstream/transitive exception.
 
-Action: remove when the upstream dependency path is patched or removed.
+Verified on 2026-08-08: `workflow-rs` 0.19.0 is an upstream maintenance/modernization release that explicitly addresses RustSec advisories, but `rusty-kaspa` `v2.0.1` and its current `master` still declare the `workflow-*` 0.18.x line. Forcing `workflow-*` 0.19 into Kaspa Pulse would cross a pre-1.0 minor compatibility boundary without Kaspa upstream validation, so no local override is applied.
+
+Action: remove this exception when a stable `rusty-kaspa` release adopts a compatible patched workflow dependency path. The weekly `rusty-kaspa` updater will detect the next stable tag and run the full validation gates before opening an update PR.
 
 ---
 
@@ -128,7 +132,7 @@ Approved Git source:
 https://github.com/kaspanet/rusty-kaspa
 ```
 
-The current Kaspa SDK dependencies are pinned to the approved `v2.0.1` tag.
+The current Kaspa SDK dependencies are pinned to the approved `v2.0.1` tag. As verified on 2026-08-08, `v2.0.1` is the newest stable `rusty-kaspa` tag available from the upstream tag list.
 
 ---
 
@@ -137,6 +141,7 @@ The current Kaspa SDK dependencies are pinned to the approved `v2.0.1` tag.
 Before a production release:
 
 ```bash
+python3 scripts/check-security-advisories.py --max-age-days 45
 cargo fmt --all -- --check
 cargo check --locked --all-targets --all-features
 cargo clippy --locked --all-targets --all-features -- -D warnings
