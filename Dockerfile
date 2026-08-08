@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM rust:1.97.1-slim-bookworm AS builder
+FROM rust:1.97.1-slim-trixie AS builder
 
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends pkg-config libssl-dev ca-certificates \
@@ -20,7 +20,7 @@ ENV SQLX_OFFLINE=true
 RUN touch src/main.rs \
     && cargo build --locked --release --all-features
 
-FROM debian:bookworm-slim AS runtime
+FROM debian:trixie-slim AS runtime
 
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends ca-certificates \
