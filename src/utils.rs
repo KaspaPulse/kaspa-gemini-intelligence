@@ -198,11 +198,13 @@ pub async fn send_logged_message(
         req = req.reply_markup(markup);
     }
 
-    if let Err(e) = req.await {
-        tracing::error!("[TELEGRAM ERROR] Failed to send logged message: {}", e);
+    match req.await {
+        Ok(_) => Ok(()),
+        Err(error) => {
+            tracing::error!("[TELEGRAM ERROR] Failed to send logged message: {}", error);
+            Err(anyhow::anyhow!("Telegram send failed: {}", error))
+        }
     }
-
-    Ok(())
 }
 
 pub async fn edit_logged_message(
@@ -229,14 +231,13 @@ pub async fn edit_logged_message(
         req = req.reply_markup(markup);
     }
 
-    if let Err(e) = req.await {
-        let msg = e.to_string();
-        if !msg.to_lowercase().contains("message is not modified") {
-            tracing::error!("[TELEGRAM ERROR] Failed to edit logged message: {}", msg);
+    match req.await {
+        Ok(_) | Err(teloxide::RequestError::Api(teloxide::ApiError::MessageNotModified)) => Ok(()),
+        Err(error) => {
+            tracing::error!("[TELEGRAM ERROR] Failed to edit logged message: {}", error);
+            Err(anyhow::anyhow!("Telegram edit failed: {}", error))
         }
     }
-
-    Ok(())
 }
 
 // === Telegram request protection helpers (Stage 3) ===
