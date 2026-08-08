@@ -1,5 +1,8 @@
 use crate::domain::errors::AppError;
 use std::future::Future;
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 use tokio::time::{Duration, timeout};
 
@@ -53,10 +56,46 @@ where
     }
 }
 
+fn active_task_count() -> &'static AtomicUsize {
+    static ACTIVE_TASKS: AtomicUsize = AtomicUsize::new(0);
+    &ACTIVE_TASKS
+}
+
+fn task_completion_notify() -> &'static Notify {
+    static TASK_COMPLETION: OnceLock<Notify> = OnceLock::new();
+    TASK_COMPLETION.get_or_init(Notify::new)
+}
+
+struct ActiveTaskGuard;
+
+impl Drop for ActiveTaskGuard {
+    fn drop(&mut self) {
+        active_task_count().fetch_sub(1, Ordering::AcqRel);
+        task_completion_notify().notify_one();
+    }
+}
+
+pub async fn drain_tracked_tasks(duration: Duration) -> bool {
+    timeout(duration, async {
+        loop {
+            if active_task_count().load(Ordering::Acquire) == 0 {
+                break;
+            }
+
+            task_completion_notify().notified().await;
+        }
+    })
+    .await
+    .is_ok()
+}
+
 pub fn spawn_resilient<F>(task_name: &'static str, future: F) -> JoinHandle<()>
 where
     F: Future<Output = ()> + Send + 'static,
 {
+    active_task_count().fetch_add(1, Ordering::AcqRel);
+    let guard = ActiveTaskGuard;
+
     let worker = tokio::spawn(async move {
         tracing::info!("[TASK START] {}", task_name);
         future.await;
@@ -64,6 +103,8 @@ where
     });
 
     tokio::spawn(async move {
+        let _guard = guard;
+
         match worker.await {
             Ok(_) => {
                 tracing::info!("[TASK MONITOR] {} joined cleanly", task_name);

@@ -135,7 +135,7 @@ pub fn spawn_health_endpoint(cancel_token: CancellationToken) {
     let port = env_u16_local("HEALTH_PORT", 18080);
     let addr = SocketAddr::new(bind_ip, port);
 
-    tokio::spawn(async move {
+    crate::infrastructure::resilience::runtime::spawn_resilient("health_endpoint", async move {
         use axum::{Router, http::StatusCode, routing::get};
 
         async fn healthz() -> &'static str {
