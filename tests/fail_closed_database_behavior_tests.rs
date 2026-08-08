@@ -1,13 +1,10 @@
 use kaspa_pulse::domain::errors::AppError;
 use kaspa_pulse::infrastructure::telegram_delivery_queue::{
-    mark_failed, mark_sent, max_delivery_attempts,
+    mark_failed, mark_sent, parse_max_delivery_attempts,
 };
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
-use std::sync::Mutex;
 use std::time::Duration;
-
-static ENV_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 async fn test_pool() -> PgPool {
     let database_url =
@@ -68,21 +65,11 @@ fn delivery_queue_decoding_does_not_fall_back_to_default_values() {
 
 #[test]
 fn delivery_max_attempts_has_a_safe_default_and_bounds() {
-    let _guard = ENV_TEST_LOCK.lock().expect("env test lock poisoned");
-
-    std::env::remove_var("TELEGRAM_DELIVERY_MAX_ATTEMPTS");
-    assert_eq!(max_delivery_attempts(), 5);
-
-    std::env::set_var("TELEGRAM_DELIVERY_MAX_ATTEMPTS", "0");
-    assert_eq!(max_delivery_attempts(), 5);
-
-    std::env::set_var("TELEGRAM_DELIVERY_MAX_ATTEMPTS", "7");
-    assert_eq!(max_delivery_attempts(), 7);
-
-    std::env::set_var("TELEGRAM_DELIVERY_MAX_ATTEMPTS", "1000");
-    assert_eq!(max_delivery_attempts(), 100);
-
-    std::env::remove_var("TELEGRAM_DELIVERY_MAX_ATTEMPTS");
+    assert_eq!(parse_max_delivery_attempts(None), 5);
+    assert_eq!(parse_max_delivery_attempts(Some("0")), 5);
+    assert_eq!(parse_max_delivery_attempts(Some("7")), 7);
+    assert_eq!(parse_max_delivery_attempts(Some("1000")), 100);
+    assert_eq!(parse_max_delivery_attempts(Some("not-a-number")), 5);
 }
 
 #[tokio::test]

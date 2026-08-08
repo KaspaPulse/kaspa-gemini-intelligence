@@ -63,13 +63,17 @@ pub fn delivery_queue_enabled() -> bool {
     parse_delivery_queue_enabled(value.as_deref())
 }
 
-pub fn max_delivery_attempts() -> i32 {
-    std::env::var("TELEGRAM_DELIVERY_MAX_ATTEMPTS")
-        .ok()
+pub fn parse_max_delivery_attempts(value: Option<&str>) -> i32 {
+    value
         .and_then(|value| value.parse::<i32>().ok())
         .filter(|value| *value > 0)
         .map(|value| value.clamp(1, 100))
         .unwrap_or(DEFAULT_MAX_DELIVERY_ATTEMPTS)
+}
+
+pub fn max_delivery_attempts() -> i32 {
+    let value = std::env::var("TELEGRAM_DELIVERY_MAX_ATTEMPTS").ok();
+    parse_max_delivery_attempts(value.as_deref())
 }
 
 pub fn worker_id() -> String {
