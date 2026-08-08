@@ -44,9 +44,9 @@ async fn drain_waits_for_a_registered_worker_to_finish() {
     );
 
     assert!(
-        kaspa_pulse::infrastructure::resilience::runtime::drain_tracked_tasks(
-            Duration::from_secs(1)
-        )
+        kaspa_pulse::infrastructure::resilience::runtime::drain_tracked_tasks(Duration::from_secs(
+            1
+        ))
         .await
     );
     assert!(finished.load(Ordering::Acquire));
