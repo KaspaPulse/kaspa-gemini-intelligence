@@ -30,12 +30,16 @@ jobs:
         run: |
           set -euo pipefail
           resolve_digest() {
-            docker buildx imagetools inspect "$1" | awk '/^Digest:/ { print $2; exit }'
+            local image="$1"
+            local tag="$2"
+            curl --fail --silent --show-error --retry 5 \
+              "https://hub.docker.com/v2/repositories/library/${image}/tags/${tag}" \
+              | python3 -c 'import json,sys; print(json.load(sys.stdin)["digest"])'
           }
 
-          rust_digest="$(resolve_digest rust:1.97.1-slim-trixie)"
-          debian_digest="$(resolve_digest debian:trixie-slim)"
-          postgres_digest="$(resolve_digest postgres:18)"
+          rust_digest="$(resolve_digest rust 1.97.1-slim-trixie)"
+          debian_digest="$(resolve_digest debian trixie-slim)"
+          postgres_digest="$(resolve_digest postgres 18)"
 
           for digest in "$rust_digest" "$debian_digest" "$postgres_digest"; do
             [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
