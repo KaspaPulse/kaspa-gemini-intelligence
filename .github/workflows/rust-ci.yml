@@ -46,7 +46,7 @@ env:
   BOT_TOKEN: "1234567890:TEST_PLACEHOLDER_TOKEN_NOT_REAL"
   ADMIN_ID: "484901117"
   NODE_URL_01: "wss://example.invalid/json"
-  DATABASE_URL: "postgresql://kaspa_ci_runtime:KASPA_CI_RUNTIME_PASSWORD@127.0.0.1:5432/kaspa_dev?sslmode=disable"
+  DATABASE_URL: "postgresql://kaspa_pulse_app:TEST_PASSWORD@127.0.0.1:5432/kaspa_dev?sslmode=disable"
   DATABASE_ADMIN_URL: "postgresql://postgres:POSTGRES_TEST_PASSWORD@127.0.0.1:5432/kaspa_dev?sslmode=disable"
   WEBHOOK_SECRET_TOKEN: "TEST_WEBHOOK_SECRET_TOKEN_PLACEHOLDER_32_CHARS"
   USE_WEBHOOK: "false"
@@ -131,24 +131,12 @@ jobs:
         run: cargo test --locked --all-targets --all-features
 
       - name: Build production release
-        if: >-
-          github.event_name == 'workflow_dispatch' ||
-          github.event_name == 'push' ||
-          github.event_name == 'pull_request'
         run: cargo build --locked --release --all-features
 
       - name: Build production container
-        if: >-
-          github.event_name == 'workflow_dispatch' ||
-          github.event_name == 'push' ||
-          github.event_name == 'pull_request'
         run: docker build --pull --tag kaspa-pulse:ci .
 
       - name: Smoke-test production container
-        if: >-
-          github.event_name == 'workflow_dispatch' ||
-          github.event_name == 'push' ||
-          github.event_name == 'pull_request'
         run: |
           docker run --rm --entrypoint /bin/sh kaspa-pulse:ci -c '
             test "$(id -u)" = "10001"
