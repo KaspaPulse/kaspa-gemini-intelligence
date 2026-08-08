@@ -616,8 +616,7 @@ async fn main() -> anyhow::Result<()> {
 
     cancel_token.cancel();
 
-    let mut shutdown_event =
-        BotEventRecord::new(BotEventType::SystemShutdown, EventSeverity::Info);
+    let mut shutdown_event = BotEventRecord::new(BotEventType::SystemShutdown, EventSeverity::Info);
     shutdown_event.status = Some("ok");
     shutdown_event.metadata_json = r#"{"reason":"graceful_shutdown"}"#;
 
