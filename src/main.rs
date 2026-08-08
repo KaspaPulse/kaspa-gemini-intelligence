@@ -253,7 +253,9 @@ async fn main() -> anyhow::Result<()> {
         BotEventRecord::new(BotEventType::SystemStart, EventSeverity::Info);
     system_start_event.status = Some("ok");
 
-    let _ = db_repo.record_bot_event_record(system_start_event).await;
+    if let Err(error) = db_repo.record_bot_event_record(system_start_event).await {
+        tracing::error!("[SYSTEM] Failed to persist system start event: {}", error);
+    }
 
     let network_id = match kaspa_consensus_core::network::NetworkId::from_str("mainnet") {
         Ok(network_id) => network_id,
@@ -285,21 +287,50 @@ async fn main() -> anyhow::Result<()> {
     let preflight = tokio::time::timeout(
         crate::infrastructure::resilience::runtime::rpc_timeout_duration(),
         async {
-            let _ = node_provider.get_server_info().await;
-            let _ = node_provider.get_sync_status().await;
-            let _ = node_provider.get_block_dag_info().await;
-            let _ = node_provider.get_coin_supply().await;
-            let _ = node_provider.get_utxos_by_addresses(vec![]).await;
-            let _ = node_provider.connect(false).await;
+            let mut failed_operations = Vec::new();
+
+            if node_provider.get_server_info().await.is_err() {
+                failed_operations.push("get_server_info");
+            }
+            if node_provider.get_sync_status().await.is_err() {
+                failed_operations.push("get_sync_status");
+            }
+            if node_provider.get_block_dag_info().await.is_err() {
+                failed_operations.push("get_block_dag_info");
+            }
+            if node_provider.get_coin_supply().await.is_err() {
+                failed_operations.push("get_coin_supply");
+            }
+            if node_provider.get_utxos_by_addresses(vec![]).await.is_err() {
+                tracing::debug!(
+                    "[SYSTEM] Empty-address UTXO pre-flight probe failed; continuing diagnostic."
+                );
+            }
+            if node_provider.connect(false).await.is_err() {
+                failed_operations.push("connect");
+            }
+
+            failed_operations
         },
     )
     .await;
 
-    if preflight.is_err() {
-        crate::infrastructure::metrics::inc_rpc_timeouts();
-        tracing::warn!(
-            "[SYSTEM] Node pre-flight timed out. Bot will start in degraded mode and node monitor will keep retrying."
-        );
+    match preflight {
+        Ok(failed_operations) if failed_operations.is_empty() => {
+            tracing::info!("[SYSTEM] Node pre-flight completed successfully.");
+        }
+        Ok(failed_operations) => {
+            tracing::warn!(
+                failed_operations = ?failed_operations,
+                "[SYSTEM] Node pre-flight completed with failures. Bot will start in degraded mode and node monitor will keep retrying."
+            );
+        }
+        Err(_) => {
+            crate::infrastructure::metrics::inc_rpc_timeouts();
+            tracing::warn!(
+                "[SYSTEM] Node pre-flight timed out. Bot will start in degraded mode and node monitor will keep retrying."
+            );
+        }
     }
 
     let market_provider: Arc<dyn crate::infrastructure::market::coingecko_adapter::MarketProvider> =
@@ -328,42 +359,105 @@ async fn main() -> anyhow::Result<()> {
     let bot = Bot::new(startup.bot_token.clone());
     let admin_user_id = startup.admin_user_id;
     let admin_chat_id = startup.admin_chat_id;
+    let mut telegram_command_sync_errors = 0usize;
 
     // Clear stale Telegram command scopes so deleted legacy commands disappear.
-    let _ = bot.delete_my_commands().await;
-    let _ = bot
+    if let Err(error) = bot.delete_my_commands().await {
+        telegram_command_sync_errors += 1;
+        tracing::warn!(
+            operation = "delete_default_commands",
+            error = %crate::utils::sanitize_for_log(&error.to_string()),
+            "[SYSTEM] Telegram command synchronization operation failed."
+        );
+    }
+    if let Err(error) = bot
         .delete_my_commands()
         .scope(BotCommandScope::AllPrivateChats)
-        .await;
-    let _ = bot
+        .await
+    {
+        telegram_command_sync_errors += 1;
+        tracing::warn!(
+            operation = "delete_private_commands",
+            error = %crate::utils::sanitize_for_log(&error.to_string()),
+            "[SYSTEM] Telegram command synchronization operation failed."
+        );
+    }
+    if let Err(error) = bot
         .delete_my_commands()
         .scope(BotCommandScope::AllGroupChats)
-        .await;
-    let _ = bot
+        .await
+    {
+        telegram_command_sync_errors += 1;
+        tracing::warn!(
+            operation = "delete_group_commands",
+            error = %crate::utils::sanitize_for_log(&error.to_string()),
+            "[SYSTEM] Telegram command synchronization operation failed."
+        );
+    }
+    if let Err(error) = bot
         .delete_my_commands()
         .scope(BotCommandScope::AllChatAdministrators)
-        .await;
-    let _ = bot
+        .await
+    {
+        telegram_command_sync_errors += 1;
+        tracing::warn!(
+            operation = "delete_chat_admin_commands",
+            error = %crate::utils::sanitize_for_log(&error.to_string()),
+            "[SYSTEM] Telegram command synchronization operation failed."
+        );
+    }
+    if let Err(error) = bot
         .delete_my_commands()
         .scope(BotCommandScope::Chat {
             chat_id: teloxide::types::Recipient::Id(ChatId(admin_chat_id)),
         })
-        .await;
+        .await
+    {
+        telegram_command_sync_errors += 1;
+        tracing::warn!(
+            operation = "delete_admin_chat_commands",
+            error = %crate::utils::sanitize_for_log(&error.to_string()),
+            "[SYSTEM] Telegram command synchronization operation failed."
+        );
+    }
 
     // Public commands for all users.
-    let _ = bot
+    if let Err(error) = bot
         .set_my_commands(crate::presentation::telegram::commands::public_bot_commands())
-        .await;
+        .await
+    {
+        telegram_command_sync_errors += 1;
+        tracing::warn!(
+            operation = "set_public_commands",
+            error = %crate::utils::sanitize_for_log(&error.to_string()),
+            "[SYSTEM] Telegram command synchronization operation failed."
+        );
+    }
 
     // Admin commands only in the admin chat.
-    let _ = bot
+    if let Err(error) = bot
         .set_my_commands(crate::presentation::telegram::commands::admin_bot_commands())
         .scope(BotCommandScope::Chat {
             chat_id: teloxide::types::Recipient::Id(ChatId(admin_chat_id)),
         })
-        .await;
+        .await
+    {
+        telegram_command_sync_errors += 1;
+        tracing::warn!(
+            operation = "set_admin_commands",
+            error = %crate::utils::sanitize_for_log(&error.to_string()),
+            "[SYSTEM] Telegram command synchronization operation failed."
+        );
+    }
 
-    tracing::info!("[SYSTEM] Telegram commands synced.");
+    if telegram_command_sync_errors == 0 {
+        tracing::info!("[SYSTEM] Telegram commands synced.");
+    } else {
+        tracing::warn!(
+            failed_operations = telegram_command_sync_errors,
+            "[SYSTEM] Telegram command synchronization completed with errors; bot startup will continue."
+        );
+    }
 
     let cancel_token = tokio_util::sync::CancellationToken::new();
 
@@ -508,7 +602,9 @@ async fn main() -> anyhow::Result<()> {
         webhook_start_event.status = Some("listening");
         webhook_start_event.metadata_json = &webhook_metadata;
 
-        let _ = db_repo.record_bot_event_record(webhook_start_event).await;
+        if let Err(error) = db_repo.record_bot_event_record(webhook_start_event).await {
+            tracing::error!("[WEBHOOK] Failed to persist webhook start event: {}", error);
+        }
 
         tracing::info!(
             "[WEBHOOK] Listening on {}:{} for domain {}",
