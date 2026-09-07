@@ -1,0 +1,67 @@
+# Managed by KASPA_TELEGRAM_AUTOMERGE_V1. No PR checkout or PR code execution.
+name: Dependabot auto-merge
+
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions: {}
+
+concurrency:
+  group: dependabot-auto-merge-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  enable-auto-merge:
+    if: >-
+      github.repository == 'KaspaPulse/kaspa-telegram-notify' &&
+      github.actor == 'dependabot[bot]' &&
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      !github.event.pull_request.draft &&
+      !contains(github.event.pull_request.labels.*.name, 'automerge-hold')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Verify signed Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3
+        with:
+          github-token: ${{ github.token }}
+          skip-verification: false
+          skip-commit-verification: false
+
+      - name: Enable protected squash auto-merge
+        if: >-
+          steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
+          steps.metadata.outputs.update-type == 'version-update:semver-minor'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          # Recheck the live hold label and SHA; the event may be stale.
+          live="$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json state,headRefOid,labels)"
+          if ! jq -e --arg sha "$HEAD_SHA" '
+            .state == "OPEN" and .headRefOid == $sha and
+            ([.labels[].name] | index("automerge-hold") | not)
+          ' <<< "$live" >/dev/null; then
+            echo "Stale event or manual hold; no merge was requested."
+            exit 0
+          fi
+          gh pr merge "$PR_NUMBER" --repo "$GH_REPO" \
+            --auto --squash --match-head-commit "$HEAD_SHA"
+
+      - name: Keep major and unclassified updates for review
+        if: >-
+          steps.metadata.outputs.update-type != 'version-update:semver-patch' &&
+          steps.metadata.outputs.update-type != 'version-update:semver-minor'
+        shell: bash
+        run: echo 'Major or unclassified update; auto-merge was not enabled.' >> "$GITHUB_STEP_SUMMARY"
