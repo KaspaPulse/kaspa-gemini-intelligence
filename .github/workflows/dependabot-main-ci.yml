@@ -1,0 +1,92 @@
+# Managed by KASPA_TELEGRAM_AUTOMERGE_V1.
+# GITHUB_TOKEN merges may not emit runnable push events. Dispatch missing main
+# workflows explicitly, without reading or executing any pull-request code.
+name: Dependabot main CI reconciliation
+
+on:
+  workflow_run:
+    workflows: [Rust CI]
+    types: [completed]
+  schedule:
+    - cron: '17,47 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: dependabot-main-ci-reconciliation
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    if: github.repository == 'KaspaPulse/kaspa-telegram-notify'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Dispatch only missing workflows for a merged Dependabot main commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: python
+        run: |
+          import json
+          import os
+          import subprocess
+          import time
+          from urllib.parse import quote
+
+          repo = os.environ['GH_REPO']
+          if repo != 'KaspaPulse/kaspa-telegram-notify':
+              raise SystemExit('Unexpected repository')
+          root = 'repos/' + repo
+
+          def api(path):
+              result = subprocess.run(
+                  ['gh', 'api', path], check=True, text=True,
+                  stdout=subprocess.PIPE, timeout=60)
+              return json.loads(result.stdout)
+
+          sha = api(root + '/commits/main')['sha']
+          pulls = api(root + '/commits/' + sha + '/pulls?per_page=100')
+          if len(pulls) == 100:
+              raise SystemExit('Unexpected pagination; refusing a partial decision')
+          eligible = any(
+              p.get('merged_at') and p.get('merge_commit_sha') == sha and
+              p['base']['ref'] == 'main' and
+              p['user']['login'] == 'dependabot[bot]' and
+              (p['head'].get('repo') or {}).get('full_name') == repo
+              for p in pulls)
+          if not eligible:
+              print('No Dependabot merge at the current main HEAD; nothing to do.')
+              raise SystemExit(0)
+
+          workflows = (
+              'rust-ci.yml', 'codeql.yml', 'secret-scan.yml',
+              'security.yml', 'workflow-lint.yml', 'scorecard.yml', 'release.yml')
+          # Give an ordinary user-token push time to register its runs first.
+          time.sleep(20)
+          for workflow in workflows:
+              if api(root + '/commits/main')['sha'] != sha:
+                  print('main advanced; a later reconciliation will handle it.')
+                  break
+              endpoint = root + '/actions/workflows/' + quote(workflow, safe='')
+              metadata = api(endpoint)
+              if metadata['state'] != 'active':
+                  raise SystemExit('Workflow is not active: ' + workflow)
+              runs = api(endpoint + '/runs?head_sha=' + sha + '&per_page=100')
+              if runs['total_count'] >= 100:
+                  raise SystemExit('Unexpected run pagination: ' + workflow)
+              existing = [r for r in runs['workflow_runs']
+                          if r['head_branch'] == 'main' and
+                          r['event'] in ('push', 'workflow_dispatch')]
+              if existing:
+                  print('Already recorded (not rerun):', workflow)
+                  continue
+              subprocess.run(
+                  ['gh', 'workflow', 'run', workflow, '--repo', repo, '--ref', 'main'],
+                  check=True, timeout=60)
+              print('Dispatched:', workflow, 'for current main', sha)
