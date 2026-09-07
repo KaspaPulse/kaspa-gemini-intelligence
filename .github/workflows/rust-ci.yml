@@ -1,3 +1,4 @@
+# KASPA_TELEGRAM_AUTOMERGE_V1 - production builds and container smoke tests also run before merge.
 name: Rust CI
 
 on:
@@ -52,7 +53,7 @@ jobs:
   quality:
     name: fmt + check + clippy + test
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 60
     services:
       postgres:
         image: postgres:18@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636
@@ -109,15 +110,12 @@ jobs:
         run: cargo test --locked --all-targets --all-features
 
       - name: Build production release
-        if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
         run: cargo build --locked --release --all-features
 
       - name: Build production container
-        if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
         run: docker build --pull --tag kaspa-pulse:ci .
 
       - name: Smoke-test production container
-        if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
         run: |
           docker run --rm --entrypoint /bin/sh kaspa-pulse:ci -c '
             test "$(id -u)" = "10001"
