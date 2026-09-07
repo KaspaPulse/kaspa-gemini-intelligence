@@ -1,28 +1,11 @@
+# KASPA_TELEGRAM_AUTOMERGE_V2 - mandatory dependency security runs on every PR and main/dev push.
 name: Dependency & Supply Chain Security
 
 on:
   push:
     branches: [main, dev]
-    paths:
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "deny.toml"
-      - ".cargo/audit.toml"
-      - "osv-scanner.toml"
-      - "SECURITY_ADVISORIES.md"
-      - "scripts/check-security-advisories.py"
-      - ".github/workflows/security.yml"
   pull_request:
     branches: [main, dev]
-    paths:
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "deny.toml"
-      - ".cargo/audit.toml"
-      - "osv-scanner.toml"
-      - "SECURITY_ADVISORIES.md"
-      - "scripts/check-security-advisories.py"
-      - ".github/workflows/security.yml"
   workflow_dispatch:
   schedule:
     - cron: "17 3 * * 0"
